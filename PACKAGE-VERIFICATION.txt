@@ -1,17 +1,18 @@
-nocturne flat scroll 2.3.0 - package verification
+nocturne but better 2.4.0 - package verification
 checked september 23, 2026 on windows 11, using windows powershell 5.1.
 
 installer
-37 checks ran against throwaway copies of the game files. the real game
+39 checks ran against throwaway copies of the game files. the real game
 folder was not used, and its files were unchanged afterwards.
 - every package script parses in windows powershell 5.1.
 - install previews (-whatif) leave the game folder unchanged for both
   loaders, and so does the uninstall preview.
 - a game without melonloader gets the bundled bepinex and the plugin. a
   repeat install changes nothing.
-- upgrading from the published 2.1.2 or 2.2.0 plugin, or from an earlier
-  unpublished 2.3.0 test build, installs 2.3.0 and keeps the old dll as a
-  backup. upgrading the 2.2.0 or test-build melonloader mod does the same.
+- upgrading from the published 2.1.2, 2.2.0, or 2.3.0 plugin, or from an
+  earlier unpublished 2.3.0 test build, installs 2.4.0 and keeps the old dll
+  as a backup. upgrading the 2.2.0, 2.3.0, or test-build melonloader mod
+  does the same.
 - with melonloader 0.7.3 installed and turned on, the mod goes into mods and
   the bepinex copy is disabled. a melonloader-only game gets no bepinex
   files. a repeat install changes nothing.
@@ -30,13 +31,15 @@ folder was not used, and its files were unchanged afterwards.
   configuration. an existing compatible doorstop configuration is kept.
 
 the real installer was also run on the test pc. without a folder argument
-it found the steam installation and upgraded the installed 2.3.0 test build
-of the bepinex plugin to this release, keeping the old dll as a backup.
+it found the steam installation and upgraded the installed 2.3.0 bepinex
+plugin to this release, keeping the old dll as a backup. the game then
+started with the release dll and loaded every part of the mod without an
+error.
 
 the optional fullscreen script is unchanged since 2.1.2 and was not retested.
 
 shareable dlls
-- both are built from the 2.3.0 source with debug symbols disabled and no
+- both are built from the 2.4.0 source with debug symbols disabled and no
   git commit hash, so they contain no development-machine paths.
 - two clean builds of the source folder with -c Release gave the same
   bytes for both dlls.
@@ -55,7 +58,11 @@ without auto-play pressed the lanes through the game's own input check.
 the hit sound and the miss sound were recorded from the pc's output at
 several volumes and came out at the set levels. options > gameplay showed
 the nine rows and reset them, options > audio showed the four sound rows,
-and the title screen and the intro's logo card showed the new text.
+and the title screen and the intro's logo card showed the new text. for
+2.4.0, a script sent real key presses to the battle's ready screen: tab,
+windows, and alt, alone, with another key, and pressed and released inside
+one frame, were all ignored, and j started the fight. the note colors
+preview was checked in all six palettes with all three skins.
 real key presses, five-lane charts, and enemies other than the firefly
 have not been tried.
 

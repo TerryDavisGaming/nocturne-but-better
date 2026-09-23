@@ -16,11 +16,12 @@ if (-not $LoaderArchive) { $LoaderArchive = Join-Path $packageRoot 'payload\BepI
 if (-not $PluginPath) { $PluginPath = Join-Path $packageRoot 'payload\NocturneFlatScroll.dll' }
 if (-not $MelonModPath) { $MelonModPath = Join-Path $packageRoot 'payload\NocturneFlatScroll.MelonLoader.dll' }
 
-$modVersion = '2.3.0'
+$modVersion = '2.4.0'
 $loaderHash = 'F4CC496BD098A0DF4164B81E3737297707F13A47C2478DBA2F60EEFAB784817A'
-$pluginHash = '8585E7821293755C6FFE069E1B88E0D27ECB77559E9A7869022C3A2410F82EAA'
+$pluginHash = 'CABB75AB8A25F50DABF97E64F6152435A6F0DD026B755840E904325907A98BDA'
 $knownPluginHashes = @(
     $pluginHash,
+    '8585E7821293755C6FFE069E1B88E0D27ECB77559E9A7869022C3A2410F82EAA',
     '40ED8E9A39C073D9024668B065CFECBA90E4CEB0112833F3102C5D902AA618AC',
     '0B1D12F92561F9F33B4F081BC977419BDFCE85B7CDFC76DE0804FF0A6F690599',
     '212DB106C6761E23413703B464C94ED26CD6982BAFAE771F1ED7D4287BA83A39',
@@ -29,8 +30,8 @@ $knownPluginHashes = @(
     '5CEDADBF931553A7614B92EB0D5694B99F300135979CF997CEB01E597960657D',
     'C6025C68612A64B5EFD897C1495C6DF1A31B3389C0EDF531E99AFF0931E51E1C'
 )
-$melonModHash = 'E7575406BE68712A6853F5166E9847EE38E94C30C7DBCA23DA85E6D364799077'
-$knownMelonModHashes = @($melonModHash, '19DE2BBC86CE71DE8CC48BD06765255A5FC83F4ED34E7CED2619E42EF6C428C7', 'CFB3AFA7C2CA1590D6F3ABEF40A3034FDBB4D69F1D61A153B7AB26C678918921')
+$melonModHash = '3A1876189499D11D57B4102CBD1B88D47EC0E8594EAC0B861B533F2F0414A6BD'
+$knownMelonModHashes = @($melonModHash, 'E7575406BE68712A6853F5166E9847EE38E94C30C7DBCA23DA85E6D364799077', '19DE2BBC86CE71DE8CC48BD06765255A5FC83F4ED34E7CED2619E42EF6C428C7', 'CFB3AFA7C2CA1590D6F3ABEF40A3034FDBB4D69F1D61A153B7AB26C678918921')
 $gameHashes = @{
     'GameAssembly.dll' = 'FD4D5879A71CE00CA3FC3C3D176FFB3F146E9CEC52DD6A06807CF564C6542940'
     'Nocturne_Data\il2cpp_data\Metadata\global-metadata.dat' = '3BB22E4F33C103F6612AD5988C87528BD46BB23142CD733D22375CBE84837054'
@@ -350,13 +351,13 @@ try {
         $enabled = @()
         if ($installedHash) { $enabled += $pluginTarget }
         if ($installedMelonHash) { $enabled += $melonTarget }
-        if ($enabled.Count -eq 0) { Write-Host 'Nocturne Flat Scroll is already uninstalled.'; return }
-        Write-Host "Verified Nocturne Flat Scroll in: $gameRoot"
+        if ($enabled.Count -eq 0) { Write-Host 'Nocturne But Better is already uninstalled.'; return }
+        Write-Host "Verified Nocturne But Better in: $gameRoot"
         $skipped = @()
         foreach ($target in $enabled) {
             $disabledPath = $target + '.disabled-' + [Guid]::NewGuid().ToString('N')
             Assert-SafeTarget $gameRoot $disabledPath
-            if ($PSCmdlet.ShouldProcess($target, 'Disable this verified Nocturne Flat Scroll copy')) {
+            if ($PSCmdlet.ShouldProcess($target, 'Disable this verified Nocturne But Better copy')) {
                 [IO.File]::Move($target, $disabledPath)
                 Write-Host "Disabled: $target"
             }
@@ -365,10 +366,10 @@ try {
         if ($WhatIfPreference) { return }
         if ($skipped.Count -gt 0) {
             foreach ($target in $skipped) { Write-Host "Still enabled: $target" }
-            Write-Host 'Nocturne Flat Scroll was not fully uninstalled.'
+            Write-Host 'Nocturne But Better was not fully uninstalled.'
             return
         }
-        Write-Host 'Nocturne Flat Scroll is uninstalled. Each DLL was kept as a disabled backup.'
+        Write-Host 'Nocturne But Better is uninstalled. Each DLL was kept as a disabled backup.'
         Write-Host 'Mod loaders, other mods, saves, scores, and preferences were left in place.'
         return
     }
@@ -441,8 +442,8 @@ try {
     }
     if ($otherHash) { Write-Host "The copy for the other loader will be disabled so only one copy runs: $otherTarget" }
     if (-not $WhatIfPreference -and (Get-Process -Name Nocturne -ErrorAction SilentlyContinue)) { throw 'Nocturne started during preflight. Close it before installing.' }
-    $operation = "Install BepInEx #788 where absent and Nocturne Flat Scroll $modVersion"
-    if ($selectedLoader -eq 'MelonLoader') { $operation = "Install Nocturne Flat Scroll $modVersion for MelonLoader" }
+    $operation = "Install BepInEx #788 where absent and Nocturne But Better $modVersion"
+    if ($selectedLoader -eq 'MelonLoader') { $operation = "Install Nocturne But Better $modVersion for MelonLoader" }
     if (-not $PSCmdlet.ShouldProcess($gameRoot, $operation)) { return }
     # No game-directory writes occur above this point. -WhatIf still validates/extracts to TEMP.
     $created = New-Object 'System.Collections.Generic.List[string]'
@@ -476,7 +477,7 @@ try {
         if ($movedOtherCopy -and -not (Test-Path -LiteralPath $otherTarget)) { [IO.File]::Move($otherDisabled, $otherTarget) }
         throw "Installation did not finish; newly copied files were rolled back. $($failure.Exception.Message)"
     }
-    Write-Host "Installed Nocturne Flat Scroll $modVersion for $selectedLoader. Open Options > Gameplay and Options > Audio for its settings."
+    Write-Host "Installed Nocturne But Better $modVersion for $selectedLoader. Open Options > Gameplay and Options > Audio for its settings."
     if ($selectedLoader -eq 'BepInEx') {
         Write-Host 'The first launch can take longer while BepInEx creates game-specific files. Allow it to finish.'
     }

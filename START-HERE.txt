@@ -1,4 +1,4 @@
-nocturne flat scroll 2.3.0
+nocturne but better 2.4.0 (formerly nocturne flat scroll)
 windows x64 | steam nocturne 1.0.0 | tested steam build 25460029
 works with bepinex 6 (bundled) or melonloader 0.7.3 and newer (not bundled)
 
@@ -25,6 +25,8 @@ install
                       or above enemy (along the top of the screen)
    enemy attack opacity - 0% to 100%; how visible the enemy stays while it
                       attacks (100% = unchanged)
+   the game's own note colors row gets a preview under it, with a red mine
+   next to your notes so you can spot palettes that look like it.
 6. in options > audio, under sound effects:
    hit sound        - off or on; a short tick when you hit a note
    hit sound volume - 5% to 100%; the game's sound effect volumes apply too
@@ -40,6 +42,9 @@ disables the copy for the other loader. do not keep bepinex and melonloader
 in the same game folder, because only one of them can start.
 
 the flat modes include compact, vertical health/energy bars. new
+alt, tab, and the windows key no longer start a battle at "press any key".
+any other key or a controller button still does.
+
 installations start on default, 0%, 100% size and spacing, default skin,
 note flares on, timing bar off and below the enemy, enemy attack opacity
 100%, hit sound off at 80%, and miss sound volume 100%. your selections
@@ -72,7 +77,7 @@ if something does not work
   this package must be checked again after a game update.
 
 share
-send the original nocturne-flat-scroll-2.3.0-windows.zip to the other person
+send the original nocturne-flat-scroll-2.4.0-windows.zip to the other person
 or device. they need their own installed copy of nocturne. the package
 contains no game assets, game-generated assemblies, saves, or account data.
 it does not support macos, linux, or steam deck through these installers.
