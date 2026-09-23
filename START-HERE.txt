@@ -1,58 +1,70 @@
-NOCTURNE FLAT SCROLL 2.1.2
-Windows x64 | Steam Nocturne 1.0.0 | tested Steam build 25460029
+nocturne flat scroll 2.2.0
+windows x64 | steam nocturne 1.0.0 | tested steam build 25460029
+works with bepinex 6 (bundled) or melonloader 0.7.3 and newer (not bundled)
 
-INSTALL
-1. Install Nocturne through Steam on the other PC, then close the game.
-2. Extract this entire ZIP to a folder. Do not run it from inside the ZIP.
-3. Double-click Install.cmd. It finds the Steam game folder automatically.
-   If asked for a folder, use Steam > Nocturne > Manage > Browse local files
-   and paste the folder containing Nocturne.exe.
-4. Start Nocturne normally through Steam. The first launch can take longer
+install
+1. install nocturne through steam on the other pc, then close the game.
+2. extract this entire zip to a folder. do not run it from inside the zip.
+3. double-click install.cmd. it finds the steam game folder automatically.
+   if asked for a folder, use steam > nocturne > manage > browse local files
+   and paste the folder containing nocturne.exe.
+4. start nocturne normally through steam. the first launch can take longer
    while the loader prepares files; internet access may be needed.
-5. Open Options > Gameplay > Note scrolling and select:
-   Default       - the original perspective track and HUD
-   2D Downscroll - flat track, notes travel downward
-   2D Upscroll   - flat track, notes travel upward
+5. open options > gameplay and set:
+   note scrolling   - default, 2d downscroll, or 2d upscroll
+   receptor height  - -10% to +30%; moves the receptors in from their edge
+                      of the screen in both 2d modes (0% = original spot)
 
-The flat modes include the latest compact, vertical health/energy bars.
-New installations start on Default. Your selection is saved on that PC.
+which loader gets used
+- melonloader 0.7.3 or newer installed and turned on: the mod goes into mods.
+- no melonloader: the bundled bepinex loader is added where missing and the
+  plugin goes into bepinex\plugins.
+only one copy runs at a time. to switch loaders, run install.cmd again; it
+disables the copy for the other loader. do not keep bepinex and melonloader
+in the same game folder, because only one of them can start.
 
-OPTIONAL FULLSCREEN FLICKER FIX
-If you have the flickering black bars, close Nocturne and double-click
-Enable-Fullscreen-Fix.cmd. This applies the same DirectX 11 preference used
-on the original PC. Restore-Fullscreen-Fix.cmd reverses that change.
-The scrolling mod works independently of this optional fix.
+the flat modes include compact, vertical health/energy bars. new
+installations start on default and 0%. your selections are saved on that pc.
 
-REMOVE
-Close Nocturne, then run Uninstall.cmd to disable this scrolling mod.
-Run Restore-Fullscreen-Fix.cmd too if you enabled the display fix.
-Uninstall keeps the loader because other mods may use it. Saves, scores,
+optional fullscreen flicker fix
+if you have the flickering black bars, close nocturne and double-click
+enable-fullscreen-fix.cmd. this applies the same directx 11 preference used
+on the original pc. restore-fullscreen-fix.cmd reverses that change.
+the scrolling mod works independently of this fix.
+
+remove
+close nocturne, then run uninstall.cmd to disable this mod for both loaders.
+run restore-fullscreen-fix.cmd too if you enabled the display fix.
+uninstall keeps the loaders because other mods may use them. saves, scores,
 other mods, and saved scrolling preferences are left in place.
 
-IF SOMETHING DOES NOT WORK
-- Access denied: right-click the relevant .cmd and Run as administrator.
-- Wrong build or unknown files: stop and use a package updated for your
-  game version. The installer intentionally refuses unknown game files.
-- An existing loader conflicts: this package requires BepInEx IL2CPP x64
-  build 788. Do not replace another mod setup without checking it first.
-- Options row missing: check BepInEx\LogOutput.log in the game folder.
-  Confirm the ZIP was fully extracted before running Install.cmd.
-- Steam updates / Verify integrity may remove the optional display patch.
-  This package must be checked again after a game update.
+if something does not work
+- access denied: right-click the relevant .cmd and run as administrator.
+- wrong build or unknown files: stop and use a package updated for your
+  game version. the installer refuses unknown game files on purpose.
+- an existing bepinex conflicts: this package needs bepinex il2cpp x64
+  build 788. do not replace another mod setup without checking it first.
+- melonloader too old: update it to 0.7.3 or newer, then run install.cmd.
+- options rows missing: check bepinex\logoutput.log or
+  melonloader\latest.log in the game folder. confirm the zip was fully
+  extracted before running install.cmd.
+- steam updates / verify integrity may remove the optional display patch.
+  this package must be checked again after a game update.
 
-SHARE
-Send the original Nocturne-Flat-Scroll-2.1.2-Windows.zip to the other person
-or device. They need their own installed copy of Nocturne. The package
+share
+send the original nocturne-flat-scroll-2.2.0-windows.zip to the other person
+or device. they need their own installed copy of nocturne. the package
 contains no game assets, game-generated assemblies, saves, or account data.
-It does not support macOS, Linux, or Steam Deck through these installers.
+it does not support macos, linux, or steam deck through these installers.
 
-CONTENTS / DETAILS
-- payload: mod DLL and the unchanged official BepInEx loader archive
-- source: mod source and a project for rebuilding against your installation
-- THIRD-PARTY-NOTICES.txt and licenses: loader notices and licenses
-- third-party-source: source archives for the bundled LGPL components
-- SHA256SUMS.txt: package file integrity hashes
-- TECHNICAL-NOTES.md: compatibility, verification, and command-line use
+contents
+- payload: the bepinex plugin, the melonloader mod, and the unchanged
+  official bepinex loader archive
+- source: mod source and a project that builds either loader's dll
+- third-party-notices.txt and licenses: loader notices and licenses
+- third-party-source: source archives for the bundled lgpl components
+- sha256sums.txt: package file integrity hashes
+- technical-notes.md: compatibility, verification, and command-line use
 
-This is an unofficial community modification, not a release from the
-Nocturne developers. Nocturne and its artwork belong to their owners.
+this is an unofficial community modification, not a release from the
+nocturne developers. nocturne and its artwork belong to their owners.

@@ -11,6 +11,12 @@ Original archive:
   SHA-256: f4cc496bd098a0df4164b81e3737297707f13a47c2478dba2f60eefab784817a
   Official builds: https://builds.bepinex.dev/projects/bepinex_be
 
+MelonLoader is not included. The MelonLoader build of the mod
+(payload/NocturneFlatScroll.MelonLoader.dll) is compiled against MelonLoader
+0.7.3, which users install separately. MelonLoader is developed by Lava Gang
+and licensed under the Apache License 2.0:
+https://github.com/LavaGang/MelonLoader
+
 The license documents in licenses/ are verbatim copies from the official
 repositories. licenses/license-sources.json records their exact source
 URLs, revisions, sizes, and hashes. Version information below comes from
