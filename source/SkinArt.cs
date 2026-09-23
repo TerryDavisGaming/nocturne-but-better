@@ -207,6 +207,90 @@ internal static class SkinArt
         return mask;
     }
 
+    // ---- The game's bar note and mine, for the note color preview ----
+    // Measured from the game's note prefab in field units and drawn at 8 pixels per unit on a
+    // 30 x 10 unit canvas, so the bar and the mine keep their sizes relative to each other.
+
+    internal const int BarMaskWidth = 240;
+    internal const int BarMaskHeight = 80;
+    private const float BarPixels = 8f;
+
+    private static float U(float fieldUnits) => fieldUnits * BarPixels;
+
+    /// <summary>The bar note's body (the game's first note color).</summary>
+    internal static Mask BarBody()
+    {
+        var mask = new Mask(BarMaskWidth, BarMaskHeight);
+        mask.Add((x, y) => RoundBox(x, y, U(14.2f), U(4.7f), U(1.59f)));
+        return mask;
+    }
+
+    /// <summary>The bar's small details (the second color): inner ring, dots and short lines.</summary>
+    internal static Mask BarAccent()
+    {
+        var mask = new Mask(BarMaskWidth, BarMaskHeight);
+        mask.Add((x, y) => Ring(x, y, U(0.81f), U(0.3f)));
+        foreach (float side in new[] { -1f, 1f })
+        {
+            mask.Add((x, y) => Circle(x - side * U(6f), y, U(0.33f)));
+            mask.Add((x, y) => RoundBox(x - side * U(4f), y, U(1.7f), U(0.1f), 0f));
+        }
+        return mask;
+    }
+
+    /// <summary>The bar's light line work (the third color): center ring and side ticks.</summary>
+    internal static Mask BarGlyph()
+    {
+        var mask = new Mask(BarMaskWidth, BarMaskHeight);
+        mask.Add((x, y) => Ring(x, y, U(2.1f), U(0.5f)));
+        foreach (float side in new[] { -1f, 1f })
+            mask.Add((x, y) => RoundBox(x - side * U(8f), y, U(0.25f), U(2.6f), U(0.25f)));
+        return mask;
+    }
+
+    /// <summary>The mine's red body.</summary>
+    internal static Mask MineBody()
+    {
+        var mask = new Mask(BarMaskWidth, BarMaskHeight);
+        mask.Add((x, y) => RoundBox(x, y, U(9.46f), U(3.3f), U(1.59f)));
+        return mask;
+    }
+
+    /// <summary>The mine's pink marks: the center dot, an X on each side, and the lines toward the center.</summary>
+    internal static Mask MineMarks()
+    {
+        var mask = new Mask(BarMaskWidth, BarMaskHeight);
+        // Arms of 2 units end to end, counting their round caps.
+        float arm = U(0.583f);
+        mask.Add((x, y) => Circle(x, y, U(0.81f)));
+        foreach (float side in new[] { -1f, 1f })
+        {
+            float cx = side * U(6f);
+            mask.Add((x, y) => Segment(x, y, cx - arm, -arm, cx + arm, arm, U(0.35f)));
+            mask.Add((x, y) => Segment(x, y, cx - arm, arm, cx + arm, -arm, U(0.35f)));
+            mask.Add((x, y) => RoundBox(x - side * U(4f), y, U(1.75f), U(0.1f), 0f));
+        }
+        return mask;
+    }
+
+    /// <summary>The mine's pale line work: center ring and X, end ticks, and outer arrowheads.</summary>
+    internal static Mask MineLight()
+    {
+        var mask = new Mask(BarMaskWidth, BarMaskHeight);
+        // Arms of 4.1 units end to end, counting their round caps.
+        float arm = U(1.326f);
+        mask.Add((x, y) => Ring(x, y, U(2.1f), U(0.5f)));
+        mask.Add((x, y) => Segment(x, y, -arm, -arm, arm, arm, U(0.35f)));
+        mask.Add((x, y) => Segment(x, y, -arm, arm, arm, -arm, U(0.35f)));
+        foreach (float side in new[] { -1f, 1f })
+        {
+            mask.Add((x, y) => RoundBox(x - side * U(8f), y, U(0.25f), U(2.6f), U(0.25f)));
+            var head = new[] { side * U(10.23f), U(1.77f), side * U(12f), 0f, side * U(10.23f), -U(1.77f) };
+            mask.Add((x, y) => Polygon(x, y, head));
+        }
+        return mask;
+    }
+
     // ---- Timing bar artwork ----
 
     /// <summary>A rounded bar used for the track, ticks, and center line (scaled per use).</summary>

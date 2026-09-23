@@ -18,6 +18,13 @@ internal static class SkinSprites
     public static Sprite ReceptorBorder(SkinArt.Shape shape) => ForShape(Part.ReceptorBorder, shape);
     public static Sprite ReceptorGlyph(SkinArt.Shape shape) => ForShape(Part.ReceptorGlyph, shape);
     public static Sprite ReceptorGlow(SkinArt.Shape shape) => ForShape(Part.ReceptorGlow, shape);
+    // The game's own bar note and mine, for the note color preview.
+    public static Sprite BarBody => Get("note.bar.body", SkinArt.BarBody);
+    public static Sprite BarGlyph => Get("note.bar.glyph", SkinArt.BarGlyph);
+    public static Sprite BarAccent => Get("note.bar.accent", SkinArt.BarAccent);
+    public static Sprite MineBody => Get("note.mine.body", SkinArt.MineBody);
+    public static Sprite MineMarks => Get("note.mine.marks", SkinArt.MineMarks);
+    public static Sprite MineLight => Get("note.mine.light", SkinArt.MineLight);
     public static Sprite Tick => Get("bar.tick", () => SkinArt.RoundedBar(16, 64));
     public static Sprite Marker => Get("bar.marker", SkinArt.Marker);
     public static Sprite Rabbit => Get("bar.rabbit", SkinArt.Rabbit);

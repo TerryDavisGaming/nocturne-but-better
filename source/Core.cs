@@ -5,8 +5,8 @@ namespace NocturneFlatScroll;
 internal static class ModInfo
 {
     public const string Id = "local.nocturne.flat-scroll";
-    public const string Name = "Nocturne Flat Scroll";
-    public const string Version = "2.3.0";
+    public const string Name = "Nocturne But Better";
+    public const string Version = "2.4.0";
 }
 
 /// <summary>Routes messages to whichever loader started the mod.</summary>
@@ -273,6 +273,8 @@ internal static class ModSetup
         Run("Timing bar", () => TimingBar.Install(harmony));
         Run("Hit sound", () => HitSound.Install(harmony));
         Run("Miss sound", () => MissSound.Install(harmony));
+        Run("Ready key filter", () => ReadyKeyFilter.Install(harmony));
+        Run("Note color preview", () => NoteColorPreview.Install(harmony));
         Run("Title text", () => TitleBranding.InstallTitle(harmony));
         Run("Intro text", () => TitleBranding.InstallIntro(harmony));
     }

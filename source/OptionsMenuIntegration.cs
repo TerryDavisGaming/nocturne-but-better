@@ -70,6 +70,7 @@ internal static class OptionsMenuIntegration
     private static readonly Dictionary<int, MenuRows> Menus = new();
     private static bool installed;
     private static bool refreshing;
+    private static bool previewFailed;
 
     // Qualified because MelonLoader also defines a legacy root namespace named Harmony.
     internal static void Install(HarmonyLib.Harmony harmony)
@@ -165,12 +166,35 @@ internal static class OptionsMenuIntegration
             if (parent.TryCast<RectTransform>() is { } content)
                 LayoutRebuilder.MarkLayoutForRebuild(content);
             ModLog.Info("Added flat-scroll rows to Options > Gameplay.");
-            return new MenuRows(menu, created);
         }
         catch
         {
             foreach (var row in created) row.Destroy();
             throw;
+        }
+
+        // The preview is optional: the rows work without it.
+        NoteColorPreview? preview = null;
+        try { preview = NoteColorPreview.Create(menu); }
+        catch (Exception ex) { ModLog.Error($"Adding the note color preview failed: {ex}"); }
+        return new MenuRows(menu, created, preview);
+    }
+
+    /// <summary>Called after the note colors change, so every open preview shows them.</summary>
+    internal static void RefreshPreviews()
+    {
+        foreach (var rows in Menus.Values) RefreshPreview(rows);
+    }
+
+    private static void RefreshPreview(MenuRows rows)
+    {
+        if (rows.Preview == null) return;
+        try { rows.Preview.Refresh(); }
+        catch (Exception ex)
+        {
+            if (previewFailed) return;
+            previewFailed = true;
+            ModLog.Error($"Refreshing the note color preview failed: {ex}");
         }
     }
 
@@ -231,6 +255,7 @@ internal static class OptionsMenuIntegration
     {
         foreach (var row in rows.Rows) RefreshRow(row);
         InsertIntoNavigation(rows);
+        RefreshPreview(rows);
     }
 
     private static void RefreshRow(OptionRow row)
@@ -385,18 +410,21 @@ internal static class OptionsMenuIntegration
     {
         internal readonly GameplayOptionsMenu Menu;
         internal readonly List<OptionRow> Rows;
+        internal readonly NoteColorPreview? Preview;
 
-        internal MenuRows(GameplayOptionsMenu menu, List<OptionRow> rows)
+        internal MenuRows(GameplayOptionsMenu menu, List<OptionRow> rows, NoteColorPreview? preview)
         {
             Menu = menu;
             Rows = rows;
+            Preview = preview;
         }
 
-        internal bool AllAlive => Rows.All(row => row.IsAlive);
+        internal bool AllAlive => Rows.All(row => row.IsAlive) && (Preview == null || Preview.IsAlive);
 
         internal void Destroy()
         {
             foreach (var row in Rows) row.Destroy();
+            Preview?.Destroy();
         }
     }
 

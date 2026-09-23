@@ -12,10 +12,10 @@ internal static class NoteSkins
 {
     // World units covered by one note texture: circles come out 19 units across, arrows
     // just under that, so they sit inside the 22-unit lane like the 28-unit bars overhang it.
-    private const float NoteScale = 20.3f;
+    internal const float NoteScale = 20.3f;
     private const float ReceptorScale = 24f;
     // Hold bodies are narrowed to suit the smaller heads.
-    private const float HoldWidthFactor = 0.7f;
+    internal const float HoldWidthFactor = 0.7f;
     private const string NoteRootName = "FlatScrollSkin";
     private const string ReceptorRootName = "FlatScrollReceptor";
 
