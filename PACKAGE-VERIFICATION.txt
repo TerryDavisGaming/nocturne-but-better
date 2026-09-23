@@ -1,16 +1,17 @@
-nocturne flat scroll 2.2.0 - package verification
+nocturne flat scroll 2.3.0 - package verification
 checked september 23, 2026 on windows 11, using windows powershell 5.1.
 
 installer
-33 checks ran against throwaway copies of the game files. the real game
+35 checks ran against throwaway copies of the game files. the real game
 folder was not used, and its files were unchanged afterwards.
 - every package script parses in windows powershell 5.1.
 - install previews (-whatif) leave the game folder unchanged for both
   loaders, and so does the uninstall preview.
 - a game without melonloader gets the bundled bepinex and the plugin. a
   repeat install changes nothing.
-- upgrading from the published 2.1.2 plugin installs 2.2.0 and keeps the
-  old dll as a backup.
+- upgrading from the published 2.1.2 or 2.2.0 plugin installs 2.3.0 and
+  keeps the old dll as a backup. upgrading the 2.2.0 melonloader mod does
+  the same.
 - with melonloader 0.7.3 installed and turned on, the mod goes into mods and
   the bepinex copy is disabled. a melonloader-only game gets no bepinex
   files. a repeat install changes nothing.
@@ -29,28 +30,28 @@ folder was not used, and its files were unchanged afterwards.
   configuration. an existing compatible doorstop configuration is kept.
 
 the real installer was also run on the test pc. without a folder argument
-it found the steam installation and upgraded the installed 2.1.2 bepinex
-plugin, keeping the old dll as a backup. it also installed the melonloader
-mod into a separate copy of the game folder with melonloader 0.7.3. while
-that copy was running, the running-game guard stopped an uninstall before
-it changed anything.
+it found the steam installation and upgraded the installed 2.2.0 bepinex
+plugin to 2.3.0, keeping the old dll as a backup.
 
 the optional fullscreen script is unchanged since 2.1.2 and was not retested.
 
 shareable dlls
-- both are built from the 2.2.0 source with debug symbols disabled and no
+- both are built from the 2.3.0 source with debug symbols disabled and no
   git commit hash, so they contain no development-machine paths.
-- building the source folder with -c Release reproduces both dlls byte for
-  byte, inside or outside a git checkout.
+- two clean builds of the source folder with -c Release gave the same
+  bytes for both dlls.
 
 gameplay coverage
-both loaders were tested in-game with qa builds of the same source, which
-added logging and stepped through the settings. the options rows, their
-limits, hold-to-repeat, reset to default, and the receptor positions in both
-2d modes were checked; see technical-notes.md for the measurements. the
-final dlls were then launched on both loaders and loaded without errors.
-full-battle note hits, holds, animated meter effects, and a five-lane
-visual test have not been verified.
+both loaders were tested in-game with qa builds: the same source plus test
+hooks. with the game's auto-play on every lane, the firefly battle ran
+through the circle and arrow skins in all three scroll modes and at
+receptor heights -10, 0, and +25, then went back to the default skin. the
+timing bar got made-up hits, because auto-played hits are left off it. the
+title screen and the intro's logo card showed the new text on both loaders.
+on bepinex, options > gameplay showed the four new rows, reset to default
+restored them, and the latency calibration preview showed the arrow skin.
+the timing bar has not been checked against real key presses, and the
+skins have not been tried on a five-lane chart.
 
 see technical-notes.md for compatibility and third-party-notices.txt for
 the official loader and corresponding-source provenance.

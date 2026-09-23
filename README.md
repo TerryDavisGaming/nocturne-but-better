@@ -1,14 +1,14 @@
 # nocturne flat scroll
 
-flat upscroll and downscroll for nocturne, with compact vertical health and energy bars beside the chart and a receptor height you can adjust. you can switch back to the game's original layout from the same menu. it runs on bepinex or melonloader.
+flat upscroll and downscroll for nocturne, with compact vertical health and energy bars beside the chart and a receptor height you can adjust. it also has circle and arrow note skins, an early/late timing bar like the one in osu!mania, and a "but better" under the nocturne logo. you can switch back to the game's original look from the same menu. it runs on bepinex or melonloader.
 
-[download for windows](https://github.com/TerryDavisGaming/nocturne-flat-scroll/releases/download/v2.2.0/Nocturne-Flat-Scroll-2.2.0-Windows.zip) · [latest release](https://github.com/TerryDavisGaming/nocturne-flat-scroll/releases/latest)
+[download for windows](https://github.com/TerryDavisGaming/nocturne-flat-scroll/releases/download/v2.3.0/Nocturne-Flat-Scroll-2.3.0-Windows.zip) · [latest release](https://github.com/TerryDavisGaming/nocturne-flat-scroll/releases/latest)
 
 use the release zip to install. github's source download does not include the plugin or loader payload.
 
 ## settings
 
-open options > gameplay. the mod adds two rows above speed mod.
+open options > gameplay. the mod adds four rows above speed mod.
 
 note scrolling:
 
@@ -18,9 +18,23 @@ note scrolling:
 
 receptor height moves the receptors in from their edge of the screen in both 2d modes. it goes from -10% to +30% of the screen height in 1% steps, and 0% is the original spot. a positive value raises the receptors in downscroll and lowers them in upscroll, so the same number works in both directions. negative values move them closer to the edge. the latency calibration and difficulty previews move with it. the setting has no effect in default mode.
 
-press left or right to change a value, and hold to keep changing it. both settings are saved on that pc. reset to default sets them back to default and 0%. upgrading from an earlier version keeps your saved scrolling direction.
+note skin:
+
+- default keeps the game's bar notes.
+- circle draws round notes and receptors.
+- arrow draws arrows that point left, down, up, and right, like a dance game. a five-lane chart gets a diamond in the middle lane.
+
+the skins use the same colors the game gives its own notes, and the receptors still flash when you hit. hold notes get a narrower trail to match. the latency calibration preview in options uses the skin too. both skins work in all three scrolling modes, and in 2d upscroll the arrows point the same way on screen as they do in downscroll.
+
+timing bar shows how early or late each hit was, and it starts off. the bar sits just behind the receptors, so it moves with them: at the bottom in default and 2d downscroll, at the top in 2d upscroll, and along with the receptor height.
+
+early hits land on the rabbit's side on the left and late hits on the turtle's side on the right. the colored bands are the game's okay, good, great, and perfect windows, each tick takes the color of its judgement, and the white arrow follows your recent average. only taps and the starts of holds count, so misses, auto-played lanes, and hold releases are left off. in 2d upscroll the enemy can cover the middle of the bar, because the game draws the fighters on top of the whole chart.
+
+press left or right to change a value, and hold to keep changing it. all four settings are saved on that pc. reset to default sets them back to default, 0%, default, and off. upgrading from an earlier version keeps your saved settings.
 
 both flat modes keep the game's artwork, icons, and vertical meter text. player meters sit lower left and enemy meters upper right, each pair close to the chart.
+
+the title screen and the nocturne card in the startup intro read "nocturne but better, by terrydavisgaming". the extra lines fade in and out with the logo.
 
 ## install
 
@@ -54,16 +68,17 @@ close the game and run `uninstall.cmd`. this disables the mod for both loaders a
 
 ## what was tested
 
-version 2.2.0 was tested in-game on bepinex 6.0.0-be.788 and on melonloader 0.7.3. on both loaders:
+version 2.3.0 was tested in-game on bepinex 6.0.0-be.788 and on melonloader 0.7.3. the melonloader test ran in a separate copy of the game folder. on both loaders, a test build played the firefly battle with the game's auto-play on every lane and stepped through the settings:
 
-- the two rows appeared above speed mod, left and right stopped at -10% and +30%, holding a direction kept changing the value, and reset to default went back to default and 0%.
-- at the firefly battle ready screen, downscroll receptors sat 20% of the screen height above the bottom at 0% and 50% at +30%. upscroll receptors moved from 67% to 37% above the bottom. every 1% step moved them by 1% of the screen height.
-- default mode still restored the original track and hud.
-- the latency calibration preview moved by the chosen amount.
+- circle and arrow skins in default, 2d downscroll, and 2d upscroll, at receptor heights -10%, 0%, and +25%, with holds and receptor flashes. switching back to the default skin brought back the game's own notes, receptors, and flashes.
+- the timing bar at the bottom in default and 2d downscroll and at the top in 2d upscroll. auto-played hits are left off the bar on purpose, so the test fed it made-up early and late hits. the game's hit hook reported every judgement with the fields the bar reads.
+- "but better" and the credit line on the title screen and the intro card, fading with the logo.
 
-the melonloader test ran in a separate copy of the game folder. installer checks covered both loaders, switching between them, upgrades from 2.1.2, and removal, all in test copies of the game files.
+on bepinex, options > gameplay showed the four rows above speed mod with working up and down navigation, and reset to default put all four back. the latency calibration preview showed the arrow skin. the receptor position measurements from 2.2.0 still apply.
 
-full-battle hits, holds, meter fill animation, and a five-lane visual test remain untested.
+installer checks covered both loaders, switching between them, upgrades from 2.1.2 and 2.2.0, and removal, all in test copies of the game files.
+
+the timing bar hasn't been checked against real key presses yet, and the skins haven't been tried on a five-lane chart.
 
 ## source and licenses
 
