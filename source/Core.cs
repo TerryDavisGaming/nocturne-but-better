@@ -46,12 +46,18 @@ public static class SettingsState
     private const string ReceptorKey = "NocturneFlatScroll.ReceptorHeight.v1";
     private const string SkinKey = "NocturneFlatScroll.NoteSkin.v1";
     private const string TimingBarKey = "NocturneFlatScroll.TimingBar.v1";
+    private const string HitSoundKey = "NocturneFlatScroll.HitSound.v1";
+    private const string TimingBarTopKey = "NocturneFlatScroll.TimingBarPosition.v1";
+    private const string NoteFlaresKey = "NocturneFlatScroll.NoteFlares.v1";
     public const int MinReceptorHeight = -10;
     public const int MaxReceptorHeight = 30;
     private static ScrollMode? _mode;
     private static int? _receptorHeight;
     private static NoteSkin? _noteSkin;
     private static bool? _timingBar;
+    private static bool? _hitSound;
+    private static bool? _timingBarTop;
+    private static bool? _noteFlares;
     public static ScrollMode Mode => _mode ??= LoadMode();
 
     /// <summary>How notes and receptors are drawn; Default keeps the game's own bars.</summary>
@@ -82,6 +88,42 @@ public static class SettingsState
         PlayerPrefs.SetInt(TimingBarKey, value ? 1 : 0);
         PlayerPrefs.Save();
         ModLog.Info("Timing bar: " + (value ? "On" : "Off"));
+    }
+
+    /// <summary>
+    /// Where the timing bar goes in 2D upscroll: false puts it just below the receptors
+    /// (below the enemy), true at the top of the screen above the enemy.
+    /// </summary>
+    public static bool TimingBarTop => _timingBarTop ??= PlayerPrefs.GetInt(TimingBarTopKey, 0) == 1;
+
+    public static void SetTimingBarTop(bool value)
+    {
+        _timingBarTop = value;
+        PlayerPrefs.SetInt(TimingBarTopKey, value ? 1 : 0);
+        PlayerPrefs.Save();
+        ModLog.Info("Timing bar position: " + (value ? "Above enemy" : "Below enemy"));
+    }
+
+    /// <summary>Whether the bursts on the receptors show when notes are hit. On unless turned off.</summary>
+    public static bool NoteFlares => _noteFlares ??= PlayerPrefs.GetInt(NoteFlaresKey, 1) == 1;
+
+    public static void SetNoteFlares(bool value)
+    {
+        _noteFlares = value;
+        PlayerPrefs.SetInt(NoteFlaresKey, value ? 1 : 0);
+        PlayerPrefs.Save();
+        ModLog.Info("Note flares: " + (value ? "On" : "Off"));
+    }
+
+    /// <summary>Whether a tick plays when the player hits a note. Off unless turned on.</summary>
+    public static bool HitSound => _hitSound ??= PlayerPrefs.GetInt(HitSoundKey, 0) == 1;
+
+    public static void SetHitSound(bool value)
+    {
+        _hitSound = value;
+        PlayerPrefs.SetInt(HitSoundKey, value ? 1 : 0);
+        PlayerPrefs.Save();
+        ModLog.Info("Hit sound: " + (value ? "On" : "Off"));
     }
 
     /// <summary>
@@ -140,6 +182,84 @@ public static class SettingsState
     }
 
     public static string FormatReceptorHeight(int value) => value > 0 ? $"+{value}%" : $"{value}%";
+
+    /// <summary>Size of 2D notes and receptors, in percent of the original.</summary>
+    internal static readonly PercentSetting NoteSize =
+        new("NocturneFlatScroll.NoteSize.v1", "Note size", 50, 150, 5, 100);
+
+    /// <summary>Distance between 2D lanes, in percent of the original.</summary>
+    internal static readonly PercentSetting LaneSpacing =
+        new("NocturneFlatScroll.LaneSpacing.v1", "Lane spacing", 60, 150, 5, 100);
+
+    /// <summary>How loud the hit sound is, on top of the game's own sound volumes.</summary>
+    internal static readonly PercentSetting HitSoundVolume =
+        new("NocturneFlatScroll.HitSoundVolume.v1", "Hit sound volume", 5, 100, 5, 80);
+
+    /// <summary>How loud the game's miss sounds are, in percent of their normal level.</summary>
+    internal static readonly PercentSetting MissSoundVolume =
+        new("NocturneFlatScroll.MissSoundVolume.v1", "Miss sound volume", 10, 300, 10, 100);
+
+    /// <summary>How visible the enemy is while it attacks, in percent. 100 leaves it untouched.</summary>
+    internal static readonly PercentSetting EnemyAttackOpacity =
+        new("NocturneFlatScroll.EnemyAttackOpacity.v1", "Enemy attack opacity", 0, 100, 10, 100);
+}
+
+/// <summary>A saved percentage that moves in fixed steps between a minimum and a maximum.</summary>
+internal sealed class PercentSetting
+{
+    private readonly string _key;
+    private readonly string _name;
+    private int? _value;
+    public readonly int Min, Max, Step, Default;
+
+    public PercentSetting(string key, string name, int min, int max, int step, int defaultValue)
+    {
+        _key = key;
+        _name = name;
+        Min = min;
+        Max = max;
+        Step = step;
+        Default = defaultValue;
+    }
+
+    public int Value => _value ??= Load();
+    public float Factor => Value / 100f;
+    public int Count => (Max - Min) / Step + 1;
+    public int Index => (Value - Min) / Step;
+
+    public static string Format(int value) => value + "%";
+
+    public string[] Labels()
+    {
+        var labels = new string[Count];
+        for (int i = 0; i < labels.Length; i++) labels[i] = Format(Min + i * Step);
+        return labels;
+    }
+
+    private int Load()
+    {
+        int saved = PlayerPrefs.GetInt(_key, Default);
+        return saved >= Min && saved <= Max && (saved - Min) % Step == 0 ? saved : Default;
+    }
+
+    public void Set(int value)
+    {
+        if (value < Min || value > Max || (value - Min) % Step != 0)
+            throw new ArgumentOutOfRangeException(nameof(value));
+        _value = value;
+        PlayerPrefs.SetInt(_key, value);
+        PlayerPrefs.Save();
+        ModLog.Info(_name + ": " + Format(value));
+    }
+
+    /// <param name="wrap">Clicking cycles through every value; left and right stop at the ends.</param>
+    public void Change(int direction, bool wrap)
+    {
+        int value = Value + direction * Step;
+        if (value > Max) value = wrap ? Min : Max;
+        else if (value < Min) value = wrap ? Max : Min;
+        if (value != Value) Set(value);
+    }
 }
 
 /// <summary>Installs every feature's patches; a failing feature does not stop the others.</summary>
@@ -148,8 +268,11 @@ internal static class ModSetup
     internal static void Patch(HarmonyLib.Harmony harmony)
     {
         Run("Options menu rows", () => OptionsMenuIntegration.Install(harmony));
+        Run("Audio options rows", () => AudioOptionsIntegration.Install(harmony));
         Run("Note skins", () => NoteSkins.Install(harmony));
         Run("Timing bar", () => TimingBar.Install(harmony));
+        Run("Hit sound", () => HitSound.Install(harmony));
+        Run("Miss sound", () => MissSound.Install(harmony));
         Run("Title text", () => TitleBranding.InstallTitle(harmony));
         Run("Intro text", () => TitleBranding.InstallIntro(harmony));
     }
@@ -158,6 +281,7 @@ internal static class ModSetup
     internal static void AttachToExisting()
     {
         Run("Options menu rows", OptionsMenuIntegration.AttachToExistingMenus);
+        Run("Audio options rows", AudioOptionsIntegration.AttachToExisting);
         Run("Title text", TitleBranding.AttachToExisting);
     }
 
@@ -235,8 +359,10 @@ internal static class LayoutDriver
                 int id = view.GetInstanceID();
                 Cameras.TryGetValue(id, out var camera);
                 FieldTransforms.TryGetValue(id, out var field);
+                if (!view.gameObject.activeInHierarchy) FadeAttacks(view, false);
                 if (mode != ScrollMode.Default && !view.gameObject.activeInHierarchy)
                 {
+                    FieldLayout.Hidden(view);
                     UpdateTimingBar(view, field, camera);
                     continue;
                 }
@@ -244,6 +370,7 @@ internal static class LayoutDriver
                 FieldLayout.Apply(view, mode);
                 if (camera) HudLayout.Apply(view, camera, mode);
                 UpdateTimingBar(view, field, camera);
+                if (view.gameObject.activeInHierarchy) FadeAttacks(view, true);
                 if (field) SkinFields.Add((field!, ColumnCount(view)));
             }
             MenuFieldLayout.AddSkinFields(SkinFields);
@@ -254,6 +381,14 @@ internal static class LayoutDriver
         // the layout above or the other feature.
         try { NoteSkins.LateUpdate(SkinFields); }
         catch (Exception ex) { ReportOnce(ref _reportedSkinError, "Note skins failed: ", ex); }
+        HitSound.Update();
+        MissSound.Update();
+    }
+
+    private static void FadeAttacks(CombatNoteFieldView view, bool active)
+    {
+        try { EnemyAttackFade.LateUpdate(view, active); }
+        catch (Exception ex) { ReportOnce(ref _reportedFadeError, "Enemy attack opacity failed: ", ex); }
     }
 
     private static void UpdateTimingBar(CombatNoteFieldView view, Transform? field, Camera? camera)
@@ -263,7 +398,7 @@ internal static class LayoutDriver
         catch (Exception ex) { ReportOnce(ref _reportedBarError, "Timing bar failed: ", ex); }
     }
 
-    private static bool _reportedSkinError, _reportedBarError;
+    private static bool _reportedSkinError, _reportedBarError, _reportedFadeError;
 
     private static void ReportOnce(ref bool reported, string prefix, Exception ex)
     {

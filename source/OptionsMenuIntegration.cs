@@ -30,19 +30,42 @@ internal static class OptionsMenuIntegration
                 .Select(SettingsState.FormatReceptorHeight).ToArray(),
             () => SettingsState.ReceptorHeight - SettingsState.MinReceptorHeight,
             ChangeReceptorHeight),
+        Percent("StateToggle_FlatNoteSize", "Note size",
+            "Makes the 2D notes and receptors smaller or larger.", SettingsState.NoteSize),
+        Percent("StateToggle_FlatLaneSpacing", "Lane spacing",
+            "Moves the 2D lanes closer together or further apart.", SettingsState.LaneSpacing),
         new("StateToggle_FlatNoteSkin",
             "Note skin",
             "Draw notes and receptors as the original bars, circles, or arrows.",
             new[] { "Default", "Circle", "Arrow" },
             () => (int)SettingsState.NoteSkin,
             (direction, wrap) => SettingsState.SetNoteSkin((NoteSkin)Cycle((int)SettingsState.NoteSkin, direction, 3))),
+        new("StateToggle_FlatNoteFlares",
+            "Note flares",
+            "Shows the burst on the receptor when you hit or hold a note. Mine explosions always show.",
+            new[] { "Off", "On" },
+            () => SettingsState.NoteFlares ? 1 : 0,
+            (direction, wrap) => SetNoteFlares(!SettingsState.NoteFlares)),
         new("StateToggle_FlatTimingBar",
             "Timing bar",
             "Shows whether each hit was early (rabbit) or late (turtle), next to the receptors.",
             new[] { "Off", "On" },
             () => SettingsState.TimingBar ? 1 : 0,
             (direction, wrap) => SettingsState.SetTimingBar(!SettingsState.TimingBar)),
+        new("StateToggle_FlatTimingBarPosition",
+            "Timing bar position",
+            "Where the timing bar goes in 2D upscroll: under the receptors, or at the top of the screen above the enemy.",
+            new[] { "Below enemy", "Above enemy" },
+            () => SettingsState.TimingBarTop ? 1 : 0,
+            (direction, wrap) => SettingsState.SetTimingBarTop(!SettingsState.TimingBarTop)),
+        Percent("StateToggle_FlatEnemyAttackOpacity", "Enemy attack opacity",
+            "Makes the enemy see-through while it attacks, so the notes behind it stay visible. 100% leaves it as it is.",
+            SettingsState.EnemyAttackOpacity),
     };
+
+    // The hit and miss sound rows are on the Audio page (AudioOptionsIntegration).
+    private static RowSpec Percent(string name, string title, string help, PercentSetting setting) =>
+        new(name, title, help, setting.Labels(), () => setting.Index, setting.Change);
 
     private static readonly Dictionary<int, MenuRows> Menus = new();
     private static bool installed;
@@ -92,6 +115,7 @@ internal static class OptionsMenuIntegration
                 }
                 RefreshRows(rows);
             }
+            AudioOptionsIntegration.RefreshAll();
         }
         catch (Exception ex)
         {
@@ -295,6 +319,12 @@ internal static class OptionsMenuIntegration
         if (value != SettingsState.ReceptorHeight) SettingsState.SetReceptorHeight(value);
     }
 
+    private static void SetNoteFlares(bool value)
+    {
+        SettingsState.SetNoteFlares(value);
+        NoteSkins.RefreshFlares();
+    }
+
     private static void ResetDefaultsPostfix()
     {
         try
@@ -303,6 +333,11 @@ internal static class OptionsMenuIntegration
             SettingsState.SetReceptorHeight(0);
             SettingsState.SetNoteSkin(NoteSkin.Default);
             SettingsState.SetTimingBar(false);
+            SettingsState.SetTimingBarTop(false);
+            SettingsState.NoteSize.Set(SettingsState.NoteSize.Default);
+            SettingsState.LaneSpacing.Set(SettingsState.LaneSpacing.Default);
+            SettingsState.EnemyAttackOpacity.Set(SettingsState.EnemyAttackOpacity.Default);
+            if (!SettingsState.NoteFlares) SetNoteFlares(true);
             RefreshAll();
         }
         catch (Exception ex)

@@ -19,25 +19,30 @@ namespace NocturneFlatScroll
             internal readonly Transform Transform;
             internal readonly RectTransform Rect;
             private readonly NativeTransformState Native;
+            // The sideways "disabled" label scrolls along the lane on its own and is not moved.
+            private readonly bool Scrolls;
 
             internal LabelChild(Transform transform)
             {
                 Transform = transform;
                 Rect = transform.TryCast<RectTransform>();
                 Native = new NativeTransformState(transform);
+                Scrolls = transform.name == "DisabledLabel";
             }
 
             internal void Capture() => Native.Capture();
             internal void Restore() => Native.Restore();
 
-            internal void Apply(bool upscroll)
+            /// <param name="drop">Extra distance from the receptor, for bigger or skinned receptors.</param>
+            internal void Apply(bool upscroll, float drop)
             {
                 if (Transform == null) return;
                 float direction = upscroll ? -1f : 1f;
+                if (Scrolls) drop = 0f;
                 if (Rect != null)
                 {
                     var anchoredPosition = Native.AnchoredPosition;
-                    Rect.anchoredPosition = new Vector2(anchoredPosition.x, anchoredPosition.y * direction);
+                    Rect.anchoredPosition = new Vector2(anchoredPosition.x, (anchoredPosition.y - drop) * direction);
                     var position = Rect.localPosition;
                     position.z = Native.Position.z;
                     Rect.localPosition = position;
@@ -45,7 +50,7 @@ namespace NocturneFlatScroll
                 else
                 {
                     var position = Native.Position;
-                    Transform.localPosition = new Vector3(position.x, position.y * direction, position.z);
+                    Transform.localPosition = new Vector3(position.x, (position.y - drop) * direction, position.z);
                 }
             }
         }
@@ -76,13 +81,13 @@ namespace NocturneFlatScroll
                 foreach (var child in Children) child.Restore();
             }
 
-            internal void Apply(bool upscroll)
+            internal void Apply(bool upscroll, float drop)
             {
                 if (Transform == null) return;
                 var scale = Native.Scale;
                 Transform.localScale = new Vector3(scale.x, scale.y * (upscroll ? -1f : 1f), scale.z);
                 // Counter-reflect glyphs while retaining their reflected positions.
-                foreach (var child in Children) child.Apply(upscroll);
+                foreach (var child in Children) child.Apply(upscroll, drop);
             }
         }
 
@@ -94,6 +99,9 @@ namespace NocturneFlatScroll
             private readonly NativeTransformState Native;
             private bool Modified;
             internal readonly List<LabelGroup> Labels = new List<LabelGroup>();
+            private readonly List<LaneColumn> Lanes;
+            // The middle of the preview's lanes, which spacing spreads around.
+            private readonly float LaneCenter;
 
             internal FieldState(RectTransform field, FieldKind kind)
             {
@@ -101,6 +109,17 @@ namespace NocturneFlatScroll
                 Field = field;
                 Kind = kind;
                 Native = new NativeTransformState(field);
+                Lanes = LaneColumn.Collect(field);
+                if (Lanes.Count > 0)
+                {
+                    float min = float.MaxValue, max = float.MinValue;
+                    foreach (var lane in Lanes)
+                    {
+                        min = Mathf.Min(min, lane.NativeX);
+                        max = Mathf.Max(max, lane.NativeX);
+                    }
+                    LaneCenter = (min + max) * 0.5f;
+                }
                 for (int i = 0; i < field.childCount; i++)
                 {
                     var column = field.GetChild(i);
@@ -150,7 +169,20 @@ namespace NocturneFlatScroll
                 var position = Field.localPosition;
                 position.z = targetZ;
                 Field.localPosition = position;
-                foreach (var labels in Labels) labels.Apply(upscroll);
+                float size = SettingsState.NoteSize.Factor;
+                // The previews have little room beside them, so they spread their lanes to
+                // at most 110%.
+                float spacing = Mathf.Min(SettingsState.LaneSpacing.Factor, MaxPreviewSpacing);
+                float width = Mathf.Min(size, spacing);
+                foreach (var lane in Lanes)
+                {
+                    if (!lane.IsAlive) continue;
+                    lane.Space(LaneCenter, spacing);
+                    lane.Size(size, width);
+                }
+                FlatFields.Set(Id, true);
+                float drop = LaneColumn.LabelDrop(size);
+                foreach (var labels in Labels) labels.Apply(upscroll, drop);
             }
 
             internal void Restore()
@@ -158,10 +190,17 @@ namespace NocturneFlatScroll
                 if (!Modified) return;
                 Native.Restore();
                 foreach (var labels in Labels) labels.Restore();
+                foreach (var lane in Lanes)
+                {
+                    lane.Unspace();
+                    lane.Unsize();
+                }
+                FlatFields.Set(Id, false);
                 Modified = false;
             }
         }
 
+        private const float MaxPreviewSpacing = 1.1f;
         private static readonly List<FieldState> Fields = new List<FieldState>();
         private static readonly HashSet<int> KnownIds = new HashSet<int>();
         // Previews that keep their layout but still get skinned receptors.
@@ -174,6 +213,7 @@ namespace NocturneFlatScroll
             {
                 if (Fields[i].Field != null) continue;
                 KnownIds.Remove(Fields[i].Id);
+                FlatFields.Set(Fields[i].Id, false);
                 Fields.RemoveAt(i);
             }
             for (int i = SkinOnlyFields.Count - 1; i >= 0; i--)

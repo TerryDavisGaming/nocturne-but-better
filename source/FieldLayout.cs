@@ -43,25 +43,62 @@ internal static class FieldLayout
         state.Field.localPosition = (up ? UpPosition : DownPosition) + ScreenUp * shift;
         state.Field.localRotation = FlatRotation;
         state.Field.localScale = new Vector3(1f, up ? -1f : 1f, 1f);
+        state.ApplyLanes();
         state.ApplyLabels(up);
+    }
+
+    /// <summary>
+    /// Called while a 2D view is hidden between battles: gives the lanes back their animated
+    /// positions, so the game's Animator never picks up a spread layout as its starting point.
+    /// </summary>
+    public static void Hidden(CombatNoteFieldView view)
+    {
+        if (Fields.TryGetValue(view.GetInstanceID(), out var state) && state.Field) state.ReleaseLanes();
     }
 
     private sealed class FieldState
     {
         public readonly Transform Field;
+        private readonly int _fieldId;
         private readonly NativeTransformState _native;
         private readonly List<LabelState> _labels = new();
+        private readonly List<LaneColumn> _lanes;
         private bool? _direction;
+        private float _labelDrop;
         private bool _modified;
         public FieldState(Transform field)
         {
             Field = field;
+            _fieldId = field.GetInstanceID();
             _native = new NativeTransformState(field);
+            _lanes = LaneColumn.Collect(field);
             for (int i = 0; i < field.childCount; i++)
             {
                 var labels = field.GetChild(i).Find("Labels");
                 if (labels) _labels.Add(new LabelState(labels));
             }
+        }
+
+        /// <summary>Spreads the lanes around the field's centerline and sizes their receptors.</summary>
+        public void ApplyLanes()
+        {
+            float size = SettingsState.NoteSize.Factor;
+            float spacing = SettingsState.LaneSpacing.Factor;
+            // The lane strips follow the notes but never grow past the spacing, so they
+            // keep a gap between them.
+            float width = Mathf.Min(size, spacing);
+            foreach (var lane in _lanes)
+            {
+                if (!lane.IsAlive) continue;
+                lane.Space(0f, spacing);
+                lane.Size(size, width);
+            }
+            FlatFields.Set(_fieldId, true);
+        }
+
+        public void ReleaseLanes()
+        {
+            foreach (var lane in _lanes) lane.Unspace();
         }
         public void BeginModification()
         {
@@ -77,14 +114,22 @@ internal static class FieldLayout
             if (!_modified) return;
             _native.Restore();
             foreach (var label in _labels) label.Restore();
+            foreach (var lane in _lanes)
+            {
+                lane.Unspace();
+                lane.Unsize();
+            }
+            FlatFields.Set(_fieldId, false);
             _direction = null;
             _modified = false;
         }
         public void ApplyLabels(bool up)
         {
-            if (_direction == up) return;
+            float drop = LaneColumn.LabelDrop(SettingsState.NoteSize.Factor);
+            if (_direction == up && _labelDrop == drop) return;
             _direction = up;
-            foreach (var label in _labels) label.Apply(up);
+            _labelDrop = drop;
+            foreach (var label in _labels) label.Apply(up, drop);
         }
     }
 
@@ -112,12 +157,12 @@ internal static class FieldLayout
             _native.Restore();
             foreach (var child in _children) child.Restore();
         }
-        public void Apply(bool up)
+        public void Apply(bool up, float drop)
         {
             if (!_root) return;
             var scale = _native.Scale;
             _root.localScale = new Vector3(scale.x, up ? -scale.y : scale.y, scale.z);
-            foreach (var child in _children) child.Apply(up);
+            foreach (var child in _children) child.Apply(up, drop);
         }
     }
 
@@ -126,27 +171,32 @@ internal static class FieldLayout
         private readonly Transform _transform;
         private readonly RectTransform? _rect;
         private readonly NativeTransformState _native;
+        // The sideways "disabled" label scrolls along the lane on its own and is not moved.
+        private readonly bool _scrolls;
 
         public LabelChild(Transform transform)
         {
             _transform = transform;
             _rect = transform.TryCast<RectTransform>();
             _native = new NativeTransformState(transform);
+            _scrolls = transform.name == "DisabledLabel";
         }
 
         public void Capture() => _native.Capture();
         public void Restore() => _native.Restore();
 
-        public void Apply(bool up)
+        /// <param name="drop">Extra distance from the receptor, for bigger or skinned receptors.</param>
+        public void Apply(bool up, float drop)
         {
             if (!_transform) return;
             float direction = up ? -1f : 1f;
+            if (_scrolls) drop = 0f;
             if (_rect)
             {
                 // World-space key canvases and TMP labels use anchored coordinates. Their
                 // serialized local Y can be zero until Unity has resolved the canvas layout.
                 var anchoredPosition = _native.AnchoredPosition;
-                _rect.anchoredPosition = new Vector2(anchoredPosition.x, anchoredPosition.y * direction);
+                _rect.anchoredPosition = new Vector2(anchoredPosition.x, (anchoredPosition.y - drop) * direction);
                 var position = _rect.localPosition;
                 position.z = _native.Position.z;
                 _rect.localPosition = position;
@@ -154,7 +204,7 @@ internal static class FieldLayout
             else
             {
                 var position = _native.Position;
-                _transform.localPosition = new Vector3(position.x, position.y * direction, position.z);
+                _transform.localPosition = new Vector3(position.x, (position.y - drop) * direction, position.z);
             }
         }
     }

@@ -278,6 +278,8 @@ namespace NocturneFlatScroll
         private static float VisibleFieldHalfWidth(LayoutState state, Camera camera, float halfWidth)
         {
             float edge = 0f;
+            // Larger 2D notes and receptors take more room beside the outer lanes.
+            float laneHalf = 17.5f * Mathf.Max(1f, SettingsState.NoteSize.Factor);
             int count = state.NoteField ? state.NoteField.ActiveColumnCount : state.Columns.Count;
             if (count <= 0) count = state.Columns.Count;
             for (int i = 0; i < Mathf.Min(count, state.Columns.Count); i++)
@@ -287,8 +289,8 @@ namespace NocturneFlatScroll
                     Mathf.Abs(column.lossyScale.x) < 0.001f) continue;
                 // The authored receptor is about 35 units wide. Exclude the
                 // unused fifth column even if its GameObject remains active.
-                Vector3 left = camera.WorldToViewportPoint(column.TransformPoint(new Vector3(-17.5f, 0f, 0f)));
-                Vector3 right = camera.WorldToViewportPoint(column.TransformPoint(new Vector3(17.5f, 0f, 0f)));
+                Vector3 left = camera.WorldToViewportPoint(column.TransformPoint(new Vector3(-laneHalf, 0f, 0f)));
+                Vector3 right = camera.WorldToViewportPoint(column.TransformPoint(new Vector3(laneHalf, 0f, 0f)));
                 if (left.z <= 0f || right.z <= 0f) continue;
                 edge = Mathf.Max(edge, Mathf.Max(Mathf.Abs(left.x - 0.5f),
                                                 Mathf.Abs(right.x - 0.5f)) * 2f * halfWidth);

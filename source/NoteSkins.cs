@@ -26,6 +26,8 @@ internal static class NoteSkins
     private static int appliedGeneration;
     private static NoteSkin lastSkin;
     private static ScrollMode lastMode;
+    private static int lastSize = -1;
+    private static int lastFlatVersion = -1;
     private static float nextPrune;
     private static Material? spriteMaterial;
     private static float nextMaterialSearch;
@@ -40,6 +42,68 @@ internal static class NoteSkins
             AccessTools.DeclaredMethod(typeof(NocturneCombatNoteView), "SetColors", new[] { typeof(CombatNoteColorSet) })
                 ?? throw new MissingMethodException(typeof(NocturneCombatNoteView).FullName, "SetColors"),
             postfix: new HarmonyMethod(typeof(NoteSkins), nameof(SetColorsPostfix)));
+        // Hit flares are sized with the notes, or hidden when note flares are off. The game
+        // resets a flare's scale when it plays a tap flare, but not a hold flare.
+        harmony.Patch(
+            AccessTools.DeclaredMethod(typeof(NocturneCombatNoteColumnBehaviour), "NoteFlareSingle")
+                ?? throw new MissingMethodException(typeof(NocturneCombatNoteColumnBehaviour).FullName, "NoteFlareSingle"),
+            postfix: new HarmonyMethod(typeof(NoteSkins), nameof(FlareSinglePostfix)));
+        harmony.Patch(
+            AccessTools.DeclaredMethod(typeof(NocturneCombatNoteColumnBehaviour), "NoteFlareHold")
+                ?? throw new MissingMethodException(typeof(NocturneCombatNoteColumnBehaviour).FullName, "NoteFlareHold"),
+            postfix: new HarmonyMethod(typeof(NoteSkins), nameof(FlareHoldPostfix)));
+    }
+
+    // Mine explosions stay: they warn of a mine hit, and their animation plays the mine sound.
+    // The calibration screen keeps its flares too.
+    private static void FlareSinglePostfix(NocturneCombatNoteColumnBehaviour __instance, bool isCalibration, bool isMine)
+    {
+        try
+        {
+            SizeFlare(__instance, isMine ? __instance.mineFlarePool : __instance.noteFlarePool,
+                hide: !isMine && !isCalibration && !SettingsState.NoteFlares);
+        }
+        catch (Exception ex) { ReportOnce(ex); }
+    }
+
+    private static void FlareHoldPostfix(NocturneCombatNoteColumnBehaviour __instance)
+    {
+        try { SizeFlare(__instance, __instance.noteFlarePool, hide: !SettingsState.NoteFlares); }
+        catch (Exception ex) { ReportOnce(ex); }
+    }
+
+    /// <summary>
+    /// Shows or hides the hold flares already on screen, so switching note flares in the
+    /// pause menu applies to a hold that is still held.
+    /// </summary>
+    internal static void RefreshFlares()
+    {
+        try
+        {
+            foreach (var column in Resources.FindObjectsOfTypeAll<NocturneCombatNoteColumnBehaviour>())
+            {
+                if (column && column.gameObject.scene.handle != 0)
+                    SizeFlare(column, column.noteFlarePool, hide: !SettingsState.NoteFlares);
+            }
+        }
+        catch (Exception ex) { ReportOnce(ex); }
+    }
+
+    // Scaling to zero hides a flare without changing the game's state: its animation still
+    // runs and returns it to the pool as usual.
+    private static void SizeFlare(NocturneCombatNoteColumnBehaviour column, NoteFlarePool? pool, bool hide)
+    {
+        if (!column || pool == null) return;
+        var flare = pool.LastNoteFlare;
+        if (!flare) return;
+        if (hide)
+        {
+            flare.transform.localScale = Vector3.zero;
+            return;
+        }
+        var field = column.transform.parent;
+        float size = field ? FlatFields.SizeFor(field.GetInstanceID()) : 1f;
+        flare.transform.localScale = new Vector3(size, size, 1f);
     }
 
     private static void SetNotePostfix(NocturneCombatNoteView __instance, int noteColumn, int columnCount)
@@ -73,11 +137,15 @@ internal static class NoteSkins
     {
         var skin = SettingsState.NoteSkin;
         var mode = SettingsState.Mode;
-        if (skin != lastSkin || mode != lastMode)
+        int size = SettingsState.NoteSize.Value;
+        if (skin != lastSkin || mode != lastMode || size != lastSize || FlatFields.Version != lastFlatVersion)
         {
-            // A scroll mode change can mirror the field, which swaps up and down arrows.
+            // A scroll mode change can mirror the field, which swaps up and down arrows, and
+            // decides which fields use the note size.
             lastSkin = skin;
             lastMode = mode;
+            lastSize = size;
+            lastFlatVersion = FlatFields.Version;
             generation++;
         }
 
@@ -208,12 +276,14 @@ internal static class NoteSkins
         private SpriteRenderer? _body, _glyph, _accent;
         private Color _c1 = Color.white, _c2 = Color.white, _c3 = Color.white;
         private bool _hidingNative;
-        // Hold parts narrowed to match the skin; the native values restore Default.
+        // The note's parts with the game's own sizes, taken before the mod changes anything.
+        // Every resize writes absolute values from these, so Default restores them exactly.
+        private readonly Transform? _mine, _fake, _end, _lineStart, _mask;
         private readonly LineRenderer? _background, _pattern;
-        private readonly Transform? _end, _lineStart;
-        private float _backgroundWidth, _patternWidth;
-        private Vector3 _endScale, _lineStartScale;
-        private bool _narrowed;
+        private readonly Vector3 _tapScale, _mineScale, _fakeScale, _endScale, _lineStartScale;
+        private readonly Vector3 _maskPosition, _maskScale, _patternOffset, _lineStartOffset;
+        private readonly float _backgroundWidth, _patternWidth;
+        private float _size = 1f, _narrow = 1f;
         internal int Column = -1;
         internal int ColumnCount = 4;
 
@@ -223,15 +293,35 @@ internal static class NoteSkins
             var tap = view.tapNoteView;
             _tap = tap ? tap.transform : null;
             if (_tap)
-                foreach (var shape in _tap!.GetComponentsInChildren<ShapeRenderer>(true))
+            {
+                _tapScale = _tap!.localScale;
+                foreach (var shape in _tap.GetComponentsInChildren<ShapeRenderer>(true))
                     _native.Add(shape);
-            _background = view.backgroundLineRenderer;
-            _pattern = view.patternLineRenderer;
-            var end = view.endNoteView;
-            _end = end ? end.transform : null;
+            }
+            _mine = TransformOf(view.mineNoteView);
+            _fake = TransformOf(view.fakeNoteView);
+            _end = TransformOf(view.endNoteView);
+            _mask = TransformOf(view.noteMask);
             var lineStart = view.lineStartSpriteRenderer;
             _lineStart = lineStart ? lineStart.transform : null;
+            if (_mine) _mineScale = _mine!.localScale;
+            if (_fake) _fakeScale = _fake!.localScale;
+            if (_end) _endScale = _end!.localScale;
+            if (_lineStart) _lineStartScale = _lineStart!.localScale;
+            if (_mask)
+            {
+                _maskPosition = _mask!.localPosition;
+                _maskScale = _mask.localScale;
+            }
+            _background = view.backgroundLineRenderer;
+            _pattern = view.patternLineRenderer;
+            if (_background) _backgroundWidth = _background!.widthMultiplier;
+            if (_pattern) _patternWidth = _pattern!.widthMultiplier;
+            _patternOffset = view.patternLineOffset;
+            _lineStartOffset = view.lineStartSpriteOffset;
         }
+
+        private static Transform? TransformOf(GameObject? part) => part ? part!.transform : null;
 
         internal bool IsAlive => _view && _tap;
 
@@ -250,11 +340,11 @@ internal static class NoteSkins
         {
             if (!IsAlive || Column < 0) return;
             var skin = SettingsState.NoteSkin;
+            Resize(FlatFields.SizeFor(FieldId()), skin == NoteSkin.Default ? 1f : HoldWidthFactor);
             if (skin == NoteSkin.Default)
             {
                 if (_root) _root!.SetActive(false);
                 SetNativeVisible(true);
-                Narrow(false);
                 return;
             }
 
@@ -267,7 +357,45 @@ internal static class NoteSkins
             root.localRotation = Quaternion.Euler(0f, 0f, AngleFor(skin, Column, ColumnCount, IsMirrored(_tap!)));
             _root.SetActive(true);
             SetNativeVisible(false);
-            Narrow(true);
+        }
+
+        /// <summary>The note field this note is in: note, NoteParent, lane, field.</summary>
+        private int FieldId()
+        {
+            var parent = _view.transform.parent;
+            var lane = parent ? parent!.parent : null;
+            var field = lane ? lane!.parent : null;
+            return field ? field!.GetInstanceID() : 0;
+        }
+
+        /// <summary>
+        /// Scales the note by <paramref name="size"/> and its hold body by size times
+        /// <paramref name="narrow"/>. Never touches the note's own transform or where the
+        /// game places it, so timing and scroll distance stay the same.
+        /// </summary>
+        private void Resize(float size, float narrow)
+        {
+            if (size == _size && narrow == _narrow) return;
+            _size = size;
+            _narrow = narrow;
+            _tap!.localScale = _tapScale * size;
+            if (_mine) _mine!.localScale = _mineScale * size;
+            if (_fake) _fake!.localScale = _fakeScale * size;
+            float width = size * narrow;
+            if (_end) _end!.localScale = new Vector3(_endScale.x * width, _endScale.y * size, _endScale.z);
+            if (_lineStart) _lineStart!.localScale = new Vector3(_lineStartScale.x * width, _lineStartScale.y * size, _lineStartScale.z);
+            if (_background) _background!.widthMultiplier = _backgroundWidth * width;
+            if (_pattern) _pattern!.widthMultiplier = _patternWidth * width;
+            // The hold's pattern and start cap sit a fixed distance from the tail; keep them
+            // against the resized end cap.
+            _view.patternLineOffset = _patternOffset * size;
+            _view.lineStartSpriteOffset = _lineStartOffset * size;
+            if (_mask)
+            {
+                // The mask's local Z points along the lane (it is turned 90 degrees).
+                _mask!.localPosition = new Vector3(_maskPosition.x * size, _maskPosition.y * size, _maskPosition.z);
+                _mask.localScale = new Vector3(_maskScale.x * size, _maskScale.y, _maskScale.z * size);
+            }
         }
 
         private void Build()
@@ -294,39 +422,24 @@ internal static class NoteSkins
             foreach (var shape in _native)
                 if (shape) shape.enabled = visible;
         }
-
-        private void Narrow(bool narrow)
-        {
-            if (_narrowed == narrow) return;
-            if (narrow)
-            {
-                if (_background) { _backgroundWidth = _background!.widthMultiplier; _background.widthMultiplier = _backgroundWidth * HoldWidthFactor; }
-                if (_pattern) { _patternWidth = _pattern!.widthMultiplier; _pattern.widthMultiplier = _patternWidth * HoldWidthFactor; }
-                if (_end) { _endScale = _end!.localScale; _end.localScale = new Vector3(_endScale.x * HoldWidthFactor, _endScale.y, _endScale.z); }
-                if (_lineStart) { _lineStartScale = _lineStart!.localScale; _lineStart.localScale = new Vector3(_lineStartScale.x * HoldWidthFactor, _lineStartScale.y, _lineStartScale.z); }
-            }
-            else
-            {
-                if (_background) _background!.widthMultiplier = _backgroundWidth;
-                if (_pattern) _pattern!.widthMultiplier = _patternWidth;
-                if (_end) _end!.localScale = _endScale;
-                if (_lineStart) _lineStart!.localScale = _lineStartScale;
-            }
-            _narrowed = narrow;
-        }
     }
 
     /// <summary>One note field's receptors, found by a scan that runs about once a second.</summary>
     private sealed class SkinnedField
     {
         private readonly Transform _field;
+        private readonly int _fieldId;
         private readonly List<(int ColumnId, SkinnedReceptor Receptor, int Index)> _receptors = new();
         private int _activeColumns;
         private float _nextScan;
         private NoteSkin _scannedSkin;
         private bool? _mirrored;
 
-        internal SkinnedField(Transform field) => _field = field;
+        internal SkinnedField(Transform field)
+        {
+            _field = field;
+            _fieldId = field.GetInstanceID();
+        }
 
         internal bool IsAlive => _field;
 
@@ -344,7 +457,8 @@ internal static class NoteSkins
             bool mirrored = IsMirrored(_field);
             bool flipped = _mirrored.HasValue && _mirrored.Value != mirrored;
             _mirrored = mirrored;
-            foreach (var (_, receptor, index) in _receptors) receptor.Update(skin, index, columns, mirrored);
+            float size = FlatFields.SizeFor(_fieldId);
+            foreach (var (_, receptor, index) in _receptors) receptor.Update(skin, index, columns, mirrored, size);
             return flipped;
         }
 
@@ -387,6 +501,7 @@ internal static class NoteSkins
         private bool _shown;
         private SkinArt.Shape _shape;
         private float _angle;
+        private float _size = -1f;
 
         private SkinnedReceptor(Transform column, ShapeRenderer? fill, ShapeRenderer? border, ShapeRenderer? decal)
         {
@@ -418,7 +533,7 @@ internal static class NoteSkins
 
         internal bool IsAlive => _column;
 
-        internal void Update(NoteSkin skin, int column, int columnCount, bool mirrored)
+        internal void Update(NoteSkin skin, int column, int columnCount, bool mirrored, float size)
         {
             if (skin == NoteSkin.Default)
             {
@@ -435,6 +550,13 @@ internal static class NoteSkins
             {
                 Build();
                 _shown = false;
+                _size = -1f;
+            }
+            if (size != _size)
+            {
+                _size = size;
+                _root!.transform.localScale = Vector3.one * (ReceptorScale * size);
+                _glowRoot!.transform.localScale = Vector3.one * (ReceptorScale * size * SkinArt.GlowSize / SkinArt.NoteSize);
             }
             var shape = ShapeFor(skin, column, columnCount);
             float angle = AngleFor(skin, column, columnCount, mirrored);

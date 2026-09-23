@@ -5,8 +5,8 @@ namespace NocturneFlatScroll;
 
 /// <summary>
 /// An early/late ("fast/slow") bar in the style of osu!'s hit error meter. It lives in the
-/// note field just behind the receptors, so it follows each scroll layout, the receptor
-/// height, and the default perspective track. Early hits are on the rabbit's side (left).
+/// note field next to the receptors, so it follows each scroll layout, the receptor height,
+/// and the default perspective track. Early hits are on the rabbit's side (left).
 /// </summary>
 internal static class TimingBar
 {
@@ -23,10 +23,18 @@ internal static class TimingBar
     private const double Range = 0.17;          // seconds shown at each end of the bar
     private const int MaxTicks = 32;
     private const float TickLife = 4f;           // seconds a tick stays visible
-    private const float Gap = 27f;               // field units from the receptors to the bar
+    private const float Gap = 27f;               // field units behind the receptors, at 100% note size
     private const float TrackHeight = 2.2f;
     private const float BandHeight = 1.4f;
     private const float IconSize = 8f;
+    // How far the bar reaches from its centre line: the average marker on one side, the
+    // centre tick and icons on the other.
+    private const float MarkerReach = 5f;
+    private const float IconReach = 4f;
+    // The player sprite stands at the bottom centre of the game's 16:9 view, from about 7% to
+    // 24% of the height (viewport y, measured in battle with a margin added).
+    private const float PlayerBottom = 0.065f;
+    private const float PlayerTop = 0.25f;
     private static readonly Color TrackColor = new(0.067f, 0.063f, 0.106f, 0.85f);
     private static readonly Color IconColor = new(0.616f, 0.573f, 0.706f, 1f);
 
@@ -93,10 +101,21 @@ internal static class TimingBar
     {
         int id = view.GetInstanceID();
         bool show = SettingsState.TimingBar && view.gameObject.activeInHierarchy;
-        if (!Bars.TryGetValue(id, out var bar) || !bar.IsAlive)
+        // "Above enemy" in 2D upscroll draws the bar through the fighters' camera instead.
+        var top = show && SettingsState.Mode == ScrollMode.Upscroll2D && SettingsState.TimingBarTop
+            ? FighterCamera(view) : null;
+        Bars.TryGetValue(id, out var bar);
+        if (bar != null && (!bar.IsAlive || (show && bar.OnTop != (top != null))))
+        {
+            // A bar that moves between the note field and the top of the screen is built anew.
+            bar.Destroy();
+            Bars.Remove(id);
+            bar = null;
+        }
+        if (bar == null)
         {
             if (!show || Failed.Contains(id)) return;
-            try { bar = new Bar(field); }
+            try { bar = new Bar(field, top); }
             catch
             {
                 // Try again on the next battle's field, not on every frame of this one.
@@ -111,10 +130,46 @@ internal static class TimingBar
         float now = Time.unscaledTime;
         if (now < nextPrune) return;
         nextPrune = now + 1f;
-        // Bars of finished battles.
+        // Bars of finished battles. A bar on the fighters' camera outlives its field.
         Dead.Clear();
-        foreach (var pair in Bars) if (!pair.Value.IsAlive) Dead.Add(pair.Key);
+        foreach (var pair in Bars)
+        {
+            if (pair.Value.IsAlive) continue;
+            pair.Value.Destroy();
+            Dead.Add(pair.Key);
+        }
         foreach (var dead in Dead) Bars.Remove(dead);
+    }
+
+    private static readonly Dictionary<int, Camera> FighterCameras = new();
+    private static float nextCameraSearch;
+
+    /// <summary>
+    /// The orthographic camera that draws the fighters over the note field, found through the
+    /// battle's CharacterFieldView canvas, or by name.
+    /// </summary>
+    private static Camera? FighterCamera(CombatNoteFieldView view)
+    {
+        int id = view.GetInstanceID();
+        if (FighterCameras.TryGetValue(id, out var cached) && cached) return cached;
+        float now = Time.unscaledTime;
+        if (now < nextCameraSearch) return null;
+        nextCameraSearch = now + 1f;
+        Camera? found = null;
+        var root = view.transform.parent;
+        var fighters = root ? root!.Find("CharacterFieldView") : null;
+        var canvas = fighters ? fighters!.GetComponent<Canvas>() : null;
+        if (canvas && canvas!.worldCamera && canvas.worldCamera.orthographic) found = canvas.worldCamera;
+        if (!found)
+            foreach (var candidate in Resources.FindObjectsOfTypeAll<Camera>())
+            {
+                if (!candidate || candidate.gameObject.scene.handle == 0 || !candidate.orthographic ||
+                    candidate.name != "Camera (Combat Orthographic)") continue;
+                found = candidate;
+                if (candidate.isActiveAndEnabled) break;
+            }
+        if (found) FighterCameras[id] = found!;
+        return found;
     }
 
     private static Color Hex(int rgb) =>
@@ -132,6 +187,7 @@ internal static class TimingBar
     private sealed class Bar
     {
         private readonly Transform _field;
+        private readonly Camera? _top;
         private readonly GameObject _root;
         private readonly Transform _rootTransform;
         private readonly SpriteRenderer _track, _center, _marker, _rabbit, _turtle;
@@ -147,6 +203,14 @@ internal static class TimingBar
         // of them it draws under the notes that are still coming in.
         private readonly int _behindLayer, _frontLayer;
         private bool? _inFront;
+        // Where the bar sits, chosen by Place and kept between choices.
+        private enum Spot { Behind, Front, Above, Below }
+        private const float Slack = 3f;
+        private Spot _spot;
+        private float _placeY;
+        private bool _hasSpot;
+        private float _nextPlace;
+        private int _placeKey;
         private bool _markerShown;
         private float _markerX;
         private bool _wasHidden = true;
@@ -160,20 +224,37 @@ internal static class TimingBar
         private float _placedHalf;
         private bool _placedMirrored;
 
-        internal Bar(Transform field)
+        /// <param name="top">The fighters' camera for the top-of-screen bar, or null for the field.</param>
+        internal Bar(Transform field, Camera? top)
         {
             _field = field;
+            _top = top;
             _root = new GameObject("FlatScrollTimingBar");
-            _root.layer = field.gameObject.layer;
+            _root.layer = top ? FighterLayer(top!) : field.gameObject.layer;
             try
             {
                 _rootTransform = _root.transform;
-                _rootTransform.SetParent(field, false);
-                _frontLayer = ReceptorLayerOf(field);
-                // The notes' layer puts misses that slide past under the bar. (The fighters
-                // come from a second camera drawn over the whole field, so they still cover it.)
-                int notes = SortingLayer.NameToID("CombatNotes");
-                _behindLayer = notes != 0 ? notes : _frontLayer;
+                if (top)
+                {
+                    // Drawn by the fighters' camera on their "Combat" sorting layer. As one group at
+                    // order 5 it sits over the fighters (orders 1-4) and under the low-health
+                    // pulse and death blackout (9), the status icons (10) and the HUD (100).
+                    _rootTransform.SetParent(top!.transform, false);
+                    int combat = SortingLayer.NameToID("Combat");
+                    _frontLayer = _behindLayer = combat != 0 ? combat : SortingLayer.NameToID("CombatNotes");
+                    var group = _root.AddComponent<UnityEngine.Rendering.SortingGroup>();
+                    group.sortingLayerID = _frontLayer;
+                    group.sortingOrder = 5;
+                }
+                else
+                {
+                    _rootTransform.SetParent(field, false);
+                    _frontLayer = ReceptorLayerOf(field);
+                    // The notes' layer puts misses that slide past under the bar. (The fighters
+                    // come from a second camera drawn over the whole field, so they still cover it.)
+                    int notes = SortingLayer.NameToID("CombatNotes");
+                    _behindLayer = notes != 0 ? notes : _frontLayer;
+                }
                 _track = Layer("Track", 20, SkinSprites.Pill(TrackHeight), true);
                 // Widest zone first so the narrower, stricter zones draw on top.
                 _bands = new SpriteRenderer[4];
@@ -216,7 +297,23 @@ internal static class TimingBar
             }
         }
 
-        internal bool IsAlive => _field && _root;
+        internal bool IsAlive => _field && _root && (_top == null || _top);
+
+        internal bool OnTop => _top != null;
+
+        internal void Destroy()
+        {
+            if (_root) UnityEngine.Object.Destroy(_root);
+        }
+
+        private static int FighterLayer(Camera camera)
+        {
+            int layer = LayerMask.NameToLayer("CombatOrthographic");
+            if (layer >= 0 && (camera.cullingMask & (1 << layer)) != 0) return layer;
+            for (int i = 0; i < 32; i++)
+                if ((camera.cullingMask & (1 << i)) != 0) return i;
+            return 0;
+        }
 
         internal void Hide()
         {
@@ -234,6 +331,7 @@ internal static class TimingBar
                 Hits.Clear();
                 hasAverage = false;
                 _nextScan = 0f;
+                _hasSpot = false;
                 _root.SetActive(true);
             }
 
@@ -245,24 +343,67 @@ internal static class TimingBar
             }
             if (!_hasLanes) return;
 
-            // Span the lanes that are in use and sit just behind their receptors.
+            // Span the lanes that are in use, keeping a readable length when they are close.
             float centerX = (_minX + _maxX) * 0.5f;
-            float half = Mathf.Min((_maxX - _minX) * 0.42f, 46f);
-            float y = _receptorY - Gap;
-            float limit = ScreenEdgeY(camera, centerX, _receptorY);
-            // Keep the icons on screen; with no room behind the receptors, go in front of them.
-            if (y - IconSize * 0.6f < limit) y = limit + IconSize * 0.6f;
-            bool inFront = y > _receptorY - 13f;
-            if (inFront) y = _receptorY + 17f;
+            float half = Mathf.Clamp((_maxX - _minX) * 0.42f, 30f, 46f);
+            if (_top != null)
+            {
+                PlaceOnTop(centerX, half);
+                UpdateTicks(now, half);
+                return;
+            }
+            // The spot is chosen twice a second, or at once when a setting changes, and kept
+            // with some slack: battle shakes move the field against the camera, and choosing
+            // afresh every frame could make the bar jump between spots while one lasts.
+            int key = SettingsKey();
+            // After a setting change the spot is chosen afresh, without leaning to the old one.
+            if (key != _placeKey) _hasSpot = false;
+            if (!_hasSpot || now >= _nextPlace)
+            {
+                _placeKey = key;
+                _nextPlace = now + 0.5f;
+                (_placeY, _spot) = Place(camera, centerX);
+                _hasSpot = true;
+            }
+            float y = _placeY;
+            bool inFront = _spot == Spot.Front;
             if (_inFront != inFront)
             {
                 _inFront = inFront;
                 int layer = inFront ? _frontLayer : _behindLayer;
                 foreach (var renderer in _renderers) renderer.sortingLayerID = layer;
+                // The average marker sits on the side away from the receptors and points back.
+                _markerTransform.localRotation = Quaternion.Euler(0f, 0f, inFront ? 0f : 180f);
             }
             bool mirrored = IsMirrored(_rootTransform);
             Layout(new Vector3(centerX, y, _depth), half, mirrored);
+            UpdateTicks(now, half);
+        }
 
+        /// <summary>
+        /// Puts the bar at the top of the screen, above the enemy, at the same size it has on the
+        /// note field. The 2D field faces the camera with its centre line at the screen's centre.
+        /// </summary>
+        private void PlaceOnTop(float centerX, float half)
+        {
+            if (!_top) return;
+            float size = _top!.orthographicSize;
+            float scale = 2f * size / (100f * FieldLayout.UnitsPerPercent);
+            if (_rootTransform.localScale.x != scale) _rootTransform.localScale = new Vector3(scale, scale, 1f);
+            if (_inFront != false)
+            {
+                // No room above: the average marker sits below the bar, pointing up at it.
+                _inFront = false;
+                _markerTransform.localRotation = Quaternion.Euler(0f, 0f, 180f);
+            }
+            // Centre 5.5 field units below the top edge, clear of the icons' reach; the fighters'
+            // canvas sits 100 units in front of this camera.
+            float y = size - (IconSize * 0.5f + 1.5f) * scale;
+            Layout(new Vector3(centerX * scale, y, 100f), half, false);
+        }
+
+        private void UpdateTicks(float now, float half)
+        {
             float scale = (float)(half / Range);
             for (int i = 0; i < MaxTicks; i++)
             {
@@ -289,9 +430,90 @@ internal static class TimingBar
             {
                 float target = Mathf.Clamp((float)(average * scale), -half, half);
                 _markerX += (target - _markerX) * (1f - Mathf.Exp(-Time.unscaledDeltaTime / 0.12f));
-                _markerTransform.localPosition = new Vector3(_markerX, -3.4f, 0f);
+                _markerTransform.localPosition = new Vector3(_markerX, _inFront == true ? 3.4f : -3.4f, 0f);
             }
             else _markerX = 0f;
+        }
+
+        private static int SettingsKey() => HashCode.Combine(SettingsState.Mode, SettingsState.NoteSkin,
+            SettingsState.NoteSize.Value, SettingsState.ReceptorHeight);
+
+        /// <summary>
+        /// Field-local y for the bar's centre line, and which spot that is. Field-local -y
+        /// always points behind the receptors, toward their screen edge. Every test leans
+        /// toward the current spot by <see cref="Slack"/>, more than a battle shake moves things.
+        /// </summary>
+        private (float Y, Spot Spot) Place(Camera? camera, float x)
+        {
+            var mode = SettingsState.Mode;
+            float size = mode == ScrollMode.Default ? 1f : SettingsState.NoteSize.Factor;
+            // Room the receptor and its press glow take up on either side of their centre line.
+            float receptor = (SettingsState.NoteSkin == NoteSkin.Default ? 9f : 12f) * size;
+            // The key and AUTO labels sit behind the receptor: a 9-unit-tall canvas centred 11
+            // units back, moved further back for larger or skinned receptors in 2D.
+            float drop = mode == ScrollMode.Default ? 0f : LaneColumn.LabelDrop(size);
+            float behindClear = Mathf.Max(receptor, 15.5f + drop);
+            float front = _receptorY + receptor + 5f;
+            float edge = ScreenEdgeY(camera, x, _receptorY);
+
+            if (mode == ScrollMode.Upscroll2D)
+            {
+                // The enemy stands above the receptors, over the whole field, so the bar goes
+                // below them where only the incoming notes pass; notes draw over it.
+                float y = front;
+                float head = FieldY(camera, x, PlayerTop);
+                if (!float.IsNaN(head) && y + MarkerReach > head)
+                {
+                    // Stay clear of the player's head, or go back behind the receptors if the
+                    // receptors themselves reach down that far.
+                    y = head - MarkerReach;
+                    if (y - IconReach < _receptorY + receptor + Lean(Spot.Behind))
+                        return (Behind(size, edge), Spot.Behind);
+                }
+                return (y, Spot.Front);
+            }
+
+            float behind = Behind(size, edge);
+            if (behind > _receptorY - behindClear - IconReach - Lean(Spot.Front)) return (front, Spot.Front);
+            if (mode == ScrollMode.Downscroll2D)
+            {
+                // The player stands at the bottom centre, over the field. If they would cover
+                // the middle of the bar, fit it above their head or below their feet.
+                float top = FieldY(camera, x, PlayerTop);
+                float bottom = FieldY(camera, x, PlayerBottom);
+                float overlap = -Lean(Spot.Behind);
+                if (!float.IsNaN(top) && !float.IsNaN(bottom) &&
+                    behind - MarkerReach < top + overlap && behind + IconReach > bottom - overlap)
+                {
+                    float above = top + MarkerReach;
+                    if (above + IconReach <= _receptorY - behindClear + Lean(Spot.Above)) return (above, Spot.Above);
+                    float below = bottom - IconReach;
+                    if (below - MarkerReach >= edge - Lean(Spot.Below)) return (below, Spot.Below);
+                    return (front, Spot.Front);
+                }
+            }
+            return (behind, Spot.Behind);
+        }
+
+        /// <summary>Slack in favour of a spot: positive for the current one, negative otherwise.</summary>
+        private float Lean(Spot spot) => !_hasSpot ? 0f : _spot == spot ? Slack : -Slack;
+
+        /// <summary>The spot behind the receptors, pulled in to keep the icons on screen.</summary>
+        private float Behind(float size, float edge)
+        {
+            float y = _receptorY - (Gap + 12f * (size - 1f));
+            return y - IconSize * 0.6f < edge ? edge + IconSize * 0.6f : y;
+        }
+
+        /// <summary>Field-local y seen at a viewport height, or NaN when the camera cannot tell.</summary>
+        private float FieldY(Camera? camera, float x, float viewportY)
+        {
+            if (!camera) return float.NaN;
+            var receptor = camera!.WorldToViewportPoint(_field.TransformPoint(new Vector3(x, _receptorY, 0f)));
+            var ray = camera.ViewportPointToRay(new Vector3(receptor.x, viewportY, 0f));
+            var plane = new Plane(_field.TransformDirection(Vector3.forward), _field.position);
+            if (!plane.Raycast(ray, out float enter)) return float.NaN;
+            return _field.InverseTransformPoint(ray.GetPoint(enter)).y;
         }
 
         private void ScanLanes()
