@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+.vs/
+.vscode/
+*.user
+*.suo
+*.pdb
+*.log
+.env
+.env.*
+backups/
+analysis/
+test-fixtures/
+payload/
+releases/

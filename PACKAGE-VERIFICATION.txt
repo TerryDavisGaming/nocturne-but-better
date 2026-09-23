@@ -1,0 +1,44 @@
+Nocturne Flat Scroll 2.1.2 - package verification
+Checked September 23, 2026 on Windows, using Windows PowerShell 5.1.
+
+INSTALLER
+- Scripts parse successfully in Windows PowerShell 5.1.
+- Steam discovery locates the installed game through the local Steam setup.
+- A running Nocturne process prevents installation before any game writes.
+- Install and uninstall previews leave fixture files unchanged.
+- Supported original game files install correctly in a folder with spaces.
+- Existing compatible Doorstop/BepInEx settings and another mod are kept.
+- No game-generated interop files are copied by installation.
+- Repeat installation and repeat uninstall leave existing files unchanged.
+- Removal disables only this verified plugin and preserves shared loader files.
+- Reinstallation after removal succeeds.
+- Wrong Steam build, unknown game asset, corrupt plugin/loader payload,
+  conflicting loader, disabled Doorstop, and unknown installed plugin are
+  rejected without changing fixture files.
+- Actual installed game and mod hashes were unchanged by these tests.
+
+Tests use disposable local game-file copies. They do not start a second
+game session or modify the player's installation, saves, or account data.
+
+OPTIONAL FULLSCREEN SCRIPT
+- 17 Windows PowerShell 5.1 fixture checks passed, covering exact original
+  and DirectX 11 hashes, forward/reverse round trips, repeat operations,
+  backup preservation, rejection of unknown files/builds/backups, and the
+  running-game guard.
+- Read-only command-line preview on the actual installation passed.
+
+SHAREABLE DLL
+- Rebuilt from the same 2.1.2 source with debug symbols disabled.
+- All 98 method bodies and signatures match the installed build; metadata
+  matches after normalizing only the module ID.
+- No tested personal-path or PDB markers remain in the shareable DLL.
+
+GAMEPLAY COVERAGE
+All three scrolling options and setting persistence were checked in-game
+before packaging. The latest compact bars were visually checked in 2D
+Upscroll at a battle ready screen. Full-battle note hits, holds, animated
+meter effects, and a five-lane visual test have not been verified. Fresh
+loader startup has not been tested on a second physical computer.
+
+See TECHNICAL-NOTES.md for compatibility and THIRD-PARTY-NOTICES.txt for
+the official loader and corresponding-source provenance.

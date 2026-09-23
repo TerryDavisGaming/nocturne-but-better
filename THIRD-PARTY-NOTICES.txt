@@ -1,0 +1,142 @@
+NOCTURNE FLAT SCROLL - THIRD-PARTY NOTICES
+
+This package includes the original, unmodified BepInEx Windows x64 IL2CPP
+loader archive. The loader and its dependencies are separate from the
+Nocturne Flat Scroll plugin and retain their respective licenses.
+
+Original archive:
+  BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788+5b766a3.zip
+  Build: 788, 2026-09-01T05:05:25.8839890+00:00
+  Size: 34,336,405 bytes
+  SHA-256: f4cc496bd098a0df4164b81e3737297707f13a47c2478dba2f60eefab784817a
+  Official builds: https://builds.bepinex.dev/projects/bepinex_be
+
+The license documents in licenses/ are verbatim copies from the official
+repositories. licenses/license-sources.json records their exact source
+URLs, revisions, sizes, and hashes. Version information below comes from
+the bundled DLL metadata and the pinned BepInEx build scripts.
+
+LGPL COMPONENTS AND INCLUDED CORRESPONDING SOURCE
+
+BepInEx 6.0.0-be.788
+  Copyright 2022 BepInEx Team.
+  License: LGPL-2.1-only; licenses/BepInEx-LICENSE.txt
+  Source revision: 5b766a3b7f6c164d4798924a93f3acf4db769d06
+  https://github.com/BepInEx/BepInEx/tree/5b766a3b7f6c164d4798924a93f3acf4db769d06
+  Included: third-party-source/BepInEx-source-5b766a3.zip
+
+Il2CppInterop 1.5.3 (Common, Generator, HarmonySupport, Runtime)
+  BepInEx contributors; copyright notices are retained in the source.
+  License: LGPL-3.0-only; licenses/Il2CppInterop-LICENSE.txt
+  That upstream license file includes both LGPLv3 and GPLv3 text.
+  Source revision: dbda1cb353b0f4253345dc45136d170b9e50a5a0
+  https://github.com/BepInEx/Il2CppInterop/tree/dbda1cb353b0f4253345dc45136d170b9e50a5a0
+  Included: third-party-source/Il2CppInterop-source-dbda1cb.zip
+
+UnityDoorstop 4.5.0 (winhttp.dll)
+  NeighTools/UnityDoorstop contributors; notices are retained in the source.
+  License: LGPL-2.1; licenses/UnityDoorstop-LICENSE.txt
+  https://github.com/NeighTools/UnityDoorstop/tree/v4.5.0
+  Included: third-party-source/UnityDoorstop-source-v4.5.0.zip
+
+These source archives are unchanged official repository snapshots with
+their original build scripts and dependency manifests. They contain no
+Git submodules. The source-manifest.json file in third-party-source/ gives
+download URLs, byte counts, and SHA-256 hashes. Build tools and dependencies
+can be obtained using those upstream scripts/manifests; they are not all
+bundled as offline development toolchains.
+
+The libraries remain replaceable. Nothing in this package restricts the
+rights granted by their licenses to modify, rebuild, replace, or debug
+modified versions of those libraries. The plugin's source is supplied
+separately in this package. No Nocturne game binaries, game assets, or
+generated game interop assemblies are included.
+
+OTHER BUNDLED LOADER COMPONENTS
+
+HarmonyX 2.10.2 (0Harmony.dll)
+  MIT; Copyright 2020 BepInEx.
+  licenses/HarmonyX-LICENSE.txt
+  https://github.com/BepInEx/HarmonyX/tree/v2.10.2
+
+MonoMod.RuntimeDetour and MonoMod.Utils 22.07.31.01
+  MIT; Copyright 2015-2020 0x0ade (upstream license notice).
+  licenses/MonoMod-LICENSE.txt
+  https://github.com/MonoMod/MonoMod/tree/v22.07.31.01
+
+MonoMod.Backports 1.1.2 and MonoMod.ILHelpers
+  MIT; MonoMod contributors.
+  licenses/MonoMod-Backports-LICENSE.txt
+  https://github.com/MonoMod/MonoMod/tree/a1b82852b
+  Backports records this revision. ILHelpers has no informational version
+  in its file metadata; both supplied MonoMod license revisions are retained.
+
+Mono.Cecil 0.11.4 (including Mdb, Pdb, and Rocks)
+  MIT; Jb Evain and Novell, Inc.
+  licenses/Mono-Cecil-LICENSE.txt
+  https://github.com/jbevain/cecil/tree/0.11.4
+
+Cpp2IL.Core, LibCpp2IL, StableNameDotNet, WasmDisassembler
+  2022.1.0-development.1452 (StableNameDotNet 0.1.0-development.1452)
+  MIT; Copyright 2020 Sam Byass (upstream license notice).
+  licenses/Cpp2IL-LICENSE.txt
+  https://github.com/SamboyCoding/Cpp2IL/tree/558ddd98642010897d54316b51fbaa7889fda093
+
+Disarm 2022.1.0-master.99
+  MIT; Copyright 2025 Sam Byass (upstream license notice).
+  licenses/Disarm-LICENSE.txt
+  https://github.com/SamboyCoding/Disarm/tree/8574010015c8c56bb7faad7e407c50b0abe9cc72
+
+AsmResolver 6.0.0-beta.5 (including DotNet, PE, and PE.File)
+  MIT; Copyright 2016-2025 Washi.
+  licenses/AsmResolver-LICENSE.txt
+  https://github.com/Washi1337/AsmResolver/tree/124e161a9bc0ebb83b4d97276ae3da3c9cfe2fc5
+
+AssetRipper.CIL 1.2.2
+  MIT; ds5678.
+  licenses/AssetRipper-CIL-LICENSE.txt
+  https://github.com/AssetRipper/AssetRipper.CIL/tree/06216e69825ccd6536dc17e9ca81c4d539ce9321
+
+AssetRipper.Primitives 3.2.0
+  MIT; ds5678.
+  licenses/AssetRipper-Primitives-LICENSE.txt
+  https://github.com/AssetRipper/AssetRipper.Primitives/tree/d759b3db98bf2a1cb8c2181faf5d405610aac585
+
+Gee.External.Capstone 2.3.2 (AssetRipper.Gee.External.Capstone)
+  MIT; Copyright Ahmed Garhy.
+  licenses/Capstone-NET-LICENSE.txt
+  https://github.com/9ee1/Capstone.NET/tree/b90e380c14e857865c94a355954236e678bd557c
+  The wrapper's native Capstone notice is additionally retained as
+  licenses/Capstone-native-LICENSE.txt. No native capstone.dll appears in
+  this BepInEx archive.
+
+Iced 1.21.0
+  MIT; Copyright 2018-present iced project and contributors.
+  licenses/Iced-LICENSE.txt
+  https://github.com/icedland/iced/tree/601c40570d6c986c8e1a6a2e483dd2fdf5ade552
+
+SemanticVersioning 2.0.2
+  MIT; Copyright 2016 Adam Reeve.
+  licenses/SemanticVersioning-LICENSE.txt
+  https://github.com/adamreeve/semver.net/tree/2.0.2
+
+Dobby 1.0.5 (BepInEx fork)
+  Apache License 2.0; jmpews and contributors.
+  licenses/Dobby-LICENSE.txt
+  https://github.com/BepInEx/Dobby/tree/v1.0.5
+  This revision is pinned by BepInEx's build script. No separate NOTICE
+  file is present in that source tree.
+
+.NET / mini-CoreCLR 6.0.7 (BepInEx fork)
+  MIT; Copyright .NET Foundation and Contributors.
+  licenses/BepInEx-dotnet-runtime-LICENSE.txt
+  licenses/BepInEx-dotnet-runtime-THIRD-PARTY-NOTICES.txt
+  https://github.com/BepInEx/dotnet-runtime/tree/6.0.7
+  The original .NET runtime license and third-party notices at v6.0.7 are
+  also preserved in licenses/dotnet-runtime-LICENSE.txt and
+  licenses/dotnet-runtime-THIRD-PARTY-NOTICES.txt. Individual components
+  are subject to the notices identified in those documents.
+
+These notices do not imply sponsorship or endorsement by any third-party
+project or by Nocturne's developers. The original license texts govern
+each component; this inventory does not replace those texts.
