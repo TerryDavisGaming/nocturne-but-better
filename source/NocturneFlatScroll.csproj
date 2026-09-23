@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>NocturneFlatScroll</AssemblyName>
+    <Version>2.1.2</Version>
+    <BepDir Condition="'$(BepDir)' == ''">$(NOCTURNE_GAME_DIR)\BepInEx</BepDir>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers><DebugType>none</DebugType><DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="$(BepDir)\interop\*.dll"><Private>false</Private></Reference>
+    <Reference Include="$(BepDir)\core\BepInEx.Core.dll"><Private>false</Private></Reference>
+    <Reference Include="$(BepDir)\core\BepInEx.Unity.IL2CPP.dll"><Private>false</Private></Reference>
+    <Reference Include="$(BepDir)\core\Il2CppInterop.Runtime.dll"><Private>false</Private></Reference>
+    <Reference Include="$(BepDir)\core\Il2CppInterop.Common.dll"><Private>false</Private></Reference>
+    <Reference Include="$(BepDir)\core\0Harmony.dll"><Private>false</Private></Reference>
+  </ItemGroup>
+  <Target Name="CheckLocalGameReferences" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(BepDir)\interop\Assembly-CSharp.dll')" Text="Build with -p:BepDir=PATH_TO_YOUR_GAME\BepInEx after launching the game with the loader once." />
+  </Target>
+</Project>
