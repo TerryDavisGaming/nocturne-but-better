@@ -2,7 +2,7 @@
 
 flat upscroll and downscroll for nocturne, with compact vertical health and energy bars beside the chart. in the flat modes you can change the receptor height, the note size, and the lane spacing. it also has circle and arrow note skins, an early/late timing bar like the one in osu!mania, an optional hit sound, a miss sound volume that goes up to 300%, see-through enemy attacks, a switch for note flares, and a "but better" under the nocturne logo. you can switch back to the game's original look from the same menu. it runs on bepinex or melonloader.
 
-[download for windows](https://github.com/TerryDavisGaming/nocturne-flat-scroll/releases/download/v2.3.0/Nocturne-Flat-Scroll-2.3.0-Windows.zip) · [latest release](https://github.com/TerryDavisGaming/nocturne-flat-scroll/releases/latest)
+[download for windows](https://github.com/TerryDavisGaming/nocturne-but-better/releases/download/v2.3.0/Nocturne-Flat-Scroll-2.3.0-Windows.zip) · [latest release](https://github.com/TerryDavisGaming/nocturne-but-better/releases/latest)
 
 use the release zip to install. github's source download does not include the plugin or loader payload.
 
