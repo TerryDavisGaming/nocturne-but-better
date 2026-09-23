@@ -1,0 +1,231 @@
+[
+  {
+    "name": "Il2CppInterop",
+    "repo": "BepInEx/Il2CppInterop",
+    "ref": "dbda1cb353b0f4253345dc45136d170b9e50a5a0",
+    "url": "https://github.com/BepInEx/Il2CppInterop/blob/dbda1cb353b0f4253345dc45136d170b9e50a5a0/LICENSE",
+    "license": "LGPL-3.0-only (full LICENSE includes GPL-3.0 text)",
+    "download_url": "https://raw.githubusercontent.com/BepInEx/Il2CppInterop/dbda1cb353b0f4253345dc45136d170b9e50a5a0/LICENSE",
+    "file": "Il2CppInterop-LICENSE.txt",
+    "bytes": 42802,
+    "sha256": "5eecce16e59e24ddd9d3712012517a033f2cd0459ace22b43d5659d4624abff0"
+  },
+  {
+    "name": "HarmonyX",
+    "repo": "BepInEx/HarmonyX",
+    "ref": "v2.10.2",
+    "url": "https://github.com/BepInEx/HarmonyX/blob/v2.10.2/LICENSE",
+    "license": "MIT",
+    "download_url": "https://raw.githubusercontent.com/BepInEx/HarmonyX/v2.10.2/LICENSE",
+    "file": "HarmonyX-LICENSE.txt",
+    "bytes": 1063,
+    "sha256": "7e54ab4766ef78637a05fb3454663a66de6bb960dbd4c7088890ed76b0844f36"
+  },
+  {
+    "name": "UnityDoorstop",
+    "repo": "NeighTools/UnityDoorstop",
+    "ref": "v4.5.0",
+    "url": "https://github.com/NeighTools/UnityDoorstop/blob/v4.5.0/LICENSE",
+    "license": "LGPL-2.1",
+    "download_url": "https://raw.githubusercontent.com/NeighTools/UnityDoorstop/v4.5.0/LICENSE",
+    "file": "UnityDoorstop-LICENSE.txt",
+    "bytes": 26526,
+    "sha256": "20c17d8b8c48a600800dfd14f95d5cb9ff47066a9641ddeab48dc54aec96e331"
+  },
+  {
+    "name": "AsmResolver",
+    "repo": "Washi1337/AsmResolver",
+    "ref": "124e161a9bc0ebb83b4d97276ae3da3c9cfe2fc5",
+    "url": "https://github.com/Washi1337/AsmResolver/blob/124e161a9bc0ebb83b4d97276ae3da3c9cfe2fc5/LICENSE.md",
+    "license": "MIT",
+    "download_url": "https://raw.githubusercontent.com/Washi1337/AsmResolver/124e161a9bc0ebb83b4d97276ae3da3c9cfe2fc5/LICENSE.md",
+    "file": "AsmResolver-LICENSE.txt",
+    "bytes": 1108,
+    "sha256": "1c967bb945d9e86f79e49dda29e834d49ff3cb203c9a98878e7661b3de7a5559"
+  },
+  {
+    "name": "AssetRipper-CIL",
+    "repo": "AssetRipper/AssetRipper.CIL",
+    "ref": "06216e69825ccd6536dc17e9ca81c4d539ce9321",
+    "license": "MIT",
+    "url": "https://github.com/AssetRipper/AssetRipper.CIL/blob/06216e69825ccd6536dc17e9ca81c4d539ce9321/LICENSE",
+    "download_url": "https://raw.githubusercontent.com/AssetRipper/AssetRipper.CIL/06216e69825ccd6536dc17e9ca81c4d539ce9321/LICENSE",
+    "file": "AssetRipper-CIL-LICENSE.txt",
+    "bytes": 1062,
+    "sha256": "039cd624a13919c3af1aec3ce2217c3f50d6e3053f6e9ef64d9cf37e12812a76"
+  },
+  {
+    "name": "AssetRipper-Primitives",
+    "repo": "AssetRipper/AssetRipper.Primitives",
+    "ref": "d759b3db98bf2a1cb8c2181faf5d405610aac585",
+    "license": "MIT",
+    "url": "https://github.com/AssetRipper/AssetRipper.Primitives/blob/d759b3db98bf2a1cb8c2181faf5d405610aac585/License.md",
+    "download_url": "https://raw.githubusercontent.com/AssetRipper/AssetRipper.Primitives/d759b3db98bf2a1cb8c2181faf5d405610aac585/License.md",
+    "file": "AssetRipper-Primitives-LICENSE.txt",
+    "bytes": 1062,
+    "sha256": "dae6148ff7ad3331a6380a2ce0cbb87f71b8f177891aba1661b1d3a6fe52d5de"
+  },
+  {
+    "name": "Cpp2IL",
+    "repo": "SamboyCoding/Cpp2IL",
+    "ref": "558ddd98642010897d54316b51fbaa7889fda093",
+    "url": "https://github.com/SamboyCoding/Cpp2IL/blob/558ddd98642010897d54316b51fbaa7889fda093/LICENSE",
+    "license": "MIT",
+    "download_url": "https://raw.githubusercontent.com/SamboyCoding/Cpp2IL/558ddd98642010897d54316b51fbaa7889fda093/LICENSE",
+    "file": "Cpp2IL-LICENSE.txt",
+    "bytes": 1066,
+    "sha256": "1a80d1b99e958385045da1e383a105895d1c997ef2b36448430dbfe3763fe670"
+  },
+  {
+    "name": "Disarm",
+    "repo": "SamboyCoding/Disarm",
+    "ref": "8574010015c8c56bb7faad7e407c50b0abe9cc72",
+    "url": "https://github.com/SamboyCoding/Disarm/blob/8574010015c8c56bb7faad7e407c50b0abe9cc72/LICENSE",
+    "license": "MIT",
+    "download_url": "https://raw.githubusercontent.com/SamboyCoding/Disarm/8574010015c8c56bb7faad7e407c50b0abe9cc72/LICENSE",
+    "file": "Disarm-LICENSE.txt",
+    "bytes": 1066,
+    "sha256": "dfe5ef7511938e4d23b12c80f38e966a7993aee60744ab72a947bed7b24963b8"
+  },
+  {
+    "name": "Capstone-NET",
+    "repo": "9ee1/Capstone.NET",
+    "ref": "b90e380c14e857865c94a355954236e678bd557c",
+    "url": "https://github.com/9ee1/Capstone.NET/blob/b90e380c14e857865c94a355954236e678bd557c/LICENSE",
+    "license": "MIT",
+    "download_url": "https://raw.githubusercontent.com/9ee1/Capstone.NET/b90e380c14e857865c94a355954236e678bd557c/LICENSE",
+    "file": "Capstone-NET-LICENSE.txt",
+    "bytes": 1062,
+    "sha256": "79463fa3b9facda0f90e33eda09ff57c6c4d5620ba8b01e5c48a68834e20de4e"
+  },
+  {
+    "name": "Iced",
+    "repo": "icedland/iced",
+    "ref": "601c40570d6c986c8e1a6a2e483dd2fdf5ade552",
+    "url": "https://github.com/icedland/iced/blob/601c40570d6c986c8e1a6a2e483dd2fdf5ade552/LICENSE.txt",
+    "license": "MIT",
+    "download_url": "https://raw.githubusercontent.com/icedland/iced/601c40570d6c986c8e1a6a2e483dd2fdf5ade552/LICENSE.txt",
+    "file": "Iced-LICENSE.txt",
+    "bytes": 1114,
+    "sha256": "93a47598376fd3f276b631e75149340087153c6ff1635a53c5790249e9124e2d"
+  },
+  {
+    "name": "Mono-Cecil",
+    "repo": "jbevain/cecil",
+    "ref": "0.11.4",
+    "url": "https://github.com/jbevain/cecil/blob/0.11.4/LICENSE.txt",
+    "license": "MIT",
+    "download_url": "https://raw.githubusercontent.com/jbevain/cecil/0.11.4/LICENSE.txt",
+    "file": "Mono-Cecil-LICENSE.txt",
+    "bytes": 1098,
+    "sha256": "13d58ecbed676511c0c4c4009bff107025e50007ff5e7901dc562700ec62509e"
+  },
+  {
+    "name": "MonoMod",
+    "repo": "MonoMod/MonoMod",
+    "ref": "v22.07.31.01",
+    "url": "https://github.com/MonoMod/MonoMod/blob/v22.07.31.01/LICENSE",
+    "license": "MIT",
+    "download_url": "https://raw.githubusercontent.com/MonoMod/MonoMod/v22.07.31.01/LICENSE",
+    "file": "MonoMod-LICENSE.txt",
+    "bytes": 1080,
+    "sha256": "0b64833222e3c6a426ad29362d26334619fe02eaf2b89ea9c37805521896c920"
+  },
+  {
+    "name": "MonoMod-Backports",
+    "repo": "MonoMod/MonoMod",
+    "ref": "a1b82852b",
+    "url": "https://github.com/MonoMod/MonoMod/blob/a1b82852b/LICENSE",
+    "license": "MIT",
+    "download_url": "https://raw.githubusercontent.com/MonoMod/MonoMod/a1b82852b/LICENSE",
+    "file": "MonoMod-Backports-LICENSE.txt",
+    "bytes": 1080,
+    "sha256": "0b64833222e3c6a426ad29362d26334619fe02eaf2b89ea9c37805521896c920"
+  },
+  {
+    "name": "SemanticVersioning",
+    "repo": "adamreeve/semver.net",
+    "ref": "2.0.2",
+    "url": "https://github.com/adamreeve/semver.net/blob/2.0.2/LICENSE",
+    "license": "MIT",
+    "download_url": "https://raw.githubusercontent.com/adamreeve/semver.net/2.0.2/LICENSE",
+    "file": "SemanticVersioning-LICENSE.txt",
+    "bytes": 1054,
+    "sha256": "26a00bad0d14ca2fc93c10398d477fa9609d6fd36068867de53384218c1f64a3"
+  },
+  {
+    "name": "Dobby",
+    "repo": "BepInEx/Dobby",
+    "ref": "v1.0.5",
+    "url": "https://github.com/BepInEx/Dobby/blob/v1.0.5/LICENSE",
+    "license": "Apache-2.0",
+    "download_url": "https://raw.githubusercontent.com/BepInEx/Dobby/v1.0.5/LICENSE",
+    "file": "Dobby-LICENSE.txt",
+    "bytes": 11356,
+    "sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1"
+  },
+  {
+    "name": "dotnet-runtime",
+    "repo": "dotnet/runtime",
+    "ref": "v6.0.7",
+    "url": "https://github.com/dotnet/runtime/blob/v6.0.7/LICENSE.TXT",
+    "license": "MIT",
+    "download_url": "https://raw.githubusercontent.com/dotnet/runtime/v6.0.7/LICENSE.TXT",
+    "file": "dotnet-runtime-LICENSE.txt",
+    "bytes": 1116,
+    "sha256": "cfc21f5e8bd655ae997eec916138b707b1d290b83272c02a95c9f821b8c87310"
+  },
+  {
+    "name": "BepInEx",
+    "repo": "BepInEx/BepInEx",
+    "ref": "5b766a3b7f6c164d4798924a93f3acf4db769d06",
+    "license": "LGPL-2.1-only",
+    "url": "https://github.com/BepInEx/BepInEx/blob/5b766a3b7f6c164d4798924a93f3acf4db769d06/LICENSE",
+    "download_url": "https://raw.githubusercontent.com/BepInEx/BepInEx/5b766a3b7f6c164d4798924a93f3acf4db769d06/LICENSE",
+    "file": "BepInEx-LICENSE.txt",
+    "bytes": 25338,
+    "sha256": "f2ceca48af033d8adf337a8f9453e633cfad10a1f8c9fec2e5ae55a2d8ffe952"
+  },
+  {
+    "name": "BepInEx-dotnet-runtime",
+    "repo": "BepInEx/dotnet-runtime",
+    "ref": "6.0.7",
+    "license": "MIT",
+    "url": "https://github.com/BepInEx/dotnet-runtime/blob/6.0.7/LICENSE.TXT",
+    "download_url": "https://raw.githubusercontent.com/BepInEx/dotnet-runtime/6.0.7/LICENSE.TXT",
+    "file": "BepInEx-dotnet-runtime-LICENSE.txt",
+    "bytes": 1116,
+    "sha256": "cfc21f5e8bd655ae997eec916138b707b1d290b83272c02a95c9f821b8c87310"
+  },
+  {
+    "name": "Capstone-native",
+    "repo": "9ee1/Capstone.NET",
+    "ref": "b90e380c14e857865c94a355954236e678bd557c",
+    "license": "BSD-style (additional reference notice; native DLL absent from loader)",
+    "url": "https://github.com/9ee1/Capstone.NET/blob/b90e380c14e857865c94a355954236e678bd557c/Gee.External.Capstone/runtimes/LICENSE.TXT",
+    "download_url": "https://raw.githubusercontent.com/9ee1/Capstone.NET/b90e380c14e857865c94a355954236e678bd557c/Gee.External.Capstone/runtimes/LICENSE.TXT",
+    "file": "Capstone-native-LICENSE.txt",
+    "bytes": 1687,
+    "sha256": "65e9ed46a59976eda8f5bd1ea79a680dea38dd299c760bc9a8d87a764ef5029b"
+  },
+  {
+    "name": "dotnet-runtime third-party notices",
+    "repo": "dotnet/runtime",
+    "ref": "v6.0.7",
+    "url": "https://github.com/dotnet/runtime/blob/v6.0.7/THIRD-PARTY-NOTICES.TXT",
+    "download_url": "https://raw.githubusercontent.com/dotnet/runtime/v6.0.7/THIRD-PARTY-NOTICES.TXT",
+    "file": "dotnet-runtime-THIRD-PARTY-NOTICES.txt",
+    "bytes": 46771,
+    "sha256": "55ff71c32f96483c2f4e061eb78ee9bf3d8d562d00143c67b361bb4ce989fe44"
+  },
+  {
+    "name": "BepInEx-dotnet-runtime third-party notices",
+    "repo": "BepInEx/dotnet-runtime",
+    "ref": "6.0.7",
+    "url": "https://github.com/BepInEx/dotnet-runtime/blob/6.0.7/THIRD-PARTY-NOTICES.TXT",
+    "download_url": "https://raw.githubusercontent.com/BepInEx/dotnet-runtime/6.0.7/THIRD-PARTY-NOTICES.TXT",
+    "file": "BepInEx-dotnet-runtime-THIRD-PARTY-NOTICES.txt",
+    "bytes": 61615,
+    "sha256": "737c973bf6998979f3059c8cb94a8a81dd07305222328a351bfeec3bea956e3b"
+  }
+]
