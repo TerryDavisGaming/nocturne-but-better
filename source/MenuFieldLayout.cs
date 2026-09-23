@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Nocturne;
 using UnityEngine;
 
 namespace NocturneFlatScroll
@@ -111,7 +110,8 @@ namespace NocturneFlatScroll
                 }
             }
 
-            internal void Apply(bool upscroll)
+            /// <param name="shift">Canvas units that move the receptors toward the screen's middle.</param>
+            internal void Apply(bool upscroll, float shift)
             {
                 if (!Modified)
                 {
@@ -130,7 +130,7 @@ namespace NocturneFlatScroll
                     float originalConductorZ = -65f * Mathf.Sin(theta);
                     float canvasWorldScale = 2f * 100f * Mathf.Tan(theta) / 360f;
                     float originalDepth = 100f + originalConductorZ * 1.5f * canvasWorldScale;
-                    float projectedY = (upscroll ? 108f : -108f) * originalDepth / 100f / 1.5f;
+                    float projectedY = (upscroll ? 108f - shift : -108f + shift) * originalDepth / 100f / 1.5f;
                     targetY = Mathf.Cos(theta) * projectedY + Mathf.Sin(theta) * originalConductorZ;
                     targetZ = -Mathf.Sin(theta) * projectedY + Mathf.Cos(theta) * originalConductorZ;
                     Field.localRotation = Quaternion.Euler(-30f, 0f, 0f);
@@ -139,8 +139,8 @@ namespace NocturneFlatScroll
                 {
                     // Video calibration's top-anchored conductor is 20 units below center.
                     targetY = Kind == FieldKind.AutoVideo
-                        ? (upscroll ? 128f : -88f)
-                        : (upscroll ? 108f : -108f);
+                        ? (upscroll ? 128f - shift : -88f + shift)
+                        : (upscroll ? 108f - shift : -108f + shift);
                     Field.localRotation = Native.Rotation;
                 }
 
@@ -203,7 +203,7 @@ namespace NocturneFlatScroll
                 var state = new FieldState(field, kind);
                 Fields.Add(state);
                 KnownIds.Add(state.Id);
-                Plugin.Log.LogInfo("Flat scroll menu preview: " + field.parent.name + " (" + kind + ")");
+                ModLog.Info("Flat scroll menu preview: " + field.parent.name + " (" + kind + ")");
             }
         }
 
@@ -218,12 +218,14 @@ namespace NocturneFlatScroll
         /// <summary>Reapplies absolute values after menu animations, without accumulating flips.</summary>
         internal static void Apply(ScrollMode mode)
         {
+            // The previews use a 360-unit-high canvas, so 1% of screen height is 3.6 units.
+            float shift = SettingsState.ReceptorHeight * 3.6f;
             foreach (var state in Fields)
             {
                 if (state.Field == null) continue;
                 // Include inactive panels, but write the native baseline only once.
                 if (mode == ScrollMode.Default) state.Restore();
-                else state.Apply(mode == ScrollMode.Upscroll2D);
+                else state.Apply(mode == ScrollMode.Upscroll2D, shift);
             }
         }
 

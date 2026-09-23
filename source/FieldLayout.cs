@@ -1,4 +1,3 @@
-using Nocturne;
 using UnityEngine;
 
 namespace NocturneFlatScroll;
@@ -10,6 +9,11 @@ internal static class FieldLayout
     private static readonly Vector3 UpPosition = new(0f, 49.47874656f, 61.06627922f);
     private static readonly Vector3 DownPosition = new(0f, 4.26273263f, -1.16822486f);
     private static readonly Quaternion FlatRotation = Quaternion.Euler(54f, 0f, 0f);
+    // The flat Field faces the combat camera, so its local Y axis is screen-up. Moving
+    // along it changes only the receptors' height, never their depth or lane width.
+    private static readonly Vector3 ScreenUp = FlatRotation * Vector3.up;
+    // Field units per 1% of screen height at the combat camera's distance.
+    internal const float UnitsPerPercent = 1.9527f;
     private static readonly Dictionary<int, FieldState> Fields = new();
 
     public static void Apply(CombatNoteFieldView view, ScrollMode mode)
@@ -30,10 +34,13 @@ internal static class FieldLayout
             if (!field) return;
             state = new FieldState(field);
             Fields[id] = state;
-            Plugin.Log.LogInfo("Registered combat field for flat scrolling.");
+            ModLog.Info("Registered combat field for flat scrolling.");
         }
         state.BeginModification();
-        state.Field.localPosition = up ? UpPosition : DownPosition;
+        // A positive height moves the receptors in from their screen edge in both
+        // directions: upward in downscroll and downward in upscroll.
+        float shift = SettingsState.ReceptorHeight * UnitsPerPercent * (up ? -1f : 1f);
+        state.Field.localPosition = (up ? UpPosition : DownPosition) + ScreenUp * shift;
         state.Field.localRotation = FlatRotation;
         state.Field.localScale = new Vector3(1f, up ? -1f : 1f, 1f);
         state.ApplyLabels(up);

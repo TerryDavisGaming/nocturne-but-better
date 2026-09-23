@@ -1,15 +1,26 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <!-- Build the BepInEx plugin by default, or the MelonLoader mod with -p:Loader=MelonLoader. -->
   <PropertyGroup>
+    <Loader Condition="'$(Loader)' == ''">BepInEx</Loader>
     <TargetFramework>net6.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <AssemblyName>NocturneFlatScroll</AssemblyName>
-    <Version>2.1.2</Version>
+    <Version>2.2.0</Version>
+    <!-- Keep builds reproducible: no git commit hash in the informational version. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <BepDir Condition="'$(BepDir)' == ''">$(NOCTURNE_GAME_DIR)\BepInEx</BepDir>
+    <MelonDir Condition="'$(MelonDir)' == ''">$(NOCTURNE_GAME_DIR)\MelonLoader</MelonDir>
     <EnableNETAnalyzers>false</EnableNETAnalyzers><DebugType>none</DebugType><DebugSymbols>false</DebugSymbols>
+    <IntermediateOutputPath>obj\$(Loader)\$(Configuration)\</IntermediateOutputPath>
+    <OutputPath>bin\$(Loader)\$(Configuration)\</OutputPath>
   </PropertyGroup>
-  <ItemGroup>
+  <PropertyGroup Condition="'$(Loader)' == 'MelonLoader'">
+    <AssemblyName>NocturneFlatScroll.MelonLoader</AssemblyName>
+    <DefineConstants>$(DefineConstants);MELONLOADER</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(Loader)' == 'BepInEx'">
     <Reference Include="$(BepDir)\interop\*.dll"><Private>false</Private></Reference>
     <Reference Include="$(BepDir)\core\BepInEx.Core.dll"><Private>false</Private></Reference>
     <Reference Include="$(BepDir)\core\BepInEx.Unity.IL2CPP.dll"><Private>false</Private></Reference>
@@ -17,7 +28,16 @@
     <Reference Include="$(BepDir)\core\Il2CppInterop.Common.dll"><Private>false</Private></Reference>
     <Reference Include="$(BepDir)\core\0Harmony.dll"><Private>false</Private></Reference>
   </ItemGroup>
+  <ItemGroup Condition="'$(Loader)' == 'MelonLoader'">
+    <Reference Include="$(MelonDir)\Il2CppAssemblies\*.dll"><Private>false</Private></Reference>
+    <Reference Include="$(MelonDir)\net6\MelonLoader.dll"><Private>false</Private></Reference>
+    <Reference Include="$(MelonDir)\net6\Il2CppInterop.Runtime.dll"><Private>false</Private></Reference>
+    <Reference Include="$(MelonDir)\net6\Il2CppInterop.Common.dll"><Private>false</Private></Reference>
+    <Reference Include="$(MelonDir)\net6\0Harmony.dll"><Private>false</Private></Reference>
+  </ItemGroup>
   <Target Name="CheckLocalGameReferences" BeforeTargets="ResolveReferences">
-    <Error Condition="!Exists('$(BepDir)\interop\Assembly-CSharp.dll')" Text="Build with -p:BepDir=PATH_TO_YOUR_GAME\BepInEx after launching the game with the loader once." />
+    <Error Condition="'$(Loader)' != 'BepInEx' And '$(Loader)' != 'MelonLoader'" Text="Loader must be BepInEx or MelonLoader." />
+    <Error Condition="'$(Loader)' == 'BepInEx' And !Exists('$(BepDir)\interop\Assembly-CSharp.dll')" Text="Build with -p:BepDir=PATH_TO_YOUR_GAME\BepInEx after launching the game with BepInEx once." />
+    <Error Condition="'$(Loader)' == 'MelonLoader' And !Exists('$(MelonDir)\Il2CppAssemblies\Assembly-CSharp.dll')" Text="Build with -p:Loader=MelonLoader -p:MelonDir=PATH_TO_YOUR_GAME\MelonLoader after launching the game with MelonLoader once." />
   </Target>
 </Project>

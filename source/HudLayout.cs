@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using Nocturne;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -35,7 +34,7 @@ namespace NocturneFlatScroll
             internal Transform PlayerEnergy;
             internal Transform EnemyHealth;
             internal Transform EnemyEnergy;
-            internal Gameframe.SMRhythmPresenter.NoteFieldBehaviour NoteField;
+            internal NoteFieldBehaviour NoteField;
             internal readonly List<Transform> Columns = new List<Transform>();
             internal Transform Armor;
             internal RectTransform PlayerBuffs;
@@ -249,7 +248,7 @@ namespace NocturneFlatScroll
                 return false;
 
             Transform field = state.View.transform.Find("FieldPivot/Field");
-            state.NoteField = state.View.GetComponentInChildren<Gameframe.SMRhythmPresenter.NoteFieldBehaviour>(true);
+            state.NoteField = state.View.GetComponentInChildren<NoteFieldBehaviour>(true);
             if (field)
                 for (int i = 0; i < field.childCount; i++)
                 {

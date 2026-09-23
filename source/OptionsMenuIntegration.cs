@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using HarmonyLib;
 using Il2CppInterop.Runtime;
-using Nocturne;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
@@ -11,17 +10,33 @@ using Object = UnityEngine.Object;
 
 namespace NocturneFlatScroll;
 
-/// <summary>Adds a native gameplay-options row without replacing an existing setting.</summary>
+/// <summary>Adds native gameplay-options rows without replacing an existing setting.</summary>
 internal static class OptionsMenuIntegration
 {
-    private const string RowName = "StateToggle_FlatNoteScrolling";
-    private const string Title = "Note scrolling";
-    private const string Help = "Choose the original layout, flat downscroll, or flat upscroll.";
-    private static readonly Dictionary<int, MenuRow> Rows = new();
+    private static readonly RowSpec ScrollSpec = new(
+        "StateToggle_FlatNoteScrolling",
+        "Note scrolling",
+        "Choose the original layout, flat downscroll, or flat upscroll.",
+        new[] { "Default", "2D Downscroll", "2D Upscroll" },
+        () => (int)SettingsState.Mode,
+        ChangeMode);
+
+    private static readonly RowSpec ReceptorSpec = new(
+        "StateToggle_FlatReceptorHeight",
+        "Receptor height",
+        "Moves the 2D receptors in from their screen edge: up in downscroll, down in upscroll.",
+        Enumerable.Range(SettingsState.MinReceptorHeight,
+                SettingsState.MaxReceptorHeight - SettingsState.MinReceptorHeight + 1)
+            .Select(SettingsState.FormatReceptorHeight).ToArray(),
+        () => SettingsState.ReceptorHeight - SettingsState.MinReceptorHeight,
+        ChangeReceptorHeight);
+
+    private static readonly Dictionary<int, MenuRows> Menus = new();
     private static bool installed;
     private static bool refreshing;
 
-    internal static void Install(Harmony harmony)
+    // Qualified because MelonLoader also defines a legacy root namespace named Harmony.
+    internal static void Install(HarmonyLib.Harmony harmony)
     {
         if (installed) return;
         var ready = new HarmonyMethod(typeof(OptionsMenuIntegration), nameof(MenuReadyPostfix));
@@ -36,7 +51,11 @@ internal static class OptionsMenuIntegration
                 ?? throw new MissingMethodException(typeof(GameplayOptionsMenu).FullName, "ResetDefaults"),
             postfix: new HarmonyMethod(typeof(OptionsMenuIntegration), nameof(ResetDefaultsPostfix)));
         installed = true;
-        // Also supports loading the plugin after an options panel was instantiated.
+    }
+
+    /// <summary>Adds the rows to an options panel that was instantiated before the patches.</summary>
+    internal static void AttachToExistingMenus()
+    {
         foreach (var menu in Resources.FindObjectsOfTypeAll<GameplayOptionsMenu>())
         {
             if (menu && menu.gameObject.scene.IsValid()) MenuReadyPostfix(menu);
@@ -50,20 +69,20 @@ internal static class OptionsMenuIntegration
         refreshing = true;
         try
         {
-            foreach (var pair in Rows.ToArray())
+            foreach (var pair in Menus.ToArray())
             {
-                var row = pair.Value;
-                if (!row.Menu || !row.Button || !row.Toggle)
+                var rows = pair.Value;
+                if (!rows.Menu || !rows.Scroll.IsAlive || !rows.Receptor.IsAlive)
                 {
-                    Rows.Remove(pair.Key);
+                    Menus.Remove(pair.Key);
                     continue;
                 }
-                RefreshRow(row);
+                RefreshRows(rows);
             }
         }
         catch (Exception ex)
         {
-            Plugin.Log.LogError($"Refreshing note-scrolling option failed: {ex}");
+            ModLog.Error($"Refreshing flat-scroll options failed: {ex}");
         }
         finally { refreshing = false; }
     }
@@ -72,27 +91,28 @@ internal static class OptionsMenuIntegration
     {
         if (!__instance || refreshing) return;
         // MenuPanel.Awake can hide its object before this postfix runs. The subsequent
-        // Activate/DidShow hook creates the row once native child lifecycle methods can run.
+        // Activate/DidShow hook creates the rows once native child lifecycle methods can run.
         if (!__instance.gameObject.activeInHierarchy) return;
         try
         {
             var id = __instance.GetInstanceID();
-            if (!Rows.TryGetValue(id, out var row) || !row.Button)
+            if (!Menus.TryGetValue(id, out var rows) || !rows.Scroll.IsAlive || !rows.Receptor.IsAlive)
             {
-                row = CreateRow(__instance);
-                if (row == null) return;
-                Rows[id] = row;
+                if (rows != null) rows.Destroy();
+                rows = CreateRows(__instance);
+                if (rows == null) return;
+                Menus[id] = rows;
             }
-            RefreshRow(row);
+            RefreshRows(rows);
         }
         catch (Exception ex)
         {
             // A failed optional menu extension must not prevent the original menu opening.
-            Plugin.Log.LogError($"Adding note-scrolling option failed: {ex}");
+            ModLog.Error($"Adding flat-scroll options failed: {ex}");
         }
     }
 
-    private static MenuRow? CreateRow(GameplayOptionsMenu menu)
+    private static MenuRows? CreateRows(GameplayOptionsMenu menu)
     {
         var template = menu.runModeButton;
         var anchor = menu.noteSpeedModButton;
@@ -100,11 +120,31 @@ internal static class OptionsMenuIntegration
         var parent = anchor.transform.parent;
         if (!parent) return null;
 
+        OptionRow? scroll = null;
+        try
+        {
+            // Both rows sit directly above Note speed, in this order.
+            scroll = CreateRow(template, parent, anchor, ScrollSpec);
+            var receptor = CreateRow(template, parent, anchor, ReceptorSpec);
+            if (parent.TryCast<RectTransform>() is { } content)
+                LayoutRebuilder.MarkLayoutForRebuild(content);
+            ModLog.Info("Added Note scrolling and Receptor height to Options > Gameplay.");
+            return new MenuRows(menu, scroll, receptor);
+        }
+        catch
+        {
+            scroll?.Destroy();
+            throw;
+        }
+    }
+
+    private static OptionRow CreateRow(CustomButton template, Transform parent, CustomButton anchor, RowSpec spec)
+    {
         GameObject? clone = null;
         try
         {
             clone = Object.Instantiate(template.gameObject, parent, false);
-            clone.name = RowName;
+            clone.name = spec.Name;
             var button = clone.GetComponent<CustomButton>();
             var toggle = clone.GetComponentInChildren<CustomToggleState>(true);
             if (!button || !toggle)
@@ -112,7 +152,7 @@ internal static class OptionsMenuIntegration
             EnsureToggleLayout(toggle);
 
             // Copied localization terms must not put the old row's text back on language changes.
-            foreach (var localizer in clone.GetComponentsInChildren<I2.Loc.Localize>(true))
+            foreach (var localizer in clone.GetComponentsInChildren<Localize>(true))
             {
                 localizer.enabled = false;
                 Object.Destroy(localizer);
@@ -120,8 +160,8 @@ internal static class OptionsMenuIntegration
 
             button.FirstSelection = false;
             button.RepeatOnHold = false;
-            button.Text = Title;
-            button.ButtonHelpText = Help;
+            button.Text = spec.Title;
+            button.ButtonHelpText = spec.Help;
             var helpKey = button.LocalizedHelpKey;
             helpKey.mTerm = string.Empty;
             button.LocalizedHelpKey = helpKey;
@@ -130,23 +170,18 @@ internal static class OptionsMenuIntegration
 
             toggle.localizeStates = false;
             var states = new Il2CppSystem.Collections.Generic.List<string>();
-            states.Add("Default");
-            states.Add("2D Downscroll");
-            states.Add("2D Upscroll");
+            foreach (var state in spec.States) states.Add(state);
             toggle.PopulateStates(states);
 
-            var row = new MenuRow(menu, button, toggle);
+            var row = new OptionRow(clone, button, toggle, spec);
             // Replacing, rather than appending, prevents the cloned Run Mode action from firing.
             button.onClick.AddListener(row.Click);
-            toggle.NextState = row.NextMode;
-            toggle.PreviousState = row.PreviousMode;
+            toggle.NextState = row.Next;
+            toggle.PreviousState = row.Previous;
 
             clone.transform.SetSiblingIndex(anchor.transform.GetSiblingIndex());
             clone.SetActive(true);
             toggle.UpdatePreferredTextWidth();
-            if (parent.TryCast<RectTransform>() is { } content)
-                LayoutRebuilder.MarkLayoutForRebuild(content);
-            Plugin.Log.LogInfo("Added Note scrolling to Options > Gameplay.");
             return row;
         }
         catch
@@ -156,15 +191,21 @@ internal static class OptionsMenuIntegration
         }
     }
 
-    private static void RefreshRow(MenuRow row)
+    private static void RefreshRows(MenuRows rows)
+    {
+        RefreshRow(rows.Scroll);
+        RefreshRow(rows.Receptor);
+        InsertIntoNavigation(rows);
+    }
+
+    private static void RefreshRow(OptionRow row)
     {
         EnsureToggleLayout(row.Toggle);
-        row.Button.Text = Title;
-        row.Button.ButtonHelpText = Help;
-        row.Toggle.State = (int)SettingsState.Mode;
+        row.Button.Text = row.Spec.Title;
+        row.Button.ButtonHelpText = row.Spec.Help;
+        row.Toggle.State = row.Spec.GetState();
         row.Toggle.Refresh();
         row.Toggle.UpdatePreferredTextWidth();
-        InsertIntoNavigation(row);
     }
 
     private static void EnsureToggleLayout(CustomToggleState toggle)
@@ -174,60 +215,70 @@ internal static class OptionsMenuIntegration
         if (!toggle.label)
         {
             var value = toggle.transform.Find("Label_Value");
-            if (value) toggle.label = value.GetComponent<TMPro.TMP_Text>();
+            if (value) toggle.label = value.GetComponent<TMP_Text>();
         }
         if (!toggle.label)
-            throw new InvalidOperationException("Note-scrolling state label is missing.");
+            throw new InvalidOperationException("Flat-scroll option state label is missing.");
         if (!toggle.overridePreferredWidth || toggle._layoutElement) return;
         var layout = toggle.label.GetComponent<LayoutElement>();
         if (!layout) layout = toggle.label.gameObject.AddComponent<LayoutElement>();
         toggle._layoutElement = layout;
     }
 
-    private static void InsertIntoNavigation(MenuRow row)
+    private static void InsertIntoNavigation(MenuRows rows)
     {
-        var anchor = row.Menu.noteSpeedModButton;
+        var anchor = rows.Menu.noteSpeedModButton;
         if (!anchor) return;
+        var scroll = rows.Scroll.Button;
+        var receptor = rows.Receptor.Button;
 
-        // RefreshViews reconstructs a hardcoded native navigation list. Insert our row again
+        // RefreshViews reconstructs a hardcoded native navigation list. Insert our rows again
         // after every refresh; using the actual predecessor also handles hidden native rows.
         var anchorNav = anchor.navigation;
         var previous = anchorNav.selectOnUp;
-        if (previous == row.Button) previous = row.Button.navigation.selectOnUp;
-        var rowNav = row.Button.navigation;
-        rowNav.mode = Navigation.Mode.Explicit;
-        rowNav.selectOnUp = previous;
-        rowNav.selectOnDown = anchor;
-        rowNav.selectOnLeft = null;
-        rowNav.selectOnRight = null;
-        row.Button.navigation = rowNav;
+        for (int i = 0; i < 2 && previous && (previous == receptor || previous == scroll); i++)
+            previous = previous.navigation.selectOnUp;
+        if (previous == receptor || previous == scroll) previous = null;
+
+        SetVertical(scroll, previous, receptor);
+        SetVertical(receptor, scroll, anchor);
         anchorNav.mode = Navigation.Mode.Explicit;
-        anchorNav.selectOnUp = row.Button;
+        anchorNav.selectOnUp = receptor;
         anchor.navigation = anchorNav;
-        if (previous && previous != row.Button)
+        if (previous)
         {
             var previousNav = previous.navigation;
             previousNav.mode = Navigation.Mode.Explicit;
-            previousNav.selectOnDown = row.Button;
+            previousNav.selectOnDown = scroll;
             previous.navigation = previousNav;
         }
     }
 
-    private static void NextMode() => ChangeMode(1);
-    private static void PreviousMode() => ChangeMode(-1);
-
-    private static void ChangeMode(int direction)
+    private static void SetVertical(Selectable row, Selectable? up, Selectable down)
     {
-        try
-        {
-            var mode = (ScrollMode)(((int)SettingsState.Mode + direction + 3) % 3);
-            SettingsState.SetMode(mode);
-            RefreshAll();
-        }
-        catch (Exception ex)
-        {
-            Plugin.Log.LogError($"Changing note-scrolling mode failed: {ex}");
-        }
+        var nav = row.navigation;
+        nav.mode = Navigation.Mode.Explicit;
+        nav.selectOnUp = up;
+        nav.selectOnDown = down;
+        nav.selectOnLeft = null;
+        nav.selectOnRight = null;
+        row.navigation = nav;
+    }
+
+    private static void ChangeMode(int direction, bool wrap)
+    {
+        // The three modes always cycle, matching the native state toggles.
+        SettingsState.SetMode((ScrollMode)(((int)SettingsState.Mode + direction + 3) % 3));
+    }
+
+    private static void ChangeReceptorHeight(int direction, bool wrap)
+    {
+        int value = SettingsState.ReceptorHeight + direction;
+        if (value > SettingsState.MaxReceptorHeight)
+            value = wrap ? SettingsState.MinReceptorHeight : SettingsState.MaxReceptorHeight;
+        else if (value < SettingsState.MinReceptorHeight)
+            value = wrap ? SettingsState.MaxReceptorHeight : SettingsState.MinReceptorHeight;
+        if (value != SettingsState.ReceptorHeight) SettingsState.SetReceptorHeight(value);
     }
 
     private static void ResetDefaultsPostfix()
@@ -235,35 +286,100 @@ internal static class OptionsMenuIntegration
         try
         {
             SettingsState.SetMode(ScrollMode.Default);
+            SettingsState.SetReceptorHeight(0);
             RefreshAll();
         }
         catch (Exception ex)
         {
-            Plugin.Log.LogError($"Resetting note-scrolling option failed: {ex}");
+            ModLog.Error($"Resetting flat-scroll options failed: {ex}");
         }
     }
 
-    private sealed class MenuRow
+    private sealed class RowSpec
+    {
+        internal readonly string Name;
+        internal readonly string Title;
+        internal readonly string Help;
+        internal readonly string[] States;
+        internal readonly Func<int> GetState;
+        private readonly Action<int, bool> _change;
+
+        internal RowSpec(string name, string title, string help, string[] states,
+                         Func<int> getState, Action<int, bool> change)
+        {
+            Name = name;
+            Title = title;
+            Help = help;
+            States = states;
+            GetState = getState;
+            _change = change;
+        }
+
+        /// <param name="wrap">Clicking cycles through every value; left and right stop at the ends.</param>
+        internal void Change(int direction, bool wrap)
+        {
+            try
+            {
+                _change(direction, wrap);
+                RefreshAll();
+            }
+            catch (Exception ex)
+            {
+                ModLog.Error($"Changing {Title} failed: {ex}");
+            }
+        }
+    }
+
+    private sealed class MenuRows
     {
         internal readonly GameplayOptionsMenu Menu;
-        internal readonly CustomButton Button;
-        internal readonly CustomToggleState Toggle;
-        // Retain the managed delegate wrappers while their IL2CPP listeners are registered.
-        internal readonly UnityAction Click;
-        internal readonly Il2CppSystem.Action NextMode;
-        internal readonly Il2CppSystem.Action PreviousMode;
+        internal readonly OptionRow Scroll;
+        internal readonly OptionRow Receptor;
 
-        internal MenuRow(GameplayOptionsMenu menu, CustomButton button, CustomToggleState toggle)
+        internal MenuRows(GameplayOptionsMenu menu, OptionRow scroll, OptionRow receptor)
         {
             Menu = menu;
+            Scroll = scroll;
+            Receptor = receptor;
+        }
+
+        internal void Destroy()
+        {
+            Scroll.Destroy();
+            Receptor.Destroy();
+        }
+    }
+
+    private sealed class OptionRow
+    {
+        internal readonly GameObject Root;
+        internal readonly CustomButton Button;
+        internal readonly CustomToggleState Toggle;
+        internal readonly RowSpec Spec;
+        // Retain the managed delegate wrappers while their IL2CPP listeners are registered.
+        internal readonly UnityAction Click;
+        internal readonly Il2CppSystem.Action Next;
+        internal readonly Il2CppSystem.Action Previous;
+
+        internal OptionRow(GameObject root, CustomButton button, CustomToggleState toggle, RowSpec spec)
+        {
+            Root = root;
             Button = button;
             Toggle = toggle;
-            Click = DelegateSupport.ConvertDelegate<UnityAction>((Action)OptionsMenuIntegration.NextMode)
+            Spec = spec;
+            Click = DelegateSupport.ConvertDelegate<UnityAction>((Action)(() => spec.Change(1, true)))
                 ?? throw new InvalidOperationException("Could not create native click listener.");
-            NextMode = DelegateSupport.ConvertDelegate<Il2CppSystem.Action>((Action)OptionsMenuIntegration.NextMode)
-                ?? throw new InvalidOperationException("Could not create native next-mode listener.");
-            PreviousMode = DelegateSupport.ConvertDelegate<Il2CppSystem.Action>((Action)OptionsMenuIntegration.PreviousMode)
-                ?? throw new InvalidOperationException("Could not create native previous-mode listener.");
+            Next = DelegateSupport.ConvertDelegate<Il2CppSystem.Action>((Action)(() => spec.Change(1, false)))
+                ?? throw new InvalidOperationException("Could not create native next-state listener.");
+            Previous = DelegateSupport.ConvertDelegate<Il2CppSystem.Action>((Action)(() => spec.Change(-1, false)))
+                ?? throw new InvalidOperationException("Could not create native previous-state listener.");
+        }
+
+        internal bool IsAlive => Root && Button && Toggle;
+
+        internal void Destroy()
+        {
+            if (Root) Object.Destroy(Root);
         }
     }
 }

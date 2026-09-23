@@ -2,9 +2,11 @@
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
 param(
     [ValidateSet('Install', 'Uninstall')][string]$Action = 'Install',
+    [ValidateSet('Auto', 'BepInEx', 'MelonLoader')][string]$Loader = 'Auto',
     [string]$GamePath,
     [string]$LoaderArchive,
-    [string]$PluginPath
+    [string]$PluginPath,
+    [string]$MelonModPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -12,16 +14,21 @@ Set-StrictMode -Version 2.0
 $packageRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $LoaderArchive) { $LoaderArchive = Join-Path $packageRoot 'payload\BepInEx-IL2CPP-x64-788.zip' }
 if (-not $PluginPath) { $PluginPath = Join-Path $packageRoot 'payload\NocturneFlatScroll.dll' }
+if (-not $MelonModPath) { $MelonModPath = Join-Path $packageRoot 'payload\NocturneFlatScroll.MelonLoader.dll' }
 
+$modVersion = '2.2.0'
 $loaderHash = 'F4CC496BD098A0DF4164B81E3737297707F13A47C2478DBA2F60EEFAB784817A'
-$pluginHash = '212DB106C6761E23413703B464C94ED26CD6982BAFAE771F1ED7D4287BA83A39'
+$pluginHash = '0B1D12F92561F9F33B4F081BC977419BDFCE85B7CDFC76DE0804FF0A6F690599'
 $knownPluginHashes = @(
     $pluginHash,
+    '212DB106C6761E23413703B464C94ED26CD6982BAFAE771F1ED7D4287BA83A39',
     '6E75984D4F6AB5F6D33F4031A53DD3E0B80E5BBD70529B429F9EEDA14D79BC4E',
     '43EA6E714435C6F376083A159F8566C712CA9C52B43F91E186909C7F9399A295',
     '5CEDADBF931553A7614B92EB0D5694B99F300135979CF997CEB01E597960657D',
     'C6025C68612A64B5EFD897C1495C6DF1A31B3389C0EDF531E99AFF0931E51E1C'
 )
+$melonModHash = 'CFB3AFA7C2CA1590D6F3ABEF40A3034FDBB4D69F1D61A153B7AB26C678918921'
+$knownMelonModHashes = @($melonModHash)
 $gameHashes = @{
     'GameAssembly.dll' = 'FD4D5879A71CE00CA3FC3C3D176FFB3F146E9CEC52DD6A06807CF564C6542940'
     'Nocturne_Data\il2cpp_data\Metadata\global-metadata.dat' = '3BB22E4F33C103F6612AD5988C87528BD46BB23142CD733D22375CBE84837054'
@@ -224,6 +231,104 @@ function Copy-NewVerifiedFile([string]$Source, [string]$Target, [string]$Expecte
     if ((Get-Sha256 $Target) -ne $Expected) { throw "Copy verification failed: $Target" }
 }
 
+$minimumMelonLoader = [Version]'0.7.3'
+
+function Test-MelonLoader([string]$Root) {
+    # MelonLoader 0.6 and newer keep the IL2CPP runtime in MelonLoader\net6.
+    return Test-Path -LiteralPath (Join-Path $Root 'MelonLoader\net6\MelonLoader.dll') -PathType Leaf
+}
+
+function Test-LegacyMelonLoader([string]$Root) {
+    return (Test-Path -LiteralPath (Join-Path $Root 'MelonLoader\MelonLoader.dll') -PathType Leaf) -and
+        -not (Test-MelonLoader $Root)
+}
+
+function Test-MelonLoaderProxy([string]$Root) {
+    # The proxy can use any of these names; version.dll is the default.
+    foreach ($name in @('version', 'winhttp', 'winmm', 'dinput', 'dinput8', 'dsound', 'd3d8', 'd3d9',
+                        'd3d10', 'd3d11', 'd3d12', 'ddraw', 'msacm32')) {
+        $path = Join-Path $Root ($name + '.dll')
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+        $info = [Diagnostics.FileVersionInfo]::GetVersionInfo($path)
+        if ("$($info.ProductName) $($info.FileDescription)" -match 'MelonLoader') { return $true }
+    }
+    return $false
+}
+
+function Test-MelonLoaderDisabled([string]$Root) {
+    # UserData\Loader.cfg can switch MelonLoader off with "disable = true" under [loader].
+    $config = Join-Path $Root 'UserData\Loader.cfg'
+    if (-not (Test-Path -LiteralPath $config -PathType Leaf)) { return $false }
+    $section = ''
+    foreach ($line in Get-Content -LiteralPath $config) {
+        $trimmed = $line.Trim()
+        if ($trimmed -match '^\[([^\]]+)\]') { $section = $matches[1].Trim(); continue }
+        if ($section -eq 'loader' -and $trimmed -cmatch '^disable\s*=\s*true\s*(#.*)?$') { return $true }
+    }
+    return $false
+}
+
+function Get-MelonLoaderVersion([string]$Root) {
+    $path = Join-Path $Root 'MelonLoader\net6\MelonLoader.dll'
+    $info = [Diagnostics.FileVersionInfo]::GetVersionInfo($path)
+    return [Version]::new([Math]::Max(0, $info.FileMajorPart), [Math]::Max(0, $info.FileMinorPart), [Math]::Max(0, $info.FileBuildPart))
+}
+
+function Resolve-Loader([string]$Requested, [string]$Root) {
+    if (Test-LegacyMelonLoader $Root) {
+        throw "This game has a MelonLoader version older than 0.6. Update MelonLoader to $minimumMelonLoader or newer, or remove it and use BepInEx. Nothing was changed."
+    }
+    $hasMelon = Test-MelonLoader $Root
+    $hasProxy = $hasMelon -and (Test-MelonLoaderProxy $Root)
+    $disabled = $hasMelon -and (Test-MelonLoaderDisabled $Root)
+    # Both loaders hook the same Unity startup call and only one of them can start. An
+    # enabled MelonLoader takes it, so a BepInEx plugin would never load beside it.
+    $melonActive = $hasProxy -and -not $disabled
+    if ($Requested -eq 'Auto') {
+        if ($melonActive) { $Requested = 'MelonLoader' }
+        else {
+            if ($hasMelon) { Write-Host 'MelonLoader is installed but will not start (its proxy DLL is missing or it is turned off), so BepInEx is used.' }
+            $Requested = 'BepInEx'
+        }
+    }
+    if ($Requested -eq 'MelonLoader') {
+        if (-not $hasMelon) {
+            throw "MelonLoader was not found in this game folder. Install MelonLoader $minimumMelonLoader or newer first, or choose BepInEx. Nothing was changed."
+        }
+        if (-not $hasProxy) {
+            throw 'MelonLoader files are present, but its proxy DLL (normally version.dll) is missing, so MelonLoader would not start. Reinstall MelonLoader, or choose BepInEx. Nothing was changed.'
+        }
+        if ($disabled) {
+            throw 'MelonLoader is turned off in UserData\Loader.cfg ("disable = true" under [loader]). Turn it back on, or choose BepInEx. Nothing was changed.'
+        }
+        $version = Get-MelonLoaderVersion $Root
+        if ($version -lt $minimumMelonLoader) {
+            throw "MelonLoader $version is installed. This mod needs MelonLoader $minimumMelonLoader or newer. Update MelonLoader and run this again. Nothing was changed."
+        }
+    }
+    elseif ($melonActive) {
+        throw 'MelonLoader is installed and enabled in this game folder, and it stops BepInEx from starting. Install for MelonLoader instead, or remove MelonLoader first. Nothing was changed.'
+    }
+    return $Requested
+}
+
+function Get-ExistingCopyHash([string]$Root, [string]$Path, [string[]]$KnownHashes, [string]$Description) {
+    # Only a file at this path is a copy of the mod; nothing there means nothing is written.
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    Assert-SafeTarget $Root $Path
+    return Get-KnownInstalledHash $Path $KnownHashes $Description
+}
+
+function Get-KnownInstalledHash([string]$Path, [string[]]$KnownHashes, [string]$Description) {
+    if (Test-Path -LiteralPath $Path -PathType Container) { throw "A folder is occupying the $Description destination: $Path" }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    $hash = Get-Sha256 $Path
+    if ($hash -notin $KnownHashes) {
+        throw "An unrecognized $Description is installed at $Path. Nothing was overwritten or disabled."
+    }
+    return $hash
+}
+
 # Dot-sourcing exposes the helpers for read-only discovery and isolated fixture tests.
 # It does not install or uninstall anything.
 if ($MyInvocation.InvocationName -eq '.') { return }
@@ -234,30 +339,53 @@ try {
     $gameRoot = Resolve-GameRoot $GamePath
     Assert-SafeTarget $gameRoot $gameRoot
     $pluginTarget = Join-Path $gameRoot 'BepInEx\plugins\NocturneFlatScroll\NocturneFlatScroll.dll'
-    Assert-SafeTarget $gameRoot $pluginTarget
-    if (Test-Path -LiteralPath $pluginTarget -PathType Container) { throw 'A folder is occupying the plugin DLL destination.' }
-    $installedHash = $null
-    if (Test-Path -LiteralPath $pluginTarget -PathType Leaf) {
-        $installedHash = Get-Sha256 $pluginTarget
-        if ($installedHash -notin $knownPluginHashes) { throw 'An unrecognized NocturneFlatScroll plugin is installed. Nothing was overwritten or disabled.' }
-    }
+    $melonTarget = Join-Path $gameRoot 'Mods\NocturneFlatScroll.MelonLoader.dll'
+    $installedHash = Get-ExistingCopyHash $gameRoot $pluginTarget $knownPluginHashes 'NocturneFlatScroll plugin'
+    $installedMelonHash = Get-ExistingCopyHash $gameRoot $melonTarget $knownMelonModHashes 'NocturneFlatScroll MelonLoader mod'
 
     if ($Action -eq 'Uninstall') {
-        # Removing this known plugin remains possible after Steam updates the game.
-        if (-not $installedHash) { Write-Host 'Nocturne Flat Scroll is already uninstalled.'; return }
-        $disabledPath = $pluginTarget + '.disabled-' + [Guid]::NewGuid().ToString('N')
-        Assert-SafeTarget $gameRoot $disabledPath
+        # Removing a known copy remains possible after Steam updates the game.
+        $enabled = @()
+        if ($installedHash) { $enabled += $pluginTarget }
+        if ($installedMelonHash) { $enabled += $melonTarget }
+        if ($enabled.Count -eq 0) { Write-Host 'Nocturne Flat Scroll is already uninstalled.'; return }
         Write-Host "Verified Nocturne Flat Scroll in: $gameRoot"
-        if ($PSCmdlet.ShouldProcess($pluginTarget, 'Disable only the verified Nocturne Flat Scroll plugin')) {
-            [IO.File]::Move($pluginTarget, $disabledPath)
-            Write-Host 'Nocturne Flat Scroll is uninstalled. Its DLL was kept as a disabled backup.'
-            Write-Host 'BepInEx, other mods, saves, scores, and preferences were left in place.'
+        $skipped = @()
+        foreach ($target in $enabled) {
+            $disabledPath = $target + '.disabled-' + [Guid]::NewGuid().ToString('N')
+            Assert-SafeTarget $gameRoot $disabledPath
+            if ($PSCmdlet.ShouldProcess($target, 'Disable this verified Nocturne Flat Scroll copy')) {
+                [IO.File]::Move($target, $disabledPath)
+                Write-Host "Disabled: $target"
+            }
+            else { $skipped += $target }
         }
+        if ($WhatIfPreference) { return }
+        if ($skipped.Count -gt 0) {
+            foreach ($target in $skipped) { Write-Host "Still enabled: $target" }
+            Write-Host 'Nocturne Flat Scroll was not fully uninstalled.'
+            return
+        }
+        Write-Host 'Nocturne Flat Scroll is uninstalled. Each DLL was kept as a disabled backup.'
+        Write-Host 'Mod loaders, other mods, saves, scores, and preferences were left in place.'
         return
     }
 
-    Assert-Hash $LoaderArchive $loaderHash
-    Assert-Hash $PluginPath $pluginHash
+    $selectedLoader = Resolve-Loader $Loader $gameRoot
+    if ($selectedLoader -eq 'MelonLoader') {
+        $sourcePath = $MelonModPath; $sourceHash = $melonModHash
+        $target = $melonTarget; $currentHash = $installedMelonHash
+        # Only one copy may run: the BepInEx plugin is disabled when switching loaders.
+        $otherTarget = $pluginTarget; $otherHash = $installedHash
+        Assert-Hash $sourcePath $sourceHash
+    }
+    else {
+        $sourcePath = $PluginPath; $sourceHash = $pluginHash
+        $target = $pluginTarget; $currentHash = $installedHash
+        $otherTarget = $melonTarget; $otherHash = $installedMelonHash
+        Assert-Hash $LoaderArchive $loaderHash
+        Assert-Hash $sourcePath $sourceHash
+    }
     foreach ($relative in $gameHashes.Keys) { Assert-Hash (Join-Path $gameRoot $relative) $gameHashes[$relative] }
     $steamApps = Split-Path -Parent (Split-Path -Parent $gameRoot)
     $manifestPath = Join-Path $steamApps 'appmanifest_1374860.acf'
@@ -268,52 +396,71 @@ try {
         }
     }
 
-    $stageBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/')
-    $stagePath = Join-Path $stageBase ('NocturneMod-' + [Guid]::NewGuid().ToString('N'))
-    [void][IO.Directory]::CreateDirectory($stagePath)
-    $loaderFiles = @(Expand-VerifiedLoader ([IO.Path]::GetFullPath($LoaderArchive)) $stagePath)
     $copies = New-Object 'System.Collections.Generic.List[object]'
-    foreach ($file in $loaderFiles) {
-        $target = Join-Path $gameRoot $file.Relative
-        Assert-SafeTarget $gameRoot $target
-        if (Test-Path -LiteralPath $target -PathType Container) { throw "A folder blocks a loader file: $target" }
-        if (Test-Path -LiteralPath $target -PathType Leaf) {
-            if ($file.Relative -eq 'doorstop_config.ini') { Assert-DoorstopConfig $target $gameRoot; continue }
-            if ($file.Relative -like 'BepInEx\config\*') { continue }
-            if ((Get-Sha256 $target) -eq $file.Hash) { continue }
-            # Preserve unrelated documentation, but never mix different loader/runtime binaries.
-            if ($file.Relative -eq 'changelog.txt' -or $file.Relative -like '*.xml') { continue }
-            throw "An incompatible loader file is already installed: $($file.Relative). Nothing was overwritten. Use a compatible BepInEx installation or a clean game folder."
+    if ($selectedLoader -eq 'BepInEx') {
+        $stageBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/')
+        $stagePath = Join-Path $stageBase ('NocturneMod-' + [Guid]::NewGuid().ToString('N'))
+        [void][IO.Directory]::CreateDirectory($stagePath)
+        $loaderFiles = @(Expand-VerifiedLoader ([IO.Path]::GetFullPath($LoaderArchive)) $stagePath)
+        foreach ($file in $loaderFiles) {
+            $loaderTarget = Join-Path $gameRoot $file.Relative
+            Assert-SafeTarget $gameRoot $loaderTarget
+            if (Test-Path -LiteralPath $loaderTarget -PathType Container) { throw "A folder blocks a loader file: $loaderTarget" }
+            if (Test-Path -LiteralPath $loaderTarget -PathType Leaf) {
+                if ($file.Relative -eq 'doorstop_config.ini') { Assert-DoorstopConfig $loaderTarget $gameRoot; continue }
+                if ($file.Relative -like 'BepInEx\config\*') { continue }
+                if ((Get-Sha256 $loaderTarget) -eq $file.Hash) { continue }
+                # Preserve unrelated documentation, but never mix different loader/runtime binaries.
+                if ($file.Relative -eq 'changelog.txt' -or $file.Relative -like '*.xml') { continue }
+                throw "An incompatible loader file is already installed: $($file.Relative). Nothing was overwritten. Use a compatible BepInEx installation or a clean game folder."
+            }
+            $copies.Add([pscustomobject]@{ Source = $file.Source; Target = $loaderTarget; Hash = $file.Hash })
         }
-        $copies.Add([pscustomobject]@{ Source = $file.Source; Target = $target; Hash = $file.Hash })
     }
-    $temporaryPlugin = $pluginTarget + '.install-' + [Guid]::NewGuid().ToString('N')
-    $backupPlugin = $pluginTarget + '.backup-' + [Guid]::NewGuid().ToString('N')
-    Assert-SafeTarget $gameRoot $temporaryPlugin
-    Assert-SafeTarget $gameRoot $backupPlugin
-    if ($installedHash -and $installedHash -ne $pluginHash -and
-        ((Get-Item -LiteralPath $pluginTarget).Attributes -band [IO.FileAttributes]::ReadOnly)) {
-        throw 'The installed plugin is read-only. Remove its read-only attribute before upgrading.'
+    Assert-SafeTarget $gameRoot $target
+    if (Test-Path -LiteralPath $target -PathType Container) { throw "A folder is occupying the mod DLL destination: $target" }
+    $temporaryTarget = $target + '.install-' + [Guid]::NewGuid().ToString('N')
+    $backupTarget = $target + '.backup-' + [Guid]::NewGuid().ToString('N')
+    $otherDisabled = $otherTarget + '.disabled-' + [Guid]::NewGuid().ToString('N')
+    Assert-SafeTarget $gameRoot $temporaryTarget
+    Assert-SafeTarget $gameRoot $backupTarget
+    if ($otherHash) { Assert-SafeTarget $gameRoot $otherDisabled }
+    if ($currentHash -and $currentHash -ne $sourceHash -and
+        ((Get-Item -LiteralPath $target).Attributes -band [IO.FileAttributes]::ReadOnly)) {
+        throw 'The installed mod DLL is read-only. Remove its read-only attribute before upgrading.'
     }
 
     Write-Host "Preflight passed for Nocturne build 25460029: $gameRoot"
-    Write-Host ("Loader files to add: {0}. Existing compatible loader files and configurations will be preserved." -f $copies.Count)
+    if ($selectedLoader -eq 'MelonLoader') {
+        Write-Host ("Installing for MelonLoader {0}. This package was tested with MelonLoader 0.7.3." -f (Get-MelonLoaderVersion $gameRoot))
+    }
+    else {
+        Write-Host ("Installing for BepInEx. Loader files to add: {0}. Existing compatible loader files and configurations will be preserved." -f $copies.Count)
+    }
+    if ($otherHash) { Write-Host "The copy for the other loader will be disabled so only one copy runs: $otherTarget" }
     if (-not $WhatIfPreference -and (Get-Process -Name Nocturne -ErrorAction SilentlyContinue)) { throw 'Nocturne started during preflight. Close it before installing.' }
-    if (-not $PSCmdlet.ShouldProcess($gameRoot, 'Install BepInEx #788 where absent and Nocturne Flat Scroll 2.1.2')) { return }
+    $operation = "Install BepInEx #788 where absent and Nocturne Flat Scroll $modVersion"
+    if ($selectedLoader -eq 'MelonLoader') { $operation = "Install Nocturne Flat Scroll $modVersion for MelonLoader" }
+    if (-not $PSCmdlet.ShouldProcess($gameRoot, $operation)) { return }
     # No game-directory writes occur above this point. -WhatIf still validates/extracts to TEMP.
     $created = New-Object 'System.Collections.Generic.List[string]'
-    $movedOldPlugin = $false
+    $movedOldCopy = $false
+    $movedOtherCopy = $false
     try {
         foreach ($copy in $copies) { Copy-NewVerifiedFile $copy.Source $copy.Target $copy.Hash $created }
-        if ($installedHash -ne $pluginHash) {
-            Copy-NewVerifiedFile $PluginPath $temporaryPlugin $pluginHash $created
-            if ($installedHash) {
-                [IO.File]::Move($pluginTarget, $backupPlugin)
-                $movedOldPlugin = $true
+        if ($currentHash -ne $sourceHash) {
+            Copy-NewVerifiedFile $sourcePath $temporaryTarget $sourceHash $created
+            if ($currentHash) {
+                [IO.File]::Move($target, $backupTarget)
+                $movedOldCopy = $true
             }
-            [IO.File]::Move($temporaryPlugin, $pluginTarget)
-            [void]$created.Remove($temporaryPlugin)
-            $created.Add($pluginTarget)
+            [IO.File]::Move($temporaryTarget, $target)
+            [void]$created.Remove($temporaryTarget)
+            $created.Add($target)
+        }
+        if ($otherHash) {
+            [IO.File]::Move($otherTarget, $otherDisabled)
+            $movedOtherCopy = $true
         }
     }
     catch {
@@ -323,12 +470,19 @@ try {
             Assert-SafeTarget $gameRoot $created[$i]
             if (Test-Path -LiteralPath $created[$i] -PathType Leaf) { [IO.File]::Delete($created[$i]) }
         }
-        if ($movedOldPlugin -and -not (Test-Path -LiteralPath $pluginTarget)) { [IO.File]::Move($backupPlugin, $pluginTarget) }
+        if ($movedOldCopy -and -not (Test-Path -LiteralPath $target)) { [IO.File]::Move($backupTarget, $target) }
+        if ($movedOtherCopy -and -not (Test-Path -LiteralPath $otherTarget)) { [IO.File]::Move($otherDisabled, $otherTarget) }
         throw "Installation did not finish; newly copied files were rolled back. $($failure.Exception.Message)"
     }
-    Write-Host 'Installed Nocturne Flat Scroll 2.1.2. Open Options > Gameplay > Note scrolling.'
-    Write-Host 'The first launch can take longer while BepInEx creates game-specific files. Allow it to finish.'
-    if ($movedOldPlugin) { Write-Host "The previous plugin was backed up as: $backupPlugin" }
+    Write-Host "Installed Nocturne Flat Scroll $modVersion for $selectedLoader. Open Options > Gameplay for Note scrolling and Receptor height."
+    if ($selectedLoader -eq 'BepInEx') {
+        Write-Host 'The first launch can take longer while BepInEx creates game-specific files. Allow it to finish.'
+    }
+    else {
+        Write-Host 'The first launch after installing MelonLoader can take longer while it creates game-specific files.'
+    }
+    if ($movedOldCopy) { Write-Host "The previous version was backed up as: $backupTarget" }
+    if ($movedOtherCopy) { Write-Host "The copy for the other loader was disabled as: $otherDisabled" }
     Write-Host 'Saves, scores, preferences, other mods, and display settings were not changed.'
 }
 finally {
