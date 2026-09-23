@@ -18,9 +18,10 @@ if (-not $MelonModPath) { $MelonModPath = Join-Path $packageRoot 'payload\Noctur
 
 $modVersion = '2.3.0'
 $loaderHash = 'F4CC496BD098A0DF4164B81E3737297707F13A47C2478DBA2F60EEFAB784817A'
-$pluginHash = '40ED8E9A39C073D9024668B065CFECBA90E4CEB0112833F3102C5D902AA618AC'
+$pluginHash = '8585E7821293755C6FFE069E1B88E0D27ECB77559E9A7869022C3A2410F82EAA'
 $knownPluginHashes = @(
     $pluginHash,
+    '40ED8E9A39C073D9024668B065CFECBA90E4CEB0112833F3102C5D902AA618AC',
     '0B1D12F92561F9F33B4F081BC977419BDFCE85B7CDFC76DE0804FF0A6F690599',
     '212DB106C6761E23413703B464C94ED26CD6982BAFAE771F1ED7D4287BA83A39',
     '6E75984D4F6AB5F6D33F4031A53DD3E0B80E5BBD70529B429F9EEDA14D79BC4E',
@@ -28,8 +29,8 @@ $knownPluginHashes = @(
     '5CEDADBF931553A7614B92EB0D5694B99F300135979CF997CEB01E597960657D',
     'C6025C68612A64B5EFD897C1495C6DF1A31B3389C0EDF531E99AFF0931E51E1C'
 )
-$melonModHash = '19DE2BBC86CE71DE8CC48BD06765255A5FC83F4ED34E7CED2619E42EF6C428C7'
-$knownMelonModHashes = @($melonModHash, 'CFB3AFA7C2CA1590D6F3ABEF40A3034FDBB4D69F1D61A153B7AB26C678918921')
+$melonModHash = 'E7575406BE68712A6853F5166E9847EE38E94C30C7DBCA23DA85E6D364799077'
+$knownMelonModHashes = @($melonModHash, '19DE2BBC86CE71DE8CC48BD06765255A5FC83F4ED34E7CED2619E42EF6C428C7', 'CFB3AFA7C2CA1590D6F3ABEF40A3034FDBB4D69F1D61A153B7AB26C678918921')
 $gameHashes = @{
     'GameAssembly.dll' = 'FD4D5879A71CE00CA3FC3C3D176FFB3F146E9CEC52DD6A06807CF564C6542940'
     'Nocturne_Data\il2cpp_data\Metadata\global-metadata.dat' = '3BB22E4F33C103F6612AD5988C87528BD46BB23142CD733D22375CBE84837054'
@@ -475,7 +476,7 @@ try {
         if ($movedOtherCopy -and -not (Test-Path -LiteralPath $otherTarget)) { [IO.File]::Move($otherDisabled, $otherTarget) }
         throw "Installation did not finish; newly copied files were rolled back. $($failure.Exception.Message)"
     }
-    Write-Host "Installed Nocturne Flat Scroll $modVersion for $selectedLoader. Open Options > Gameplay for Note scrolling, Receptor height, Note skin, and Timing bar."
+    Write-Host "Installed Nocturne Flat Scroll $modVersion for $selectedLoader. Open Options > Gameplay and Options > Audio for its settings."
     if ($selectedLoader -eq 'BepInEx') {
         Write-Host 'The first launch can take longer while BepInEx creates game-specific files. Allow it to finish.'
     }

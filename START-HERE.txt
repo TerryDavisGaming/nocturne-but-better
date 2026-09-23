@@ -14,9 +14,22 @@ install
    note scrolling   - default, 2d downscroll, or 2d upscroll
    receptor height  - -10% to +30%; moves the receptors in from their edge
                       of the screen in both 2d modes (0% = original spot)
+   note size        - 50% to 150%; notes and receptors in both 2d modes
+   lane spacing     - 60% to 150%; how far apart the 2d lanes are
    note skin        - default bars, circles, or arrows
+   note flares      - on or off; the burst when you hit or hold a note
+                      (mine explosions always show)
    timing bar       - off or on; shows how early (rabbit) or late (turtle)
-                      each hit was, just behind the receptors
+                      each hit was, next to the receptors
+   timing bar position - 2d upscroll only: below enemy (under the receptors)
+                      or above enemy (along the top of the screen)
+   enemy attack opacity - 0% to 100%; how visible the enemy stays while it
+                      attacks (100% = unchanged)
+6. in options > audio, under sound effects:
+   hit sound        - off or on; a short tick when you hit a note
+   hit sound volume - 5% to 100%; the game's sound effect volumes apply too
+   miss sound       - on or off; the same setting as note miss sounds
+   miss sound volume - 10% to 300%; 100% is the game's normal level
 
 which loader gets used
 - melonloader 0.7.3 or newer installed and turned on: the mod goes into mods.
@@ -27,8 +40,10 @@ disables the copy for the other loader. do not keep bepinex and melonloader
 in the same game folder, because only one of them can start.
 
 the flat modes include compact, vertical health/energy bars. new
-installations start on default, 0%, default skin, and timing bar off. your
-selections are saved on that pc. the title screen and the intro's logo card
+installations start on default, 0%, 100% size and spacing, default skin,
+note flares on, timing bar off and below the enemy, enemy attack opacity
+100%, hit sound off at 80%, and miss sound volume 100%. your selections
+are saved on that pc. the title screen and the intro's logo card
 read "nocturne but better, by terrydavisgaming".
 
 optional fullscreen flicker fix
