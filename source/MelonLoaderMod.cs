@@ -17,13 +17,13 @@ public sealed class FlatScrollMod : MelonMod
     public override void OnInitializeMelon()
     {
         ModLog.Initialize(message => LoggerInstance.Msg(message), message => LoggerInstance.Error(message));
-        OptionsMenuIntegration.Install(HarmonyInstance);
+        ModSetup.Patch(HarmonyInstance);
     }
 
     public override void OnLateInitializeMelon()
     {
         // Unity has run its first Start messages, so scene objects can be searched.
-        OptionsMenuIntegration.AttachToExistingMenus();
+        ModSetup.AttachToExisting();
         ModLog.Info("Flat scrolling loaded; select a layout in Options > Gameplay > Note scrolling.");
     }
 

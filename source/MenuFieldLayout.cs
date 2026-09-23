@@ -164,6 +164,8 @@ namespace NocturneFlatScroll
 
         private static readonly List<FieldState> Fields = new List<FieldState>();
         private static readonly HashSet<int> KnownIds = new HashSet<int>();
+        // Previews that keep their layout but still get skinned receptors.
+        private static readonly List<(int Id, Transform Field)> SkinOnlyFields = new List<(int Id, Transform Field)>();
 
         /// <summary>Called periodically so newly loaded menu objects are included.</summary>
         internal static void Discover()
@@ -174,6 +176,12 @@ namespace NocturneFlatScroll
                 KnownIds.Remove(Fields[i].Id);
                 Fields.RemoveAt(i);
             }
+            for (int i = SkinOnlyFields.Count - 1; i >= 0; i--)
+            {
+                if (SkinOnlyFields[i].Field != null) continue;
+                KnownIds.Remove(SkinOnlyFields[i].Id);
+                SkinOnlyFields.RemoveAt(i);
+            }
 
             // The named conductor objects use WwiseConductor/SongConductor components.
             // Query that small set rather than allocating every Transform in the game.
@@ -183,8 +191,14 @@ namespace NocturneFlatScroll
                     continue;
                 var transform = parent.Find("Field");
                 if (transform == null || KnownIds.Contains(transform.GetInstanceID())) continue;
-                if (!HasAncestor(transform, "Menu Pages") || HasAncestor(transform, "AudioCalibration"))
+                if (!HasAncestor(transform, "Menu Pages")) continue;
+                if (HasAncestor(transform, "AudioCalibration"))
+                {
+                    // The audio calibration lanes stay as they are, but its notes are skinned.
+                    SkinOnlyFields.Add((transform.GetInstanceID(), transform));
+                    KnownIds.Add(transform.GetInstanceID());
                     continue;
+                }
                 var field = transform.TryCast<RectTransform>();
                 if (field == null) continue;
 
@@ -227,6 +241,15 @@ namespace NocturneFlatScroll
                 if (mode == ScrollMode.Default) state.Restore();
                 else state.Apply(mode == ScrollMode.Upscroll2D, shift);
             }
+        }
+
+        /// <summary>Adds the visible preview fields for receptor skinning; NoteSkins counts their lanes.</summary>
+        internal static void AddSkinFields(List<(Transform Field, int Columns)> fields)
+        {
+            foreach (var state in Fields)
+                if (state.Field != null && state.Field.gameObject.activeInHierarchy) fields.Add((state.Field, 0));
+            foreach (var (_, field) in SkinOnlyFields)
+                if (field != null && field.gameObject.activeInHierarchy) fields.Add((field, 0));
         }
 
         private static bool HasAncestor(Transform transform, string name)

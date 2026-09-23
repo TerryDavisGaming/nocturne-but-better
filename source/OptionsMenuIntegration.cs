@@ -13,23 +13,36 @@ namespace NocturneFlatScroll;
 /// <summary>Adds native gameplay-options rows without replacing an existing setting.</summary>
 internal static class OptionsMenuIntegration
 {
-    private static readonly RowSpec ScrollSpec = new(
-        "StateToggle_FlatNoteScrolling",
-        "Note scrolling",
-        "Choose the original layout, flat downscroll, or flat upscroll.",
-        new[] { "Default", "2D Downscroll", "2D Upscroll" },
-        () => (int)SettingsState.Mode,
-        ChangeMode);
-
-    private static readonly RowSpec ReceptorSpec = new(
-        "StateToggle_FlatReceptorHeight",
-        "Receptor height",
-        "Moves the 2D receptors in from their screen edge: up in downscroll, down in upscroll.",
-        Enumerable.Range(SettingsState.MinReceptorHeight,
-                SettingsState.MaxReceptorHeight - SettingsState.MinReceptorHeight + 1)
-            .Select(SettingsState.FormatReceptorHeight).ToArray(),
-        () => SettingsState.ReceptorHeight - SettingsState.MinReceptorHeight,
-        ChangeReceptorHeight);
+    // The rows appear directly above Speed Mod, in this order.
+    private static readonly RowSpec[] Specs =
+    {
+        new("StateToggle_FlatNoteScrolling",
+            "Note scrolling",
+            "Choose the original layout, flat downscroll, or flat upscroll.",
+            new[] { "Default", "2D Downscroll", "2D Upscroll" },
+            () => (int)SettingsState.Mode,
+            (direction, wrap) => SettingsState.SetMode((ScrollMode)Cycle((int)SettingsState.Mode, direction, 3))),
+        new("StateToggle_FlatReceptorHeight",
+            "Receptor height",
+            "Moves the 2D receptors in from their screen edge: up in downscroll, down in upscroll.",
+            Enumerable.Range(SettingsState.MinReceptorHeight,
+                    SettingsState.MaxReceptorHeight - SettingsState.MinReceptorHeight + 1)
+                .Select(SettingsState.FormatReceptorHeight).ToArray(),
+            () => SettingsState.ReceptorHeight - SettingsState.MinReceptorHeight,
+            ChangeReceptorHeight),
+        new("StateToggle_FlatNoteSkin",
+            "Note skin",
+            "Draw notes and receptors as the original bars, circles, or arrows.",
+            new[] { "Default", "Circle", "Arrow" },
+            () => (int)SettingsState.NoteSkin,
+            (direction, wrap) => SettingsState.SetNoteSkin((NoteSkin)Cycle((int)SettingsState.NoteSkin, direction, 3))),
+        new("StateToggle_FlatTimingBar",
+            "Timing bar",
+            "Shows whether each hit was early (rabbit) or late (turtle), next to the receptors.",
+            new[] { "Off", "On" },
+            () => SettingsState.TimingBar ? 1 : 0,
+            (direction, wrap) => SettingsState.SetTimingBar(!SettingsState.TimingBar)),
+    };
 
     private static readonly Dictionary<int, MenuRows> Menus = new();
     private static bool installed;
@@ -72,7 +85,7 @@ internal static class OptionsMenuIntegration
             foreach (var pair in Menus.ToArray())
             {
                 var rows = pair.Value;
-                if (!rows.Menu || !rows.Scroll.IsAlive || !rows.Receptor.IsAlive)
+                if (!rows.Menu || !rows.AllAlive)
                 {
                     Menus.Remove(pair.Key);
                     continue;
@@ -96,7 +109,7 @@ internal static class OptionsMenuIntegration
         try
         {
             var id = __instance.GetInstanceID();
-            if (!Menus.TryGetValue(id, out var rows) || !rows.Scroll.IsAlive || !rows.Receptor.IsAlive)
+            if (!Menus.TryGetValue(id, out var rows) || !rows.AllAlive)
             {
                 if (rows != null) rows.Destroy();
                 rows = CreateRows(__instance);
@@ -120,20 +133,19 @@ internal static class OptionsMenuIntegration
         var parent = anchor.transform.parent;
         if (!parent) return null;
 
-        OptionRow? scroll = null;
+        var created = new List<OptionRow>();
         try
         {
-            // Both rows sit directly above Note speed, in this order.
-            scroll = CreateRow(template, parent, anchor, ScrollSpec);
-            var receptor = CreateRow(template, parent, anchor, ReceptorSpec);
+            // Each clone is inserted directly above Speed Mod, so creation order is display order.
+            foreach (var spec in Specs) created.Add(CreateRow(template, parent, anchor, spec));
             if (parent.TryCast<RectTransform>() is { } content)
                 LayoutRebuilder.MarkLayoutForRebuild(content);
-            ModLog.Info("Added Note scrolling and Receptor height to Options > Gameplay.");
-            return new MenuRows(menu, scroll, receptor);
+            ModLog.Info("Added flat-scroll rows to Options > Gameplay.");
+            return new MenuRows(menu, created);
         }
         catch
         {
-            scroll?.Destroy();
+            foreach (var row in created) row.Destroy();
             throw;
         }
     }
@@ -193,8 +205,7 @@ internal static class OptionsMenuIntegration
 
     private static void RefreshRows(MenuRows rows)
     {
-        RefreshRow(rows.Scroll);
-        RefreshRow(rows.Receptor);
+        foreach (var row in rows.Rows) RefreshRow(row);
         InsertIntoNavigation(rows);
     }
 
@@ -229,29 +240,35 @@ internal static class OptionsMenuIntegration
     {
         var anchor = rows.Menu.noteSpeedModButton;
         if (!anchor) return;
-        var scroll = rows.Scroll.Button;
-        var receptor = rows.Receptor.Button;
+        var buttons = rows.Rows.Select(row => (Selectable)row.Button).ToList();
 
         // RefreshViews reconstructs a hardcoded native navigation list. Insert our rows again
         // after every refresh; using the actual predecessor also handles hidden native rows.
         var anchorNav = anchor.navigation;
         var previous = anchorNav.selectOnUp;
-        for (int i = 0; i < 2 && previous && (previous == receptor || previous == scroll); i++)
+        for (int i = 0; i < buttons.Count && previous && IsOurs(buttons, previous); i++)
             previous = previous.navigation.selectOnUp;
-        if (previous == receptor || previous == scroll) previous = null;
+        if (previous && IsOurs(buttons, previous)) previous = null;
 
-        SetVertical(scroll, previous, receptor);
-        SetVertical(receptor, scroll, anchor);
+        for (int i = 0; i < buttons.Count; i++)
+            SetVertical(buttons[i], i == 0 ? previous : buttons[i - 1], i == buttons.Count - 1 ? anchor : buttons[i + 1]);
         anchorNav.mode = Navigation.Mode.Explicit;
-        anchorNav.selectOnUp = receptor;
+        anchorNav.selectOnUp = buttons[buttons.Count - 1];
         anchor.navigation = anchorNav;
         if (previous)
         {
             var previousNav = previous.navigation;
             previousNav.mode = Navigation.Mode.Explicit;
-            previousNav.selectOnDown = scroll;
+            previousNav.selectOnDown = buttons[0];
             previous.navigation = previousNav;
         }
+    }
+
+    private static bool IsOurs(List<Selectable> buttons, Selectable candidate)
+    {
+        foreach (var button in buttons)
+            if (candidate == button) return true;
+        return false;
     }
 
     private static void SetVertical(Selectable row, Selectable? up, Selectable down)
@@ -265,11 +282,8 @@ internal static class OptionsMenuIntegration
         row.navigation = nav;
     }
 
-    private static void ChangeMode(int direction, bool wrap)
-    {
-        // The three modes always cycle, matching the native state toggles.
-        SettingsState.SetMode((ScrollMode)(((int)SettingsState.Mode + direction + 3) % 3));
-    }
+    /// <summary>Choices with no natural order cycle in both directions, like native toggles.</summary>
+    private static int Cycle(int value, int direction, int count) => ((value + direction) % count + count) % count;
 
     private static void ChangeReceptorHeight(int direction, bool wrap)
     {
@@ -287,6 +301,8 @@ internal static class OptionsMenuIntegration
         {
             SettingsState.SetMode(ScrollMode.Default);
             SettingsState.SetReceptorHeight(0);
+            SettingsState.SetNoteSkin(NoteSkin.Default);
+            SettingsState.SetTimingBar(false);
             RefreshAll();
         }
         catch (Exception ex)
@@ -333,20 +349,19 @@ internal static class OptionsMenuIntegration
     private sealed class MenuRows
     {
         internal readonly GameplayOptionsMenu Menu;
-        internal readonly OptionRow Scroll;
-        internal readonly OptionRow Receptor;
+        internal readonly List<OptionRow> Rows;
 
-        internal MenuRows(GameplayOptionsMenu menu, OptionRow scroll, OptionRow receptor)
+        internal MenuRows(GameplayOptionsMenu menu, List<OptionRow> rows)
         {
             Menu = menu;
-            Scroll = scroll;
-            Receptor = receptor;
+            Rows = rows;
         }
+
+        internal bool AllAlive => Rows.All(row => row.IsAlive);
 
         internal void Destroy()
         {
-            Scroll.Destroy();
-            Receptor.Destroy();
+            foreach (var row in Rows) row.Destroy();
         }
     }
 

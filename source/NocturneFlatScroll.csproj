@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <AssemblyName>NocturneFlatScroll</AssemblyName>
-    <Version>2.2.0</Version>
+    <Version>2.3.0</Version>
     <!-- Keep builds reproducible: no git commit hash in the informational version. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <BepDir Condition="'$(BepDir)' == ''">$(NOCTURNE_GAME_DIR)\BepInEx</BepDir>

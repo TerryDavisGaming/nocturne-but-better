@@ -12,8 +12,8 @@ public sealed class Plugin : BasePlugin
     public override void Load()
     {
         ModLog.Initialize(message => Log.LogInfo(message), message => Log.LogError(message));
-        OptionsMenuIntegration.Install(new Harmony(ModInfo.Id));
-        OptionsMenuIntegration.AttachToExistingMenus();
+        ModSetup.Patch(new Harmony(ModInfo.Id));
+        ModSetup.AttachToExisting();
         AddComponent<LayoutController>();
         ModLog.Info("Flat scrolling loaded; select a layout in Options > Gameplay > Note scrolling.");
     }
