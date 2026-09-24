@@ -44,8 +44,10 @@ internal static class EditorOverlay
         get
         {
             if (IsOpen || Time.frameCount <= blockBackUntilFrame) return true;
+            // With no editor open or closing, nothing else is read: the game's Back runs as usual.
+            if (!pendingUnlock) return false;
             var keyboard = InputKeyboard.current;
-            return pendingUnlock && keyboard != null && keyboard[Key.Escape].isPressed;
+            return keyboard != null && keyboard[Key.Escape].isPressed;
         }
     }
 
@@ -99,15 +101,27 @@ internal static class EditorOverlay
     {
         if (updatedFrame == Time.frameCount) return;
         updatedFrame = Time.frameCount;
-        if (pendingUnlock && !BlockBack)
+        // Runs from LayoutDriver.LateUpdate with no guard of its own: an error here mustn't stop
+        // the features updated after it (custom music).
+        try
         {
-            pendingUnlock = false;
-            LockGameInput(false);
+            if (pendingUnlock && !BlockBack)
+            {
+                pendingUnlock = false;
+                LockGameInput(false);
+            }
+            if (IsOpen) FreeCursor();
+            // Folders chosen in a file dialog are saved to the player prefs here, on the main thread.
+            FileDialogs.Update();
         }
-        if (IsOpen) FreeCursor();
-        // Folders chosen in a file dialog are saved to the player prefs here, on the main thread.
-        FileDialogs.Update();
+        catch (Exception ex)
+        {
+            if (!reportedUpdateError) ModLog.Error("The editor overlay failed: " + ex);
+            reportedUpdateError = true;
+        }
     }
+
+    private static bool reportedUpdateError;
 
     // ---- the menus underneath -----------------------------------------------------------------
 

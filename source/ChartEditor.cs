@@ -83,9 +83,17 @@ internal static partial class ChartEditor
     {
         // Unlocks the menus after a close, and keeps the cursor free while an editor is open.
         EditorOverlay.Update();
-        if (!IsOpen) return;
+        if (ui == null) return;
         try
         {
+            // Only something else destroying the canvas gets here with the screen still set. Close
+            // properly, or EditorOverlay would keep the menus and their Back locked for good.
+            if (!ui.IsAlive)
+            {
+                ModLog.Error("The chart editor's screen was destroyed from outside; closing it.");
+                Close();
+                return;
+            }
             var keyboard = InputKeyboard.current;
             if (keyboard == null) return;
             switch (screen)
