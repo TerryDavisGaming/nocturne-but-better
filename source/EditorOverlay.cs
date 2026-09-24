@@ -1,0 +1,169 @@
+using HarmonyLib;
+using UnityEngine;
+using InputKeyboard = UnityEngine.InputSystem.Keyboard;
+using Key = UnityEngine.InputSystem.Key;
+
+namespace NocturneFlatScroll;
+
+/// <summary>
+/// What every editor screen needs from the game while it is open: the menus underneath locked
+/// (no navigation, select or back), and the cursor free. Screens register with
+/// <see cref="Enter"/> and <see cref="Leave"/>; the menus stay locked while any screen is
+/// registered, so one screen can hand over to another (enter the next, then leave, or leave and
+/// enter in the same frame) without the menus waking up in between.
+/// </summary>
+internal static class EditorOverlay
+{
+    private static readonly List<object> screens = new();
+    private static bool installed;
+
+    // The Escape that closes the last screen is still down for a few frames; the menus mustn't see it.
+    private static int blockBackUntilFrame = -1;
+    private static bool pendingUnlock;
+    private static int updatedFrame = -1;
+
+    /// <summary>Whether any editor screen is open.</summary>
+    internal static bool IsOpen => screens.Count > 0;
+
+    internal static void Install(HarmonyLib.Harmony harmony)
+    {
+        if (installed) return;
+        // While an editor is open, Back (Escape, the pad's B) must not close the menus underneath;
+        // LockGameInput also turns off the open panels' own back setting. Every Back press goes
+        // through NocturneGui.PopStack, which asks the top panel's TryBackAction and pops it. The
+        // block sits there, not on MenuPanel.TryBackAction: that one is compiled to the same code
+        // as a dozen unrelated bool getters (RVA 0x1A892A0), and a patch on it would run for all.
+        var back = AccessTools.DeclaredMethod(typeof(NocturneGui), "PopStack")
+            ?? throw new MissingMethodException(typeof(NocturneGui).FullName, "PopStack");
+        harmony.Patch(back, prefix: new HarmonyMethod(typeof(EditorOverlay), nameof(PopStackPrefix)));
+        installed = true;
+    }
+
+    private static bool BlockBack
+    {
+        get
+        {
+            if (IsOpen || Time.frameCount <= blockBackUntilFrame) return true;
+            var keyboard = InputKeyboard.current;
+            return pendingUnlock && keyboard != null && keyboard[Key.Escape].isPressed;
+        }
+    }
+
+    private static bool reportedBackError;
+
+    // Skips the game's Back while it's blocked; otherwise the game handles it as usual.
+    private static bool PopStackPrefix()
+    {
+        try { return !BlockBack; }
+        catch (Exception ex)
+        {
+            if (!reportedBackError) ModLog.Error("Checking the editor's Back block failed: " + ex.Message);
+            reportedBackError = true;
+            return true;
+        }
+    }
+
+    /// <summary>A screen opens: locks the menus and remembers the cursor, unless another screen already did.</summary>
+    internal static void Enter(object screen)
+    {
+        bool first = screens.Count == 0;
+        if (!screens.Contains(screen)) screens.Add(screen);
+        pendingUnlock = false;
+        LockGameInput(true);
+        if (first && cursorWas == null) cursorWas = (Cursor.lockState, Cursor.visible);
+    }
+
+    /// <summary>
+    /// A screen closes. When it was the last one, the cursor goes back to how the game had it and the
+    /// menus come back once the key that closed the screen is let go.
+    /// </summary>
+    internal static void Leave(object screen)
+    {
+        screens.Remove(screen);
+        if (screens.Count > 0) return;
+        if (cursorWas is { } was)
+        {
+            Cursor.lockState = was.Lock;
+            Cursor.visible = was.Visible;
+            cursorWas = null;
+        }
+        blockBackUntilFrame = Time.frameCount + 3;
+        pendingUnlock = true;
+    }
+
+    /// <summary>
+    /// Called every frame, before the screens update. Safe to call more than once a frame (only
+    /// the first call does anything), so every screen can call it.
+    /// </summary>
+    internal static void Update()
+    {
+        if (updatedFrame == Time.frameCount) return;
+        updatedFrame = Time.frameCount;
+        if (pendingUnlock && !BlockBack)
+        {
+            pendingUnlock = false;
+            LockGameInput(false);
+        }
+        if (IsOpen) FreeCursor();
+        // Folders chosen in a file dialog are saved to the player prefs here, on the main thread.
+        FileDialogs.Update();
+    }
+
+    // ---- the menus underneath -----------------------------------------------------------------
+
+    private static UnityEngine.EventSystems.EventSystem? lockedEvents;
+    private static readonly List<MenuPanel> noBackPanels = new();
+    private static bool navigationWas = true;
+
+    /// <summary>
+    /// Stops the menu underneath from reacting to the editor's keys: its navigation, select and
+    /// back events. (The game's own input lock also holds keyboard events back, which the editor
+    /// needs.) Back is also blocked by <see cref="PopStackPrefix"/>. Locking twice does nothing more.
+    /// </summary>
+    private static void LockGameInput(bool locked)
+    {
+        try
+        {
+            var events = UnityEngine.EventSystems.EventSystem.current;
+            if (locked)
+            {
+                if (events && lockedEvents == null)
+                {
+                    lockedEvents = events;
+                    navigationWas = events.sendNavigationEvents;
+                    events.sendNavigationEvents = false;
+                }
+                // The game only pops a panel on Back when the panel allows it.
+                foreach (var panel in Resources.FindObjectsOfTypeAll<MenuPanel>())
+                {
+                    if (!panel || !panel.gameObject.activeInHierarchy || !panel.allowBacktrack) continue;
+                    panel.allowBacktrack = false;
+                    noBackPanels.Add(panel);
+                }
+            }
+            else
+            {
+                if (lockedEvents != null)
+                {
+                    if (lockedEvents) lockedEvents.sendNavigationEvents = navigationWas;
+                    lockedEvents = null;
+                }
+                foreach (var panel in noBackPanels)
+                    if (panel) panel.allowBacktrack = true;
+                noBackPanels.Clear();
+            }
+        }
+        catch (Exception ex) { ModLog.Error("Locking the menus for the editor failed: " + ex.Message); }
+    }
+
+    // ---- the cursor ---------------------------------------------------------------------------
+
+    // The game can lock and hide the cursor; the editors need it free while one is open.
+    private static (CursorLockMode Lock, bool Visible)? cursorWas;
+
+    private static void FreeCursor()
+    {
+        if (Cursor.lockState != CursorLockMode.None) Cursor.lockState = CursorLockMode.None;
+        if (!Cursor.visible) Cursor.visible = true;
+    }
+}

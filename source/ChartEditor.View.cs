@@ -1,6 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
-using InputMouse = UnityEngine.InputSystem.Mouse;
+using static NocturneFlatScroll.EditorUi;
 using Object = UnityEngine.Object;
 
 namespace NocturneFlatScroll;
@@ -8,104 +8,43 @@ namespace NocturneFlatScroll;
 // The editor's screen, laid out like osu!'s editor: a top bar with tabs and file buttons, a
 // toolbox on the left, the playfield in the middle, a panel on the right for the current tab,
 // and the timeline along the bottom. Everything is anchored to the screen's edges, so it fits
-// any window shape; buttons are clickable and show their keys.
+// any window shape; buttons are clickable and show their keys. The widgets, palette, list screens
+// and status line come from EditorUi.
 internal static partial class ChartEditor
 {
     private enum Tab { Compose, Timing, Events, Setup, Keys }
 
     private const float TopH = 64f, BottomH = 92f, LeftW = 300f, RightW = 430f;
     private const float NoteHeight = 26f;
-    private static readonly Color Background = Hex(0x110F18);
-    private static readonly Color PanelColor = Hex(0x1C1827);
-    private static readonly Color ButtonColor = Hex(0x2A2538);
-    private static readonly Color ButtonHover = Hex(0x3A3350);
-    private static readonly Color Accent = Hex(0xF27333);
-    private static readonly Color TextColor = Hex(0xEAE6F5);
-    private static readonly Color DimText = Hex(0x9D92B4);
     private static readonly Color LaneColor = Hex(0x1A1724);
     private static readonly Color LaneEdge = Hex(0x3A3450);
 
     private static Tab tab = Tab.Compose;
-    private static RectTransform? listPanel, editPanel, fieldArea, field, keysPanel, leftPanel, rightPanel, timeline;
-    private static RectTransform? statusBg;
-    private static TMP_Text? listTitle, listHint, statusText, titleText, timeText, infoText, tabText, keysHint;
+    private static RectTransform? editPanel, fieldArea, field, keysPanel, leftPanel, rightPanel, timeline;
+    private static TMP_Text? titleText, timeText, infoText, tabText, keysHint;
     private static Image? timelineFill, timelinePlayhead, judgeLine, selectionBox;
     private static readonly List<Image> notePool = new();
     private static readonly List<Image> linePool = new();
     private static readonly List<Image> wavePool = new();
     private static readonly List<Image> markerPool = new();
     private static readonly List<TMP_Text> labelPool = new();
-    private static readonly List<UiButton> uiButtons = new();
-    private static readonly List<UiButton> listRows = new();
     private static readonly List<UiButton> eventRows = new();
-
-    private static Color Hex(int rgb, float a = 1f) => new(((rgb >> 16) & 255) / 255f, ((rgb >> 8) & 255) / 255f, (rgb & 255) / 255f, a);
-
-    /// <summary>A clickable box with a label. Its text, highlight and visibility are worked out each frame.</summary>
-    private sealed class UiButton
-    {
-        internal RectTransform Rect = null!;
-        internal Image? Bg;
-        internal TMP_Text Label = null!;
-        internal Action? OnClick;
-        internal Func<string>? Text;
-        internal Func<bool>? Active;
-        internal Func<bool>? Visible;
-    }
 
     // ---- building --------------------------------------------------------------------------
 
     private static void BuildCanvas()
     {
-        uiButtons.Clear();
-        listRows.Clear();
         eventRows.Clear();
         markerPool.Clear();
-        root = new GameObject("NocturneButBetter Chart Editor");
-        Object.DontDestroyOnLoad(root);
-        var canvas = root.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 32000;
-        var scaler = root.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920, 1080);
-        // Expand keeps at least 1920x1080 units on screen at any aspect, so nothing is pushed off it.
-        scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.Expand;
-        canvasRect = root.GetComponent<RectTransform>();
-        Stretch(MakeImage("Background", canvasRect!, Background).rectTransform, 0, 0, 0, 0);
-
-        BuildLists();
+        ui = new EditorUi("NocturneButBetter Chart Editor");
+        Ui.BuildList();
         BuildEditor();
         editPanel!.gameObject.SetActive(false);
     }
 
-    private const int ListRowsVisible = 16;
-
-    private static void BuildLists()
-    {
-        listPanel = MakeRect("Lists", canvasRect!);
-        Stretch(listPanel, 0, 0, 0, 0);
-        var box = MakeImage("Box", listPanel, PanelColor).rectTransform;
-        box.sizeDelta = new Vector2(1200, 900);
-        listTitle = MakeText("Title", box, 40, TextAlignmentOptions.Center);
-        Place(listTitle.rectTransform, new Vector2(0.5f, 1), new Vector2(0, -30), new Vector2(1140, 60));
-        listHint = MakeText("Hint", box, 20, TextAlignmentOptions.Center);
-        listHint.color = DimText;
-        Place(listHint.rectTransform, new Vector2(0.5f, 1), new Vector2(0, -95), new Vector2(1140, 40));
-        for (int i = 0; i < ListRowsVisible; i++)
-        {
-            int row = i;
-            var b = MakeButton(box, "", () => ClickListRow(row));
-            Place(b.Rect, new Vector2(0.5f, 1), new Vector2(0, -150 - i * 45), new Vector2(1100, 40));
-            b.Label.alignment = TextAlignmentOptions.Left;
-            b.Label.margin = new Vector4(18, 0, 18, 0);
-            listRows.Add(b);
-        }
-    }
-
     private static void BuildEditor()
     {
-        editPanel = MakeRect("Edit", canvasRect!);
+        editPanel = MakeRect("Edit", Ui.CanvasRect);
         Stretch(editPanel, 0, 0, 0, 0);
 
         // The playfield sits between the panels and bars; the Keys tab uses the same space.
@@ -129,7 +68,7 @@ internal static partial class ChartEditor
         for (int i = 0; i < tabs.Length; i++)
         {
             var (t, name) = tabs[i];
-            var b = MakeButton(top, name, () => SetTab(t));
+            var b = Ui.MakeButton(top, name, () => SetTab(t));
             b.Active = () => tab == t;
             Place(b.Rect, new Vector2(0, 0.5f), new Vector2(16 + i * 146, 0), new Vector2(138, 44), new Vector2(0, 0.5f));
         }
@@ -140,12 +79,12 @@ internal static partial class ChartEditor
         titleText.rectTransform.anchorMax = new Vector2(1, 1);
         titleText.rectTransform.offsetMin = new Vector2(16 + 5 * 146 + 10, 0);
         titleText.rectTransform.offsetMax = new Vector2(-(16 + 110 + 12 + 170 + 12 + 150 + 16), 0);
-        var exit = MakeButton(top, "Exit", RequestClose);
+        var exit = Ui.MakeButton(top, "Exit", RequestClose);
         Place(exit.Rect, new Vector2(1, 0.5f), new Vector2(-16, 0), new Vector2(110, 44), new Vector2(1, 0.5f));
-        var export = MakeButton(top, "Export", StartExportPack);
+        var export = Ui.MakeButton(top, "Export", StartExportPack);
         export.Text = () => $"Export <size=65%><color=#9D92B4>{ShortKey(EditorAction.Export)}</color></size>";
         Place(export.Rect, new Vector2(1, 0.5f), new Vector2(-138, 0), new Vector2(170, 44), new Vector2(1, 0.5f));
-        var save = MakeButton(top, "Save", () => Save());
+        var save = Ui.MakeButton(top, "Save", () => Save());
         save.Text = () => $"Save <size=65%><color=#9D92B4>{ShortKey(EditorAction.Save)}</color></size>";
         save.Active = () => dirty;
         Place(save.Rect, new Vector2(1, 0.5f), new Vector2(-320, 0), new Vector2(150, 44), new Vector2(1, 0.5f));
@@ -154,13 +93,8 @@ internal static partial class ChartEditor
         BuildRightPanel();
         BuildBottomBar();
 
-        // Messages sit on a dark backing, sized to the text, so they stay readable over the notes.
-        statusBg = MakeImage("StatusBg", editPanel, new Color(Background.r, Background.g, Background.b, 0.92f)).rectTransform;
-        statusBg.anchorMin = statusBg.anchorMax = Vector2.zero;
-        statusBg.pivot = new Vector2(0.5f, 0);
-        statusText = MakeText("Status", statusBg, 22, TextAlignmentOptions.Center);
-        statusText.color = Accent;
-        Stretch(statusText.rectTransform, 18, 7, 18, 7);
+        // Messages go last, so they draw over the notes.
+        Ui.BuildStatus(editPanel);
     }
 
     private static void BuildLeftPanel()
@@ -171,12 +105,13 @@ internal static partial class ChartEditor
         leftPanel.pivot = new Vector2(0, 0.5f);
         leftPanel.offsetMin = new Vector2(0, BottomH);
         leftPanel.offsetMax = new Vector2(LeftW, -TopH);
+        Ui.AddSolidPanel(leftPanel);
         float y = -14;
-        Header(leftPanel, "Tools", ref y);
+        Ui.Header(leftPanel, "Tools", ref y);
         var tools = new[] { (Tool.Select, "Select", EditorAction.ToolSelect), (Tool.Note, "Note", EditorAction.ToolNote), (Tool.Hold, "Hold", EditorAction.ToolHold), (Tool.Mine, "Mine", EditorAction.ToolMine) };
         foreach (var (t, name, action) in tools)
         {
-            var b = MakeButton(leftPanel, name, () => SetTool(t));
+            var b = Ui.MakeButton(leftPanel, name, () => SetTool(t));
             b.Text = () => $"{name}  <size=65%><color=#9D92B4>{ShortKey(action)}</color></size>";
             b.Active = () => tool == t;
             b.Label.alignment = TextAlignmentOptions.Left;
@@ -185,28 +120,28 @@ internal static partial class ChartEditor
             y -= 45;
         }
         y -= 6;
-        Header(leftPanel, "Beat snap", ref y);
-        Stepper(leftPanel, ref y, () => $"1/{Snaps[snapIndex]}", () => snapIndex = Math.Max(0, snapIndex - 1), () => snapIndex = Math.Min(Snaps.Length - 1, snapIndex + 1));
-        Header(leftPanel, "Zoom", ref y);
-        Stepper(leftPanel, ref y, () => $"{pixelsPerSecond / 7f:0}%", () => Zoom(1 / 1.2f), () => Zoom(1.2f));
-        Header(leftPanel, "Playback speed", ref y);
+        Ui.Header(leftPanel, "Beat snap", ref y);
+        Ui.Stepper(leftPanel, ref y, () => $"1/{Snaps[snapIndex]}", () => snapIndex = Math.Max(0, snapIndex - 1), () => snapIndex = Math.Min(Snaps.Length - 1, snapIndex + 1));
+        Ui.Header(leftPanel, "Zoom", ref y);
+        Ui.Stepper(leftPanel, ref y, () => $"{pixelsPerSecond / 7f:0}%", () => Zoom(1 / 1.2f), () => Zoom(1.2f));
+        Ui.Header(leftPanel, "Playback speed", ref y);
         for (int i = 0; i < Speeds.Length; i++)
         {
             int index = i;
-            var b = MakeButton(leftPanel, $"{Speeds[i] * 100:0}%", () => SetSpeed(index));
+            var b = Ui.MakeButton(leftPanel, $"{Speeds[i] * 100:0}%", () => SetSpeed(index));
             b.Active = () => speedIndex == index;
             b.Label.fontSize = 17;
             PlaceTop(b.Rect, 16 + i * 68, y, 64, 36);
         }
         y -= 48;
-        Header(leftPanel, "Sound", ref y);
-        Toggle(leftPanel, ref y, () => $"Note ticks: {(ticksOn ? "on" : "off")}", () => ticksOn, ToggleTicks);
-        Toggle(leftPanel, ref y, () => $"Metronome: {(metronomeOn ? "on" : "off")}", () => metronomeOn, ToggleMetronome);
-        Toggle(leftPanel, ref y, () => $"Waveform: {(waveformOn ? "on" : "off")}", () => waveformOn, () => waveformOn = !waveformOn);
-        Header(leftPanel, "Music volume", ref y);
-        Stepper(leftPanel, ref y, () => $"{musicVolume * 100:0}%", () => SetMusicVolume(musicVolume - 0.1f), () => SetMusicVolume(musicVolume + 0.1f));
-        Header(leftPanel, "Tick volume", ref y);
-        Stepper(leftPanel, ref y, () => $"{tickVolume * 100:0}%", () => SetTickVolume(tickVolume - 0.1f), () => SetTickVolume(tickVolume + 0.1f));
+        Ui.Header(leftPanel, "Sound", ref y);
+        Ui.Toggle(leftPanel, ref y, () => $"Note ticks: {(ticksOn ? "on" : "off")}", () => ticksOn, ToggleTicks);
+        Ui.Toggle(leftPanel, ref y, () => $"Metronome: {(metronomeOn ? "on" : "off")}", () => metronomeOn, ToggleMetronome);
+        Ui.Toggle(leftPanel, ref y, () => $"Waveform: {(waveformOn ? "on" : "off")}", () => waveformOn, () => waveformOn = !waveformOn);
+        Ui.Header(leftPanel, "Music volume", ref y);
+        Ui.Stepper(leftPanel, ref y, () => $"{musicVolume * 100:0}%", () => SetMusicVolume(musicVolume - 0.1f), () => SetMusicVolume(musicVolume + 0.1f));
+        Ui.Header(leftPanel, "Tick volume", ref y);
+        Ui.Stepper(leftPanel, ref y, () => $"{tickVolume * 100:0}%", () => SetTickVolume(tickVolume - 0.1f), () => SetTickVolume(tickVolume + 0.1f));
     }
 
     private const int EventRowsVisible = 7;
@@ -219,6 +154,7 @@ internal static partial class ChartEditor
         rightPanel.pivot = new Vector2(1, 0.5f);
         rightPanel.offsetMin = new Vector2(-RightW, BottomH);
         rightPanel.offsetMax = new Vector2(0, -TopH);
+        Ui.AddSolidPanel(rightPanel);
         float width = RightW - 32;
 
         infoText = MakeText("Info", rightPanel, 19, TextAlignmentOptions.TopLeft);
@@ -244,7 +180,7 @@ internal static partial class ChartEditor
         for (int i = 0; i < compose.Length; i++)
         {
             var (label, action, doIt) = compose[i];
-            var b = MakeButton(rightPanel, label, doIt);
+            var b = Ui.MakeButton(rightPanel, label, doIt);
             b.Text = () => $"{label} <size=62%><color=#9D92B4>{ShortKey(action)}</color></size>";
             b.Visible = () => tab == Tab.Compose;
             b.Label.fontSize = 18;
@@ -261,7 +197,7 @@ internal static partial class ChartEditor
         for (int i = 0; i < timing.Length; i++)
         {
             var (label, doIt) = timing[i];
-            var b = MakeButton(rightPanel, label, doIt);
+            var b = Ui.MakeButton(rightPanel, label, doIt);
             b.Visible = () => tab == Tab.Timing;
             b.Label.fontSize = 17;
             PlaceTop(b.Rect, 16 + (i % 2) * (width / 2 + 4), -270 - (i / 2) * 46, width / 2 - 4, 40);
@@ -271,7 +207,7 @@ internal static partial class ChartEditor
         for (int i = 0; i < EventRowsVisible; i++)
         {
             int row = i;
-            var b = MakeButton(rightPanel, "", () => ClickEventRow(row));
+            var b = Ui.MakeButton(rightPanel, "", () => ClickEventRow(row));
             b.Visible = () => tab == Tab.Events && EventRowShown(row);
             b.Label.alignment = TextAlignmentOptions.Left;
             b.Label.margin = new Vector4(10, 0, 6, 0);
@@ -290,21 +226,21 @@ internal static partial class ChartEditor
         for (int i = 0; i < eventButtons.Length; i++)
         {
             var (label, doIt) = eventButtons[i];
-            var b = MakeButton(rightPanel, label, doIt);
+            var b = Ui.MakeButton(rightPanel, label, doIt);
             b.Visible = () => tab == Tab.Events;
             b.Label.fontSize = 16;
             PlaceTop(b.Rect, 16 + (i % 2) * (width / 2 + 4), -262 - EventRowsVisible * 32 - 8 - (i / 2) * 40, width / 2 - 4, 35);
         }
 
         // Setup: the chart's name and author, and the file actions.
-        var name = MakeButton(rightPanel, "", () => StartTyping(TextField.Title));
+        var name = Ui.MakeButton(rightPanel, "", () => StartTyping(TextField.Title));
         name.Text = () => $"Name: {Escape(title)}{(typing == TextField.Title ? "_" : "")}";
         name.Visible = () => tab == Tab.Setup;
         name.Active = () => typing == TextField.Title;
         name.Label.alignment = TextAlignmentOptions.Left;
         name.Label.margin = new Vector4(12, 0, 8, 0);
         PlaceTop(name.Rect, 16, -270, width, 42);
-        var who = MakeButton(rightPanel, "", () => StartTyping(TextField.Author));
+        var who = Ui.MakeButton(rightPanel, "", () => StartTyping(TextField.Author));
         who.Text = () => $"Author: {Escape(author.Length > 0 ? author : "(click to set)")}{(typing == TextField.Author ? "_" : "")}";
         who.Visible = () => tab == Tab.Setup;
         who.Active = () => typing == TextField.Author;
@@ -315,13 +251,13 @@ internal static partial class ChartEditor
         for (int i = 0; i < files.Length; i++)
         {
             var (label, doIt) = files[i];
-            var b = MakeButton(rightPanel, label, doIt);
+            var b = Ui.MakeButton(rightPanel, label, doIt);
             b.Visible = () => tab == Tab.Setup;
             PlaceTop(b.Rect, 16 + (i % 2) * (width / 2 + 4), -378 - (i / 2) * 46, width / 2 - 4, 40);
         }
 
         // Keys: back to the defaults.
-        var reset = MakeButton(rightPanel, "Reset all keys", () => { ResetBindings(); Say("Keys are back to the defaults", 3f); });
+        var reset = Ui.MakeButton(rightPanel, "Reset all keys", () => { ResetBindings(); Say("Keys are back to the defaults", 3f); });
         reset.Visible = () => tab == Tab.Keys;
         PlaceTop(reset.Rect, 16, -270, width, 42);
     }
@@ -334,7 +270,7 @@ internal static partial class ChartEditor
         bar.pivot = new Vector2(0.5f, 0);
         bar.sizeDelta = new Vector2(0, BottomH);
         bar.anchoredPosition = Vector2.zero;
-        var play = MakeButton(bar, "Play", TogglePlay);
+        var play = Ui.MakeButton(bar, "Play", TogglePlay);
         play.Text = () => (IsPlaying ? "Pause" : "Play") + $" <size=65%><color=#9D92B4>{ShortKey(EditorAction.PlayPause)}</color></size>";
         play.Active = () => IsPlaying;
         Place(play.Rect, new Vector2(0, 0.5f), new Vector2(16, 0), new Vector2(170, 52), new Vector2(0, 0.5f));
@@ -370,9 +306,9 @@ internal static partial class ChartEditor
         for (int i = 0; i < DefaultBindings.Length; i++)
         {
             var action = DefaultBindings[i].Action;
-            var b = MakeButton(keysPanel!, "", () => { rebinding = action; Say($"Press the new key for \"{LabelOf(action)}\"", 30f); });
-            b.Text = () => $"{LabelOf(action)}<pos=58%><color=#F2B02E>{(rebinding == action ? "press a key..." : KeysFor(action))}</color>";
-            b.Active = () => rebinding == action;
+            var b = Ui.MakeButton(keysPanel!, "", () => { keyMap.Rebinding = action; Say($"Press the new key for \"{LabelOf(action)}\"", 30f); });
+            b.Text = () => $"{LabelOf(action)}<pos=58%><color=#F2B02E>{(keyMap.Rebinding == action ? "press a key..." : KeysFor(action))}</color>";
+            b.Active = () => keyMap.Rebinding == action;
             b.Label.alignment = TextAlignmentOptions.Left;
             b.Label.margin = new Vector4(10, 0, 6, 0);
             b.Label.fontSize = 15;
@@ -385,197 +321,22 @@ internal static partial class ChartEditor
         }
     }
 
-    // ---- small builders ---------------------------------------------------------------------
-
-    private static void Header(RectTransform parent, string text, ref float y)
-    {
-        var t = MakeText(text, parent, 15, TextAlignmentOptions.Left);
-        t.text = text.ToUpperInvariant();
-        t.color = DimText;
-        PlaceTop(t.rectTransform, 18, y, 260, 20);
-        y -= 25;
-    }
-
-    private static void Stepper(RectTransform parent, ref float y, Func<string> value, Action less, Action more)
-    {
-        var minus = MakeButton(parent, "-", less);
-        PlaceTop(minus.Rect, 16, y, 52, 36);
-        var label = MakeText("Value", parent, 20, TextAlignmentOptions.Center);
-        PlaceTop(label.rectTransform, 72, y, 156, 36);
-        uiButtons.Add(new UiButton { Rect = label.rectTransform, Label = label, Text = value });
-        var plus = MakeButton(parent, "+", more);
-        PlaceTop(plus.Rect, 232, y, 52, 36);
-        y -= 46;
-    }
-
-    private static void Toggle(RectTransform parent, ref float y, Func<string> text, Func<bool> on, Action flip)
-    {
-        var b = MakeButton(parent, "", flip);
-        b.Text = text;
-        b.Active = on;
-        b.Label.fontSize = 18;
-        PlaceTop(b.Rect, 16, y, 268, 36);
-        y -= 42;
-    }
-
-    private static UiButton MakeButton(Transform parent, string text, Action? onClick)
-    {
-        var bg = MakeImage("Button", parent, ButtonColor);
-        var label = MakeText("Label", bg.rectTransform, 20, TextAlignmentOptions.Center);
-        label.text = text;
-        Stretch(label.rectTransform, 0, 0, 0, 0);
-        label.enableWordWrapping = false;
-        label.overflowMode = TextOverflowModes.Ellipsis;
-        var b = new UiButton { Rect = bg.rectTransform, Bg = bg, Label = label, OnClick = onClick };
-        uiButtons.Add(b);
-        return b;
-    }
-
-    private static RectTransform MakeRect(string name, Transform parent)
-    {
-        var go = new GameObject(name);
-        go.transform.SetParent(parent, false);
-        var rect = go.AddComponent<RectTransform>();
-        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        return rect;
-    }
-
-    private static Image MakeImage(string name, Transform parent, Color color)
-    {
-        var rect = MakeRect(name, parent);
-        var image = rect.gameObject.AddComponent<Image>();
-        image.color = color;
-        image.raycastTarget = false;
-        return image;
-    }
-
-    private static TMP_Text MakeText(string name, Transform parent, float size, TextAlignmentOptions align)
-    {
-        var rect = MakeRect(name, parent);
-        var text = rect.gameObject.AddComponent<TextMeshProUGUI>();
-        var font = GameFont();
-        if (font)
-        {
-            text.font = font!.font;
-            text.fontSharedMaterial = font.fontSharedMaterial;
-        }
-        text.fontSize = size;
-        text.alignment = align;
-        text.color = TextColor;
-        text.raycastTarget = false;
-        text.richText = true;
-        return text;
-    }
-
-    private static void Stretch(RectTransform rect, float left, float bottom, float right, float top)
-    {
-        rect.anchorMin = Vector2.zero;
-        rect.anchorMax = Vector2.one;
-        rect.offsetMin = new Vector2(left, bottom);
-        rect.offsetMax = new Vector2(-right, -top);
-    }
-
-    private static void Place(RectTransform rect, Vector2 anchor, Vector2 pos, Vector2 size, Vector2? pivot = null)
-    {
-        rect.anchorMin = rect.anchorMax = anchor;
-        rect.pivot = pivot ?? new Vector2(0.5f, anchor.y);
-        rect.anchoredPosition = pos;
-        rect.sizeDelta = size;
-    }
-
-    private static void PlaceTop(RectTransform rect, float x, float y, float w, float h) =>
-        Place(rect, new Vector2(0, 1), new Vector2(x, y), new Vector2(w, h), new Vector2(0, 1));
-
-    private static string Escape(string text) => "<noparse>" + text.Replace("</noparse>", "") + "</noparse>";
-
-    private static TMP_Text? fontSource;
-
-    private static TMP_Text? GameFont()
-    {
-        if (fontSource) return fontSource;
-        foreach (var menu in Resources.FindObjectsOfTypeAll<MainMenu>())
-            if (menu && menu.optionsButton) { fontSource = menu.optionsButton.GetComponentInChildren<TMP_Text>(true); if (fontSource) return fontSource; }
-        foreach (var text in Resources.FindObjectsOfTypeAll<TextMeshProUGUI>())
-            if (text && text.font) return fontSource = text;
-        return null;
-    }
-
     // ---- per-frame UI ------------------------------------------------------------------------
 
     private static void ShowScreen(Screen next)
     {
         screen = next;
-        listPanel!.gameObject.SetActive(next != Screen.Edit);
+        Ui.ListPanel!.gameObject.SetActive(next != Screen.Edit);
         editPanel!.gameObject.SetActive(next == Screen.Edit);
     }
 
     private static void SetTab(Tab next)
     {
         tab = next;
-        rebinding = null;
+        keyMap.Rebinding = null;
         typing = TextField.None;
         keysPanel!.gameObject.SetActive(tab == Tab.Keys);
         fieldArea!.gameObject.SetActive(tab != Tab.Keys);
-    }
-
-    /// <summary>Updates every button's text, colours and visibility, and runs a click. True when a button took it.</summary>
-    private static bool UpdateButtons(InputMouse? mouse)
-    {
-        Vector2 pos = mouse != null ? mouse.position.ReadValue() : new Vector2(-1, -1);
-        bool click = mouse != null && mouse.leftButton.wasPressedThisFrame;
-        bool taken = false;
-        foreach (var b in uiButtons)
-        {
-            if (!b.Rect) continue;
-            bool shown = b.Visible?.Invoke() ?? true;
-            if (b.Rect.gameObject.activeSelf != shown) b.Rect.gameObject.SetActive(shown);
-            if (!shown || !b.Rect.gameObject.activeInHierarchy) continue;
-            if (b.Text != null)
-            {
-                var t = b.Text();
-                if (b.Label.text != t) b.Label.text = t;
-            }
-            if (b.Bg == null) continue;
-            bool over = RectTransformUtility.RectangleContainsScreenPoint(b.Rect, pos, null);
-            bool active = b.Active?.Invoke() ?? false;
-            var color = active ? Accent : over ? ButtonHover : ButtonColor;
-            if (b.Bg.color != color) b.Bg.color = color;
-            var textColor = active ? Hex(0x16131F) : TextColor;
-            if (b.Label.color != textColor) b.Label.color = textColor;
-            if (click && over && !taken && b.OnClick != null)
-            {
-                taken = true;
-                b.OnClick();
-            }
-        }
-        return taken;
-    }
-
-    private static bool OverUi(Vector2 screenPos) =>
-        (leftPanel && RectTransformUtility.RectangleContainsScreenPoint(leftPanel, screenPos, null))
-        || (rightPanel && RectTransformUtility.RectangleContainsScreenPoint(rightPanel, screenPos, null));
-
-    private static List<string> listItems = new();
-    private static int listFirst;
-
-    private static void DrawList(string heading, string hint, List<string> items, int index)
-    {
-        listTitle!.text = heading;
-        listHint!.text = hint;
-        listItems = items;
-        listFirst = Math.Clamp(index - ListRowsVisible / 2, 0, Math.Max(0, items.Count - ListRowsVisible));
-        for (int i = 0; i < listRows.Count; i++)
-        {
-            int item = listFirst + i;
-            var row = listRows[i];
-            row.Visible = () => item < listItems.Count;
-            if (item >= items.Count) continue;
-            row.Label.text = Escape(items[item]);
-            bool picked = item == index;
-            row.Active = () => picked;
-        }
-        UpdateButtons(InputMouse.current);
     }
 
     // ---- the playfield -----------------------------------------------------------------------
@@ -816,7 +577,7 @@ internal static partial class ChartEditor
         {
             while (markerPool.Count <= index)
             {
-                var m = MakeImage("Marker", timeline, color);
+                var m = MakeImage("Marker", timeline!, color);
                 m.rectTransform.anchorMin = m.rectTransform.anchorMax = new Vector2(0, 0.5f);
                 markerPool.Add(m);
             }
