@@ -106,10 +106,11 @@ internal static class CustomCharts
     internal static SongData? FindSong(string name)
     {
         if (songs != null && songs.TryGetValue(name, out var known) && known) return known;
-        // Rebuilt on a miss, since songs load and unload as the game goes.
+        // Rebuilt on a miss, since songs load and unload as the game goes. Custom songs' runtime
+        // SongData aren't game songs and take no custom charts.
         songs = new Dictionary<string, SongData>(StringComparer.OrdinalIgnoreCase);
         foreach (var song in Resources.FindObjectsOfTypeAll<SongData>())
-            if (song && !songs.ContainsKey(song.name)) songs[song.name] = song;
+            if (song && !CustomSongs.IsRuntimeName(song.name) && !songs.ContainsKey(song.name)) songs[song.name] = song;
         return songs.TryGetValue(name, out var found) && found ? found : null;
     }
 
@@ -131,13 +132,16 @@ internal static class CustomCharts
     /// <summary>
     /// Whether the song's score is shared with other songs, as in fights split into parts. A
     /// custom chart there would mix its score with the game's, so those songs don't take one yet.
+    /// Custom songs' runtime SongData count as shared too: they take no custom charts, which also
+    /// keeps them out of the chart editor's song list.
     /// </summary>
     internal static bool SharesScore(SongData song)
     {
+        if (CustomSongs.IsRuntimeName(song.name)) return true;
         string key = song.HighScoreKey ?? "";
         if (!song.overrideHighScoreKey || key.Length == 0) return false;
         foreach (var other in Resources.FindObjectsOfTypeAll<SongData>())
-            if (other && other.name != song.name && other.HighScoreKey == key) return true;
+            if (other && other.name != song.name && !CustomSongs.IsRuntimeName(other.name) && other.HighScoreKey == key) return true;
         return false;
     }
 
@@ -308,7 +312,7 @@ internal static class CustomCharts
         var done = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var song in Resources.FindObjectsOfTypeAll<SongData>())
         {
-            if (!song || !done.Add(song.name)) continue;
+            if (!song || CustomSongs.IsRuntimeName(song.name) || !done.Add(song.name)) continue;
             var maps = song.beatmaps;
             if (maps == null) continue;
             string safe = new string(song.name.Select(ch => bad.Contains(ch) ? '_' : ch).ToArray());

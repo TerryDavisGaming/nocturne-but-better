@@ -1,0 +1,597 @@
+using System.Globalization;
+using System.Runtime.InteropServices;
+using HarmonyLib;
+using Il2CppInterop.Runtime;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using UnityEngine;
+using Object = UnityEngine.Object;
+
+namespace NocturneFlatScroll;
+
+/// <summary>
+/// Custom songs in the game. Each package in the CustomSongs folder becomes a runtime SongData
+/// (its six-difficulty chart, a score key of its own, no Wwise music), an EnemyData copied from
+/// a game enemy with the package's stats and info boxes, and an arcade entry. They are built when
+/// an arcade screen opens and kept for the session; a package that changes on disk is rebuilt
+/// the next time. They only exist in the arcade: nothing puts them anywhere else.
+/// </summary>
+internal static class CustomSongs
+{
+    /// <summary>Names of the mod's runtime SongData and EnemyData start with this.</summary>
+    internal const string RuntimePrefix = "NocturneButBetter/";
+    private const string EnemyKeyPrefix = "NocturneButBetter/enemy/";
+
+    /// <summary>One custom song and the game objects made for it.</summary>
+    internal sealed class Song
+    {
+        internal SongPackage Package = null!;
+        internal SongData Data = null!;
+        internal EnemyData Enemy = null!;
+        internal TextAsset Beatmap = null!;
+        internal ArcadeSongInfo Info = null!;
+        internal Sprite Card = null!;
+        internal Texture2D? CardTexture;   // null for the shared placeholder card
+        internal CustomMusic.Source Music = null!;
+
+        internal string Title => Package.Title;
+        internal int Lanes => Package.Lanes;
+        internal int LastNoteRow => Package.LastNoteRow;
+        internal string PlayableText => Package.PlayableText;
+        internal ChartText Chart => Package.Chart;
+    }
+
+    private static readonly Dictionary<string, Song> ById = new();
+    private static readonly Dictionary<IntPtr, Song> ByData = new();
+    private static List<Song> ordered = new();
+    private static readonly HashSet<string> Reported = new();
+    private static bool reportedFields, reportedBattleError, listed;
+
+    /// <summary>The songs, by title.</summary>
+    internal static IReadOnlyList<Song> All => ordered;
+
+    /// <summary>Changes whenever the list of songs or any song's objects change.</summary>
+    internal static int Version { get; private set; }
+
+    internal static string Folder
+    {
+        get
+        {
+            string path = Path.Combine(Application.persistentDataPath, "NocturneButBetter", "CustomSongs");
+            Directory.CreateDirectory(path);
+            return path;
+        }
+    }
+
+    internal static void Install(HarmonyLib.Harmony harmony)
+    {
+        // Everything is looked up first, so a missing method installs nothing.
+        var showColumns = AccessTools.DeclaredMethod(typeof(CombatNoteFieldView), "ShowColumns")
+            ?? throw new MissingMethodException(typeof(CombatNoteFieldView).FullName, "ShowColumns");
+        var removeColumn = AccessTools.DeclaredMethod(typeof(CombatNoteFieldView), "RemoveColumn")
+            ?? throw new MissingMethodException(typeof(CombatNoteFieldView).FullName, "RemoveColumn");
+        var arcade = CustomSongsArcade.Methods();
+        harmony.Patch(showColumns, postfix: new HarmonyMethod(typeof(CustomSongs), nameof(ShowColumnsPostfix)));
+        harmony.Patch(removeColumn, prefix: new HarmonyMethod(typeof(CustomSongs), nameof(RemoveColumnPrefix)));
+        CustomSongsArcade.Install(harmony, arcade);
+    }
+
+    // ---- the registry ----------------------------------------------------------------------------
+
+    /// <summary>The custom song a SongData was made for, or null for the game's own songs.</summary>
+    internal static Song? Find(SongData? data)
+    {
+        if (data == null || !data) return null;
+        return ByData.TryGetValue(data.Pointer, out var song) ? song : null;
+    }
+
+    /// <summary>Whether a SongData or EnemyData name is one of the mod's runtime objects.</summary>
+    internal static bool IsRuntimeName(string? name) => name != null && name.StartsWith(RuntimePrefix, StringComparison.Ordinal);
+
+    /// <summary>A custom song's title, for screens that would show its SongData's name.</summary>
+    internal static string? TitleOf(SongData? data) => Find(data)?.Title;
+
+    /// <summary>Reads the CustomSongs folder again and builds the songs that are new or changed.</summary>
+    internal static void Refresh()
+    {
+        List<SongPackage> found;
+        try { found = SongPackage.Scan(Folder, message => Note(message)); }
+        catch (Exception ex)
+        {
+            Note("Listing the custom songs failed: " + ex.Message);
+            return;
+        }
+        bool changed = false;
+        var seen = new HashSet<string>();
+        Dictionary<string, EnemyData>? enemies = null;
+        foreach (var package in found)
+        {
+            seen.Add(package.Id);
+            ById.TryGetValue(package.Id, out var have);
+            if (have != null && have.Package.Fingerprint == package.Fingerprint && Alive(have)) continue;
+            enemies ??= GameEnemies();
+            var built = Build(package, enemies);
+            if (have != null) Retire(have);
+            if (built != null) ById[package.Id] = built;
+            else ById.Remove(package.Id);
+            changed = true;
+        }
+        foreach (var id in ById.Keys.Where(id => !seen.Contains(id)).ToList())
+        {
+            Retire(ById[id]);
+            ById.Remove(id);
+            changed = true;
+        }
+        if (!changed && listed) return;
+        listed = true;
+        ordered = ById.Values.OrderBy(s => s.Title, StringComparer.CurrentCultureIgnoreCase).ThenBy(s => s.Package.Id).ToList();
+        ByData.Clear();
+        foreach (var song in ordered) ByData[song.Data.Pointer] = song;
+        Version++;
+        ModLog.Info($"Custom songs: {ordered.Count} in {Folder}.");
+    }
+
+    private static bool Alive(Song song) => song.Data && song.Enemy && song.Beatmap && song.Card;
+
+    /// <summary>The game's enemies by asset name, without the mod's copies.</summary>
+    private static Dictionary<string, EnemyData> GameEnemies()
+    {
+        var map = new Dictionary<string, EnemyData>(StringComparer.OrdinalIgnoreCase);
+        foreach (var enemy in Resources.FindObjectsOfTypeAll<EnemyData>())
+            if (enemy && !IsRuntimeName(enemy.name) && !map.ContainsKey(enemy.name)) map[enemy.name] = enemy;
+        return map;
+    }
+
+    // A replaced song's objects are destroyed, unless its battle is still going on.
+    private static void Retire(Song song)
+    {
+        if (ChartSwap.CurrentSong == song) return;
+        foreach (Object? obj in new Object?[] { song.Beatmap, song.Data, song.Enemy, song.CardTexture != null ? song.Card : null, song.CardTexture })
+            if (obj != null && obj) Object.Destroy(obj);
+    }
+
+    // ---- building ----------------------------------------------------------------------------------
+
+    private static Song? Build(SongPackage package, Dictionary<string, EnemyData> enemies)
+    {
+        var made = new List<Object>();
+        try
+        {
+            foreach (var problem in package.Problems) Note($"Custom song {package.Title}: {problem}.");
+            CheckChart(package);
+            var enemy = BuildEnemy(package, enemies, made);
+            var beatmap = new TextAsset(package.PlayableText) { name = package.ScoreKey, hideFlags = HideFlags.DontUnloadUnusedAsset };
+            made.Add(beatmap);
+            var data = BuildSongData(package, beatmap, enemy, made);
+            enemy.songData = data;
+            var (card, texture) = LoadCard(package, made);
+            var song = new Song
+            {
+                Package = package,
+                Data = data,
+                Enemy = enemy,
+                Beatmap = beatmap,
+                Card = card,
+                CardTexture = texture,
+                Info = BuildInfo(package, data, card),
+                Music = MusicSource(package)
+            };
+            string difficulties = string.Join(", ", Enumerable.Range(0, package.Slots.Length)
+                .Where(s => package.Slots[s] != null).Select(s => ChartText.GameDifficultyLabels[s]));
+            ModLog.Info($"Custom song {package.DisplayName}: {package.Lanes} lanes, {difficulties}; enemy {enemy.name} from {package.EnemyPlaceholder}.");
+            return song;
+        }
+        catch (Exception ex)
+        {
+            foreach (var obj in made)
+                if (obj) Object.Destroy(obj);
+            bool expected = ex is InvalidDataException or IOException;
+            Note($"Skipping custom song {package.Title} ({package.Location}): {(expected ? ex.Message : ex.ToString())}");
+            return null;
+        }
+    }
+
+    // The game's own reader must take the chart, or the battle couldn't start.
+    private static void CheckChart(SongPackage package)
+    {
+        var built = NotesLoaderSM.Instance.LoadFromText(package.PlayableText);
+        if (built == null || built.steps == null || built.steps.Count == 0 || built.timingData == null)
+            throw new InvalidDataException("the game's chart reader found nothing playable in it");
+        if (built.steps.Count != ChartText.GameDifficultyNames.Length)
+            Note($"Custom song {package.Title}: the game read {built.steps.Count} of its 6 difficulties.", error: false);
+    }
+
+    private static SongData BuildSongData(SongPackage package, TextAsset beatmap, EnemyData enemy, List<Object> made)
+    {
+        SongData? data = null;
+        try { data = ScriptableObject.CreateInstance(Il2CppType.Of<SongData>())?.TryCast<SongData>(); }
+        catch (Exception ex) { Note("Custom songs: making a SongData failed, so a game song is copied instead: " + ex.Message); }
+        bool created = data != null;
+        data ??= CopyGameSong();
+        made.Add(data);
+        ReportFields(data, created);
+        Scrub(data, force: !created);
+
+        data.name = package.ScoreKey;
+        data.songName = package.Title;
+        // No localization term: the game shows songName.
+        data.displayName = new LocalizedString();
+        // Scores and unlocked melodies use HighScoreKey and the object's name; both are the key.
+        data.overrideHighScoreKey = true;
+        data.highScoreKey = package.ScoreKey;
+        data.overridePlayEventInArcade = false;
+        data.beatmaps = new Il2CppReferenceArray<TextAsset>(new[] { beatmap });
+        // One melody: no melody buttons, no mid-song melody switch, no Wwise melody index.
+        data.RandomizeSequence = false;
+        data.setMelodyIndex = false;
+        data.SongSplitMeasure = 0;
+        data.overridePlayerStats = false;
+        data.overrideColumnSpeeds = false;
+        data.overrideMaxBpm = false;
+        data.hideStaggerBonus = false;
+        var enemies = new Il2CppSystem.Collections.Generic.List<EnemyData>();
+        enemies.Add(enemy);
+        data.Enemies = enemies;
+        data.Items = new Il2CppReferenceArray<ItemData>(0);
+        data.onInitializeCombat = AudioHook.CreateEmptyHook();
+        data.onSongStart = AudioHook.CreateEmptyHook();
+        data.tapNoteTypeRemapper = new Il2CppSystem.Collections.Generic.List<TapNoteTypeRemapper>();
+        data.hideFlags = HideFlags.DontUnloadUnusedAsset;
+        return data;
+    }
+
+    // The fallback when a SongData can't be created: a copy of a game song, scrubbed of its music.
+    private static SongData CopyGameSong()
+    {
+        foreach (var song in Resources.FindObjectsOfTypeAll<SongData>())
+        {
+            if (!song || IsRuntimeName(song.name)) continue;
+            var copy = Object.Instantiate((Object)song)?.TryCast<SongData>();
+            if (copy != null) return copy;
+        }
+        throw new InvalidOperationException("the game couldn't make or copy a song");
+    }
+
+    // The battle reads these without checking for null. SongData's constructor makes them all
+    // (empty Wwise objects, no cues); a copied game song gets new empty ones, so none of its
+    // music, cues or spawned objects come along.
+    private static void Scrub(SongData data, bool force)
+    {
+        if (force || data.playEvent == null) data.playEvent = new WwiseEvent();
+        if (force || data.arcadePlayEvent == null) data.arcadePlayEvent = new WwiseEvent();
+        if (force || data.SongSwitch == null) data.SongSwitch = new WwiseSwitch();
+        if (force || data.StepSwitch == null) data.StepSwitch = new WwiseSwitch();
+        if (force || data.soundBank == null) data.soundBank = new WwiseBank();
+        if (force || data.Cues == null) data.Cues = new Il2CppSystem.Collections.Generic.List<SongSectionMusicCue>();
+        if (force || data.combatPrefabs == null) data.combatPrefabs = new Il2CppSystem.Collections.Generic.List<CombatSpawnPrefab>();
+        if (data.statSheetData == null) data.statSheetData = new CharacterStatSheetData();
+    }
+
+    private static void ReportFields(SongData data, bool created)
+    {
+        if (reportedFields) return;
+        reportedFields = true;
+        static string Has(object? value) => value != null ? "set" : "missing";
+        var cues = data.Cues;
+        ModLog.Info($"Custom songs: a SongData from {(created ? "CreateInstance" : "a copied game song")} has playEvent {Has(data.playEvent)}, " +
+            $"StepSwitch {Has(data.StepSwitch)}, soundBank {Has(data.soundBank)}, Cues {(cues == null ? "missing" : cues.Count + " cues")}, " +
+            $"onInitializeCombat {Has(data.onInitializeCombat)}, onSongStart {Has(data.onSongStart)}.");
+    }
+
+    private static EnemyData BuildEnemy(SongPackage package, Dictionary<string, EnemyData> enemies, List<Object> made)
+    {
+        var definition = package.Enemy;
+        if (!enemies.TryGetValue(package.EnemyPlaceholder, out var template))
+        {
+            Note($"Custom song {package.Title}: the game has no enemy {package.EnemyPlaceholder}; {EnemyPlaceholders.Default} stands in.");
+            if (!enemies.TryGetValue(EnemyPlaceholders.Default, out template))
+                throw new InvalidOperationException("the game's enemies aren't loaded");
+        }
+        var clone = Object.Instantiate((Object)template)?.TryCast<EnemyData>()
+            ?? throw new InvalidOperationException("the game couldn't copy " + template.name);
+        made.Add(clone);
+
+        // The copy keeps the placeholder's art, sounds and abilities, under an id of its own.
+        string id = EnemyKeyPrefix + package.Id;
+        clone.name = id;
+        clone.characterId = id;
+        clone.boss = false;
+        clone.experienceAward = 0;
+        clone.useSpecialAttack = false;
+        clone.energyBarSegments = 1;
+        clone.lootTable = new LootTable { entries = new Il2CppSystem.Collections.Generic.List<LootTableEntry>() };
+        // The enemy's own sound hooks could start music over the song.
+        clone.combatInitialized = AudioHook.CreateEmptyHook();
+        clone.combatSongStart = AudioHook.CreateEmptyHook();
+        clone.statSheetData = Stats(template.statSheetData, definition.stats);
+        if (definition.stats?.energyChargeOnMiss is double miss) clone.energyChargeOnMiss = (float)Math.Clamp(miss, 0, 1000);
+        if (definition.stats?.attackWindupTime is double windup) clone.attackWindupTime = (float)Math.Clamp(windup, 0.05, 60);
+        if (definition.info != null) clone.enemyInfoEntries = InfoEntries(definition);
+        if (package.Lanes == 5) FitFiveLanes(package, clone);
+        clone.hideFlags = HideFlags.DontUnloadUnusedAsset;
+        return clone;
+    }
+
+    private static EnemyStatSheet Stats(EnemyStatSheet? source, EnemyStats? stats)
+    {
+        var sheet = new EnemyStatSheet();
+        if (source != null)
+        {
+            sheet.health = source.health;
+            sheet.damage = source.damage;
+            sheet.dexterity = source.dexterity;
+            sheet.passiveEnergyCharge = source.passiveEnergyCharge;
+            sheet.regen = source.regen;
+            sheet.impact = source.impact;
+            sheet.focus = source.focus;
+        }
+        if (stats?.hp is double hp) sheet.health = (float)Math.Clamp(hp, 1, 100000);
+        if (stats?.damage is double damage) sheet.damage = (float)Math.Clamp(damage, 0, 1000);
+        if (stats?.passiveEnergyCharge is double charge) sheet.passiveEnergyCharge = (float)Math.Clamp(charge, 0, 10000);
+        return sheet;
+    }
+
+    // Info boxes with fallback text and no localization term, which the game shows as written.
+    private static Il2CppSystem.Collections.Generic.List<EnemyInfoEntry> InfoEntries(EnemyDefinition definition)
+    {
+        var list = new Il2CppSystem.Collections.Generic.List<EnemyInfoEntry>();
+        foreach (var box in definition.info!.Take(EnemyPlaceholders.MaxInfoBoxes))
+        {
+            if (box == null) continue;
+            string title = (box.title ?? "").Trim();
+            if (title.Length == 0) title = (definition.name ?? "").Trim();
+            var entry = new EnemyInfoEntry();
+            entry.infoName = new NocturneString(new LocalizedString(), title);
+            entry.infoDescription = new NocturneString(new LocalizedString(), (box.description ?? "").Trim());
+            list.Add(entry);
+        }
+        return list;
+    }
+
+    // Effects that pull, remove or cover lanes, or play animations on the note field: they are
+    // made for 4 lanes and would undo the 5-lane layout.
+    private static readonly HashSet<CombatEffectType> ColumnEffects = new()
+    {
+        CombatEffectType.ModifyCombatAnimationProperty, CombatEffectType.RemoveCombatColumn,
+        CombatEffectType.TriggerRandomVine, CombatEffectType.ResetRandomVineBasedOnCharge
+    };
+
+    private static void FitFiveLanes(SongPackage package, EnemyData clone)
+    {
+        // Column triggers like "Initialize Vine" move 5 lanes into 4-lane places.
+        clone.combatStartColumnAnimationTrigger = "";
+        clone.attackColumnAnimationTrigger = "";
+        clone.specialAttackCombatEffects = new Il2CppSystem.Collections.Generic.List<CombatEffectData>();
+        var effects = clone.combatEffects;
+        if (effects == null) return;
+        var kept = new Il2CppSystem.Collections.Generic.List<CombatEffectData>();
+        var dropped = new List<string>();
+        for (int i = 0; i < effects.Count; i++)
+        {
+            var data = effects[i];
+            if (data == null) continue;
+            if (ChangesColumns(data)) dropped.Add(data.name);
+            else kept.Add(data);
+        }
+        clone.combatEffects = kept;
+        if (dropped.Count > 0) Note($"Custom song {package.Title}: 5 lanes leave out the enemy's {string.Join(", ", dropped)}.", error: false);
+    }
+
+    private static bool ChangesColumns(CombatEffectData data)
+    {
+        var effects = data.effects;
+        if (effects == null) return false;
+        for (int i = 0; i < effects.Count; i++)
+        {
+            var effect = effects[i];
+            if (effect != null && ColumnEffects.Contains(effect.effectType)) return true;
+        }
+        return false;
+    }
+
+    private static ArcadeSongInfo BuildInfo(SongPackage package, SongData data, Sprite card)
+    {
+        // Every reference is set: the arcade screens and the battle launch read them without checks.
+        var info = new ArcadeSongInfo();
+        info.songType = ArcadeSongType.Song;
+        info.songData = data;
+        info.sprite = card;
+        info.lore = new NocturneString(new LocalizedString(), LoreText(package));
+        info.timelineName = new NocturneString(new LocalizedString(), package.Title);
+        info.highScoreKey = package.ScoreKey;
+        info.soundBanks = new Il2CppSystem.Collections.Generic.List<WwiseBank>();
+        info.preCombatHook = AudioHook.CreateEmptyHook();
+        info.postCombatHook = AudioHook.CreateEmptyHook();
+        info.showInHighscores = true;
+        info.isRetro = false;
+        info.skipContactEvent = false;
+        return info;
+    }
+
+    private static string LoreText(SongPackage package)
+    {
+        if (package.Lore.Length > 0) return package.Lore;
+        var lines = new List<string>();
+        if (package.Artist.Length > 0) lines.Add("Music by " + package.Artist);
+        if (package.Author.Length > 0) lines.Add("Chart by " + package.Author);
+        return string.Join("\n", lines);
+    }
+
+    private static CustomMusic.Source MusicSource(SongPackage package)
+    {
+        var files = package.Files;
+        string name = package.AudioPath;
+        return new CustomMusic.Source
+        {
+            Name = $"{name} for {package.Title}",
+            Key = $"{files.Describe(name)}|{files.Stamp(name)}|{package.Offset.ToString("R", CultureInfo.InvariantCulture)}",
+            Offset = package.Offset,
+            Read = () => files.ReadAllBytes(name, SongPackage.MaxAudioBytes)
+        };
+    }
+
+    // ---- card images -------------------------------------------------------------------------------
+
+    private static (Sprite Card, Texture2D? Texture) LoadCard(SongPackage package, List<Object> made)
+    {
+        if (package.CardPath != null)
+        {
+            try
+            {
+                var bytes = package.Files.ReadAllBytes(package.CardPath, SongPackage.MaxImageBytes);
+                var texture = CardImages.Decode(bytes, package.ScoreKey + "/card");
+                if (texture != null)
+                {
+                    made.Add(texture);
+                    var sprite = CardImages.ToSprite(texture);
+                    made.Add(sprite);
+                    return (sprite, texture);
+                }
+                Note($"Custom song {package.Title}: {package.CardPath} isn't a PNG or JPEG the game can read, so its card is plain for now.");
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException)
+            {
+                Note($"Custom song {package.Title}: the card image couldn't be read ({ex.Message}).");
+            }
+        }
+        return (CardImages.Placeholder, null);
+    }
+
+    private static class CardImages
+    {
+        // ImageConversion.LoadImage was stripped from the game's managed code, but Unity still
+        // registers its native call, which is called directly here.
+        private delegate byte LoadImageCall(IntPtr texture, IntPtr data, byte markNonReadable);
+        private static LoadImageCall? loadImage;
+        private static bool looked;
+        private static Sprite? placeholder;
+
+        /// <summary>A PNG or JPEG as a texture, or null when it can't be decoded.</summary>
+        internal static Texture2D? Decode(byte[] bytes, string name)
+        {
+            if (!looked)
+            {
+                looked = true;
+                IntPtr call = IL2CPP.il2cpp_resolve_icall("UnityEngine.ImageConversion::LoadImage");
+                if (call != IntPtr.Zero) loadImage = Marshal.GetDelegateForFunctionPointer<LoadImageCall>(call);
+                else ModLog.Info("Custom songs: the game has no image decoder, so cards are plain.");
+            }
+            if (loadImage == null || bytes.Length == 0) return null;
+            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = name, hideFlags = HideFlags.HideAndDontSave };
+            var data = new Il2CppStructArray<byte>(bytes);
+            bool loaded = loadImage(texture.Pointer, data.Pointer, 0) != 0;
+            GC.KeepAlive(data);
+            if (!loaded || texture.width < 1 || texture.height < 1)
+            {
+                Object.Destroy(texture);
+                return null;
+            }
+            texture.wrapMode = TextureWrapMode.Clamp;
+            texture.filterMode = FilterMode.Bilinear;
+            return texture;
+        }
+
+        internal static Sprite ToSprite(Texture2D texture)
+        {
+            var sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f),
+                100f, 0u, SpriteMeshType.FullRect, Vector4.zero);
+            sprite.name = texture.name;
+            sprite.hideFlags = HideFlags.HideAndDontSave;
+            return sprite;
+        }
+
+        /// <summary>A plain dark card for songs without a readable image; made once.</summary>
+        internal static Sprite Placeholder
+        {
+            get
+            {
+                if (placeholder != null && placeholder) return placeholder;
+                const int size = 16;
+                var pixels = new Color32[size * size];
+                for (int y = 0; y < size; y++)
+                    for (int x = 0; x < size; x++)
+                    {
+                        bool edge = x == 0 || y == 0 || x == size - 1 || y == size - 1;
+                        pixels[y * size + x] = edge ? new Color32(96, 96, 110, 255) : new Color32(52, 52, 62, 255);
+                    }
+                var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+                {
+                    name = RuntimePrefix + "card",
+                    hideFlags = HideFlags.HideAndDontSave,
+                    wrapMode = TextureWrapMode.Clamp,
+                    filterMode = FilterMode.Bilinear
+                };
+                texture.SetPixels32(pixels);
+                texture.Apply(false, false);
+                placeholder = ToSprite(texture);
+                return placeholder;
+            }
+        }
+    }
+
+    // ---- battles -------------------------------------------------------------------------------------
+
+    // Arcade battles show the note field's 4-lane layout, which leaves the fifth lane off to the
+    // side. The game's own 5-lane fights ask for the "Five" layout from their timelines; a 5-lane
+    // battle that asks for no layout gets the same centred one here.
+    private static void ShowColumnsPostfix(CombatNoteFieldView __instance, CombatOptions combatOptions)
+    {
+        try
+        {
+            if (!__instance || combatOptions == null) return;
+            var settings = combatOptions.columnAnimatorSettings;
+            if (settings != null && settings.Count > 0) return;
+            // 0, 1 and 2 ask for the None, Single and Double layouts; anything else for the default one.
+            int layout = combatOptions.ShowColumns;
+            if (layout >= 0 && layout <= 2) return;
+            if (FieldColumns(__instance) != 5) return;
+            var animator = __instance.fieldAnimator;
+            if (!animator) return;
+            animator.ResetTrigger("Default");
+            animator.ResetTrigger("Mobile");
+            animator.SetTrigger("Five Instant");
+            ModLog.Info("Five-lane battle: the lanes take the centred five-lane layout.");
+        }
+        catch (Exception ex) { ReportBattle(ex); }
+    }
+
+    private static int FieldColumns(CombatNoteFieldView view)
+    {
+        var song = ChartSwap.CurrentSong;
+        if (song != null) return song.Lanes;
+        var field = view.noteFieldBehaviour;
+        return field ? field.ActiveColumnCount : 0;
+    }
+
+    // A placeholder enemy's column effects are made for 4 lanes; removing a column past the note
+    // field's removable ones would throw in the middle of the battle.
+    private static bool RemoveColumnPrefix(CombatNoteFieldView __instance, int index)
+    {
+        try
+        {
+            var countdown = __instance.columnDisableCountdown;
+            if (countdown == null || (index >= 0 && index < countdown.Length)) return true;
+            Note($"Skipped removing lane {index + 1}: this note field has {countdown.Length} lanes that can be removed.");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            ReportBattle(ex);
+            return true;
+        }
+    }
+
+    private static void ReportBattle(Exception ex)
+    {
+        if (reportedBattleError) return;
+        reportedBattleError = true;
+        ModLog.Error("Custom song battle hooks failed: " + ex);
+    }
+
+    /// <summary>Logs a message once a session, so a broken package isn't reported on every arcade visit.</summary>
+    private static void Note(string message, bool error = true)
+    {
+        if (!Reported.Add(message)) return;
+        if (error) ModLog.Error(message);
+        else ModLog.Info(message);
+    }
+}

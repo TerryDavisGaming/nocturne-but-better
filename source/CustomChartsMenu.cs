@@ -264,7 +264,7 @@ internal static class CustomChartsMenu
     {
         foreach (var conductor in Resources.FindObjectsOfTypeAll<WwiseConductor>())
             if (conductor && conductor.gameObject.activeInHierarchy && conductor.initializedSong && conductor.CurrentSong)
-                return conductor.CurrentSong.name;
+                return CustomSongs.TitleOf(conductor.CurrentSong) ?? conductor.CurrentSong.name;
         return null;
     }
 
