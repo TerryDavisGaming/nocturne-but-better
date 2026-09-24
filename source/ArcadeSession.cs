@@ -2,52 +2,47 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using HarmonyLib;
-using Il2CppInterop.Runtime;
 using UnityEngine;
 
 namespace NocturneFlatScroll;
 
 /// <summary>
-/// The arcade on the main menu, with progress of its own. The game already has a hidden Arcade
-/// button there; it is shown, and clicking it starts an arcade session instead of running the
-/// game's handler, which would move the story save into the arcade's overworld scene. The session
-/// opens the arcade menu over the title the way the game's debug Song Testing button does.
-/// While it runs, the story save is read-only: the arcade shows the story's scores merged with
-/// ArcadeScores.json, battle results go only to that file, and every write to the story's save
-/// files is refused and logged. Leaving the arcade puts the story's own scores back and reloads
-/// the latest save from disk.
+/// The arcade on the main menu. The game already has a hidden Arcade button there; it is shown,
+/// and clicking it starts an arcade session instead of running the game's handler, which would
+/// move the story save into the arcade's overworld scene. The session opens the arcade menu over
+/// the title the way the game's debug Song Testing button does, on the latest save.
+/// Arcade progress is the save's own: scores are recorded and written to the save's slot .score
+/// file by the game, exactly as the in-story arcade cabinet does, so they also sync through Steam
+/// Cloud. Where the player is and what they're doing is not touched: while the session runs,
+/// every write to the story's .sav files is refused and logged, and leaving the arcade reads the
+/// latest save from disk again, which drops anything else the arcade changed in memory.
 /// </summary>
 internal static class ArcadeSession
 {
-    private const string HelpText = "Play the songs you've unlocked. Arcade scores are kept on their own; your story save isn't changed.";
+    private const string HelpText = "Play the songs you've unlocked. Scores go to your latest save; your place in the story doesn't change.";
 
     /// <summary>True while the main-menu arcade is open.</summary>
     internal static bool Active { get; private set; }
 
-    private static GameDataScriptableObject? data;
-    private static SavedScoresData? storyScores, view;
-    // Kept alive while the game holds it as SceneTransitionController.SaveScoresOverride.
-    private static Il2CppSystem.Action? saveScoresHook;
     private static string? saveFolder;
     private static Dictionary<string, Fingerprint>? fingerprints;
     private static bool gameOverContinueOff, tempSaveBefore;
 
-    // The story's files: ProdAutoSave.sav, ProdSlot0001.sav, ProdSlot0001.score and so on.
-    private static readonly Regex StoryFile = new(@"^Prod(AutoSave\.sav|Slot\d+\.(sav|score))$",
+    // The story's save files that hold where the player is: ProdAutoSave.sav, ProdSlot0001.sav and
+    // so on. The slot .score files are arcade progress and are written as usual.
+    private static readonly Regex StoryFile = new(@"^Prod(AutoSave|Slot\d+)\.sav$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private readonly record struct Fingerprint(long Size, DateTime Modified, string Hash);
 
     internal static void Install(HarmonyLib.Harmony harmony)
     {
-        ArcadeScoreStore.Install(harmony);
-
         // The firewall. SaveGameData is where SaveGame (both), UpdateSave and the slot saves end
-        // up; the SaveLoadManager hooks catch any other way to the story's files.
-        Patch(harmony, typeof(SaveFileManager), "SaveGameData", prefix: nameof(BlockPrefix));
+        // up (it writes the .sav and the .score); the SaveLoadManager hooks catch any other way to
+        // the story's .sav files. SaveScores, which writes only the .score, is left alone.
+        Patch(harmony, typeof(SaveFileManager), "SaveGameData", prefix: nameof(SaveGameDataPrefix));
         PatchOverloads(harmony, typeof(SaveFileManager), "AutoSave", 2, nameof(BlockPrefix));
         Patch(harmony, typeof(SaveFileManager), "ClearAutoSave", prefix: nameof(BlockPrefix));
-        Patch(harmony, typeof(SaveFileManager), "SaveScores", prefix: nameof(SaveScoresPrefix));
         Patch(harmony, typeof(SaveLoadManager), "Save", prefix: nameof(WriteFilePrefix));
         Patch(harmony, typeof(SaveLoadManager), "SaveWithMethod", prefix: nameof(WriteFilePrefix));
         Patch(harmony, typeof(SaveLoadManager), "DeleteSave", prefix: nameof(DeleteFilePrefix));
@@ -59,13 +54,12 @@ internal static class ArcadeSession
         Patch(harmony, typeof(GameOverMenu), "Activate", postfix: nameof(GameOverShownPostfix), required: false);
 
         // Where a session ends: leaving the arcade menu, and before anything loads or starts the
-        // story, so the story never sees the arcade's scores.
+        // story, so the story starts from what is on disk.
         Patch(harmony, typeof(ArcadeMenuV2), "Deactivate", postfix: nameof(ArcadeClosedPostfix));
         foreach (var name in new[] { "WillShow", "Continue", "LoadGame", "NewGame", "Gauntlet" })
             Patch(harmony, typeof(MainMenu), name, prefix: nameof(MainMenuPrefix), required: false);
-        foreach (var name in new[] { "CreateNewData", "LoadFilename", "EraseAllData" })
+        foreach (var name in new[] { "CreateNewData", "LoadFilename", "EraseAllData", "SetCurrentGameData" })
             Patch(harmony, typeof(SaveFileManager), name, prefix: nameof(StoryDataPrefix), required: false);
-        Patch(harmony, typeof(SaveFileManager), "SetCurrentGameData", prefix: nameof(SetCurrentGameDataPrefix));
 
         Patch(harmony, typeof(MainMenu), "Arcade", prefix: nameof(ArcadePrefix));
         // The button comes last: it only shows when everything required above is in place.
@@ -118,6 +112,8 @@ internal static class ArcadeSession
         catch (Exception ex) { ReportOnce("showing the Arcade button", ex); }
     }
 
+    // The game makes the button clickable only with a save to continue, like Continue; arcade
+    // progress goes to that save, so that rule is kept.
     private static void ShowButtonPostfix(MainMenu __instance)
     {
         try
@@ -128,8 +124,6 @@ internal static class ArcadeSession
             var flag = button!.GetComponent<BuildFlagObject>();
             if (flag && !flag.ExistsInStandardBuilds) flag.ExistsInStandardBuilds = true;
             if (!button.gameObject.activeSelf) button.gameObject.SetActive(true);
-            // The game only enables it with a save to continue; the arcade keeps its own progress.
-            if (!button.interactable) button.interactable = true;
             if (button.ButtonHelpText != HelpText)
             {
                 // It came with New Game's help text.
@@ -172,68 +166,40 @@ internal static class ArcadeSession
             return false;
         }
         // The latest save, read from disk, supplies the unlocked chapters, the player's stats and
-        // the story's scores. With no save there is the new-game data the game made at startup.
-        if (saveFile.HasContinueGameData() && !saveFile.LoadLatestGameData(-1))
-            ModLog.Info("Arcade: the latest save could not be read again; using the one already loaded.");
-        var gameData = saveFile.currentSaveData;
-        if (!gameData)
+        // the scores, and its slot's .score file is where arcade progress is written.
+        if (!saveFile.HasContinueGameData())
+        {
+            ModLog.Info("Arcade: there is no save yet, so the arcade stays closed (its progress is kept in the save).");
+            return false;
+        }
+        if (!saveFile.LoadLatestGameData(-1))
+        {
+            ModLog.Error("Arcade: the latest save could not be read, so the arcade stays closed.");
+            return false;
+        }
+        if (!saveFile.currentSaveData)
         {
             ModLog.Error("Arcade: there is no save data in memory, so the arcade stays closed.");
             return false;
         }
         saveFolder = SaveFolder(saveFile);
         fingerprints = TakeFingerprints(saveFolder);
-        var story = gameData!.scoresData;
-        var merged = ArcadeScoreStore.BuildView(story, out int storySongs, out int arcadeEntries);
-        saveScoresHook ??= DelegateSupport.ConvertDelegate<Il2CppSystem.Action>((Action)OnSaveScores)
-            ?? throw new InvalidOperationException("Could not create the score save hook.");
-
         tempSaveBefore = PendingTempSave(clear: false);
-        data = gameData;
-        storyScores = story;
-        view = merged;
-        gameData.scoresData = merged;
         Active = true;
-        try
-        {
-            // The battle's end saves scores through this hook when it's set, not through the save file.
-            SceneTransitionController.SaveScoresOverride = saveScoresHook;
-        }
-        catch (Exception ex) { ReportOnce("setting the score save hook (SaveScores is still redirected)", ex); }
-        ModLog.Info($"Arcade: session started with the story's scores for {storySongs} songs and {arcadeEntries} arcade scores; " +
-                    $"{fingerprints.Count} story save files noted in {saveFolder}.");
+        ModLog.Info($"Arcade: session started on the latest save; {fingerprints.Count} story save files noted in {saveFolder}.");
         return true;
     }
 
     /// <summary>
-    /// Ends the session: saves the arcade scores, gives the story its own scores back, and with
-    /// <paramref name="reload"/> reads the latest save from disk again, which drops anything the
-    /// arcade changed in memory (play time, stagger time, items used).
+    /// Ends the session. With <paramref name="reload"/> the latest save is read from disk again,
+    /// which drops anything the arcade changed in memory (play time, stagger time, items used)
+    /// while keeping the arcade scores, which are already in the save's .score file.
     /// </summary>
     internal static void End(string reason, bool reload)
     {
         if (!Active) return;
         Active = false;
         ModLog.Info($"Arcade: session ending ({reason}).");
-        ArcadeScoreStore.Flush();
-        try
-        {
-            if (data)
-            {
-                var current = data!.scoresData;
-                if (view != null && current != null && current.Pointer == view.Pointer) data.scoresData = storyScores;
-                else if (storyScores == null || current == null || current.Pointer != storyScores.Pointer)
-                    ModLog.Info("Arcade: the scores in memory were replaced during the session and are left as they are.");
-            }
-        }
-        catch (Exception ex) { ReportOnce("giving the story its scores back", ex); }
-        try
-        {
-            var hook = SceneTransitionController.SaveScoresOverride;
-            if (hook != null && saveScoresHook != null && hook.Pointer == saveScoresHook.Pointer)
-                SceneTransitionController.SaveScoresOverride = null;
-        }
-        catch (Exception ex) { ReportOnce("removing the score save hook", ex); }
         try
         {
             // The arcade menu turns this on and nothing turns it off when it's opened from the title.
@@ -244,11 +210,6 @@ internal static class ArcadeSession
         // A cutscene's temporary save waits for the menus to close, which would be after the session.
         if (!tempSaveBefore && PendingTempSave(clear: true))
             ModLog.Info("Arcade: dropped a temporary save that arcade play had asked for.");
-        data = null;
-        storyScores = null;
-        view = null;
-        if (ArcadeScoreStore.RouteDepth != 0)
-            ModLog.Error($"Arcade: {ArcadeScoreStore.RouteDepth} custom song score calls were still open when the session ended.");
         if (reload) ReloadLatest();
         CheckFingerprints();
     }
@@ -281,16 +242,6 @@ internal static class ArcadeSession
                 : "Arcade: reloading the latest save failed.");
         }
         catch (Exception ex) { ReportOnce("reloading the latest save", ex); }
-    }
-
-    private static void OnSaveScores()
-    {
-        try
-        {
-            ModLog.Info("Arcade: the battle's scores go to the arcade scores file, not the story save.");
-            ArcadeScoreStore.Flush();
-        }
-        catch (Exception ex) { ReportOnce("saving arcade scores", ex); }
     }
 
     private static void ArcadeClosedPostfix(bool exiting)
@@ -338,27 +289,12 @@ internal static class ArcadeSession
         return false;
     }
 
+    // A story load or a new game while the session is open ends it first; the load then reads
+    // the story from disk as usual.
     private static void StoryDataPrefix(MethodBase __originalMethod)
     {
         if (!Active) return;
         try { End("SaveFileManager." + (__originalMethod?.Name ?? "?"), reload: false); }
-        catch (Exception ex) { ReportOnce("ending the arcade session", ex); }
-    }
-
-    // A story load can be handed the scores in memory (LoadMostRecentSave does this with a newer
-    // autosave); it gets the story's own, not the arcade's.
-    private static void SetCurrentGameDataPrefix(ref SavedScoresData gameDataScores)
-    {
-        if (!Active) return;
-        try
-        {
-            if (view != null && storyScores != null && gameDataScores != null && gameDataScores.Pointer == view.Pointer)
-            {
-                gameDataScores = storyScores;
-                ModLog.Info("Arcade: a story load was handed the arcade's scores and gets the story's own instead.");
-            }
-            End("SaveFileManager.SetCurrentGameData", reload: false);
-        }
         catch (Exception ex) { ReportOnce("ending the arcade session", ex); }
     }
 
@@ -371,15 +307,14 @@ internal static class ArcadeSession
         return false;
     }
 
-    private static bool SaveScoresPrefix()
+    // SaveGameData writes the slot's .sav with the player's place in it (and the .score). During
+    // a session only the scores are saved, the way every battle's end saves them.
+    private static bool SaveGameDataPrefix(SaveFileManager __instance)
     {
-        if (!Active)
-        {
-            ArcadeScoreStore.Flush();
-            return true;
-        }
-        Blocked("SaveFileManager.SaveScores (arcade scores go to ArcadeScores.json)");
-        ArcadeScoreStore.Flush();
+        if (!Active) return true;
+        Blocked("SaveFileManager.SaveGameData (the arcade scores are saved on their own)");
+        try { __instance.SaveScores(); }
+        catch (Exception ex) { ReportOnce("saving the arcade scores in place of a full save", ex); }
         return false;
     }
 
@@ -400,7 +335,7 @@ internal static class ArcadeSession
     private static bool IsStoryFile(string? filename)
     {
         if (string.IsNullOrEmpty(filename)) return false;
-        return Path.GetFileName(filename).StartsWith("Prod", StringComparison.OrdinalIgnoreCase);
+        return StoryFile.IsMatch(Path.GetFileName(filename));
     }
 
     private static void Blocked(string what) =>
@@ -457,7 +392,7 @@ internal static class ArcadeSession
         return Path.Combine(Application.persistentDataPath, "GameData", "SaveData");
     }
 
-    /// <summary>Size, time and SHA-256 of each story file. Only reads them.</summary>
+    /// <summary>Size, time and SHA-256 of each story .sav file. Only reads them.</summary>
     private static Dictionary<string, Fingerprint> TakeFingerprints(string folder)
     {
         var result = new Dictionary<string, Fingerprint>(StringComparer.OrdinalIgnoreCase);
