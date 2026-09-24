@@ -4,7 +4,7 @@ using Il2CppInterop.Runtime.InteropTypes.Arrays;
 namespace NocturneFlatScroll;
 
 /// <summary>
-/// Plays the player's chosen custom difficulty in a song's battle, and a custom song's own
+/// Plays the player's chosen custom difficulty in a song's battle, and a custom battle's own
 /// chart in its battle. The game builds each battle's chart in WwiseConductor.CreateBeatmap from
 /// the song's .sm text; the mod hands it the custom chart there instead, so everything after
 /// that (judging, the note field, the enemy's events) works as usual.
@@ -17,19 +17,19 @@ internal static class ChartSwap
     /// <summary>The custom difficulty in the current battle, or null for the game's own chart.</summary>
     internal static CustomCharts.CustomChart? Playing { get; private set; }
 
-    /// <summary>The custom song in the current battle, or null.</summary>
-    internal static CustomSongs.Song? PlayingSong { get; private set; }
+    /// <summary>The custom battle being played, or null.</summary>
+    internal static CustomBattles.Battle? PlayingBattle { get; private set; }
 
-    // The conductor playing the custom song.
-    private static WwiseConductor? songConductor;
+    // The custom battle's conductor.
+    private static WwiseConductor? battleConductor;
 
-    /// <summary>The custom song whose battle is running now, or null.</summary>
-    internal static CustomSongs.Song? CurrentSong
+    /// <summary>The custom battle running now, or null.</summary>
+    internal static CustomBattles.Battle? CurrentBattle
     {
         get
         {
-            var conductor = songConductor;
-            try { return PlayingSong != null && conductor != null && conductor && conductor.initializedSong && !conductor.endedSong ? PlayingSong : null; }
+            var conductor = battleConductor;
+            try { return PlayingBattle != null && conductor != null && conductor && conductor.initializedSong && !conductor.endedSong ? PlayingBattle : null; }
             catch { return null; }
         }
     }
@@ -52,9 +52,9 @@ internal static class ChartSwap
         harmony.Patch(Method(typeof(WwiseConductor), "CreateBeatmap"), prefix: new HarmonyMethod(typeof(ChartSwap), nameof(CreateBeatmapPrefix)));
         // The song's score key goes back once the battle is left (after its score is recorded).
         harmony.Patch(Method(typeof(CombatManagerV3), "ExitCombat"), postfix: new HarmonyMethod(typeof(ChartSwap), nameof(ExitCombatPostfix)));
-        // Only custom songs need this, so custom charts keep working if it can't be installed.
+        // Only custom battles need this, so custom charts keep working if it can't be installed.
         try { harmony.Patch(Method(typeof(WwiseConductor), "InitializeNoteField"), postfix: new HarmonyMethod(typeof(ChartSwap), nameof(InitializeNoteFieldPostfix))); }
-        catch (Exception ex) { ModLog.Error("Custom songs' full-length battles could not be installed: " + ex); }
+        catch (Exception ex) { ModLog.Error("Custom battles' full-length songs could not be installed: " + ex); }
     }
 
     private static System.Reflection.MethodInfo Method(Type type, string name) =>
@@ -69,9 +69,9 @@ internal static class ChartSwap
         CustomMusic.Reset(__instance);
         try
         {
-            if (TakeCustomSong(__instance, songData))
+            if (TakeCustomBattle(__instance, songData))
             {
-                // A custom song has one melody, and its chart and score key are its own.
+                // A custom battle has one melody, and its chart and score key are its own.
                 melodies = new Il2CppStructArray<int>(new[] { 0, 0 });
                 return;
             }
@@ -146,37 +146,37 @@ internal static class ChartSwap
     private static void ExitCombatPostfix() => RestoreScoreKey(null);
 
     /// <summary>
-    /// Notes the custom song a conductor starts, if it is one. Another conductor starting (a
+    /// Notes the custom battle a conductor starts, if it is one. Another conductor starting (a
     /// menu's, say) leaves a running custom-song battle as it is.
     /// </summary>
-    private static bool TakeCustomSong(WwiseConductor conductor, SongData songData)
+    private static bool TakeCustomBattle(WwiseConductor conductor, SongData songData)
     {
-        var custom = songData ? CustomSongs.Find(songData) : null;
+        var custom = songData ? CustomBattles.Find(songData) : null;
         if (custom != null)
         {
-            PlayingSong = custom;
-            songConductor = conductor;
-            ModLog.Info($"Custom song battle: {custom.Title}.");
+            PlayingBattle = custom;
+            battleConductor = conductor;
+            ModLog.Info($"Custom battle: {custom.Title}.");
             return true;
         }
-        var current = songConductor;
+        var current = battleConductor;
         bool running = current != null && current && current.Pointer != conductor.Pointer && current.initializedSong && !current.endedSong;
         if (!running)
         {
-            PlayingSong = null;
-            songConductor = null;
+            PlayingBattle = null;
+            battleConductor = null;
         }
         return false;
     }
 
-    private static bool IsSongConductor(WwiseConductor conductor) =>
-        songConductor != null && songConductor && conductor && songConductor.Pointer == conductor.Pointer;
+    private static bool IsBattleConductor(WwiseConductor conductor) =>
+        battleConductor != null && battleConductor && conductor && battleConductor.Pointer == conductor.Pointer;
 
     private static bool CreateBeatmapPrefix(WwiseConductor __instance, SongData song, ref SmSongData __result)
     {
-        var custom = PlayingSong;
-        if (custom != null && song && custom.Data && song.Pointer == custom.Data.Pointer && IsSongConductor(__instance))
-            return CreateSongBeatmap(__instance, custom, ref __result);
+        var custom = PlayingBattle;
+        if (custom != null && song && custom.Data && song.Pointer == custom.Data.Pointer && IsBattleConductor(__instance))
+            return CreateBattleBeatmap(__instance, custom, ref __result);
 
         var chart = Playing;
         if (chart == null || !song || !chart.Song.Equals(song.name, StringComparison.OrdinalIgnoreCase)) return true;
@@ -195,7 +195,7 @@ internal static class ChartSwap
                 throw new InvalidDataException("the game's reader found no playable chart in it");
             __result = built;
             ScrollSpeedHooks.Prepare(chart.Chart);
-            CustomMusic.Prepare(CustomMusic.SourceFor(chart), __instance, customSong: false);
+            CustomMusic.Prepare(CustomMusic.SourceFor(chart), __instance, customBattle: false);
             ModLog.Info($"Playing custom chart {chart.DisplayName} for {song.name}.");
             return false;
         }
@@ -209,10 +209,10 @@ internal static class ChartSwap
         }
     }
 
-    /// <summary>A custom song's chart: its six difficulty slots, read by the game's own reader.</summary>
-    private static bool CreateSongBeatmap(WwiseConductor conductor, CustomSongs.Song custom, ref SmSongData __result)
+    /// <summary>A custom battle's chart: its six difficulty slots, read by the game's own reader.</summary>
+    private static bool CreateBattleBeatmap(WwiseConductor conductor, CustomBattles.Battle custom, ref SmSongData __result)
     {
-        CustomMusic.Prepare(custom.Music, conductor, customSong: true);
+        CustomMusic.Prepare(custom.Music, conductor, customBattle: true);
         try
         {
             var built = NotesLoaderSM.Instance.LoadFromText(custom.PlayableText);
@@ -220,31 +220,31 @@ internal static class ChartSwap
                 throw new InvalidDataException("the game's reader found no playable chart in it");
             __result = built;
             ScrollSpeedHooks.Prepare(custom.Chart);
-            ModLog.Info($"Playing custom song {custom.Title} ({custom.Lanes} lanes).");
+            ModLog.Info($"Playing custom battle {custom.Title} ({custom.Lanes} lanes).");
             return false;
         }
         catch (Exception ex)
         {
             // The song's beatmap holds the same chart, so the game's own read of it is the fallback.
-            ModLog.Error($"Custom song {custom.Title} could not be built, so the game reads its chart: {ex}");
+            ModLog.Error($"Custom battle {custom.Title} could not be built, so the game reads its chart: {ex}");
             return true;
         }
     }
 
     // The battle ends a beat after the chart's last note (the note field's maxTapRow + 48 rows).
-    // An easier difficulty's last note comes sooner, so a custom song's battle runs to the last
+    // An easier difficulty's last note comes sooner, so a custom battle runs to the last
     // note of its longest difficulty whichever one plays.
     private static void InitializeNoteFieldPostfix(WwiseConductor __instance)
     {
-        var custom = PlayingSong;
-        if (custom == null || !IsSongConductor(__instance)) return;
+        var custom = PlayingBattle;
+        if (custom == null || !IsBattleConductor(__instance)) return;
         try
         {
             var field = __instance.noteField;
             if (field == null) return;
             int last = custom.LastNoteRow;
             if (last <= field.maxTapRow) return;
-            ModLog.Info($"Custom song {custom.Title}: the battle runs to row {last} (this difficulty ends at {field.maxTapRow}).");
+            ModLog.Info($"Custom battle {custom.Title}: the battle runs to row {last} (this difficulty ends at {field.maxTapRow}).");
             field.maxTapRow = last;
         }
         catch (Exception ex) { ReportOnce(ex); }

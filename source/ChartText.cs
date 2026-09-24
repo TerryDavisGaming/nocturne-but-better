@@ -180,7 +180,7 @@ internal sealed class ChartText
         return playable.Write();
     }
 
-    // ---- custom songs ---------------------------------------------------------------------------
+    // ---- custom battles ---------------------------------------------------------------------------
 
     /// <summary>The game's difficulty slot (0 Beginner to 5 Zen) a StepMania difficulty name plays in, or -1.</summary>
     internal static int SlotOf(string difficulty) =>
@@ -215,7 +215,7 @@ internal sealed class ChartText
     }
 
     /// <summary>
-    /// A custom song's blocks by the game's six difficulty slots, from each block's difficulty
+    /// A custom battle's blocks by the game's six difficulty slots, from each block's difficulty
     /// name in the game's own order (Edit plays as Beginner, Beginner as Novice, and so on up to
     /// Challenge as Zen). Blocks without notes are skipped, so an editor's empty difficulties don't
     /// count. A block that can't be played, has the wrong lane count or repeats a slot is left
@@ -267,7 +267,7 @@ internal sealed class ChartText
     }
 
     /// <summary>
-    /// The chart the game plays for a custom song: this chart's header and timing with exactly
+    /// The chart the game plays for a custom battle: this chart's header and timing with exactly
     /// six blocks, one per difficulty slot in the game's order. A slot without a chart of its own
     /// plays the nearest one, so every difficulty tab works; other blocks in the file are left out.
     /// </summary>

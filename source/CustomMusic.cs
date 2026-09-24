@@ -41,7 +41,7 @@ internal static class CustomMusic
         internal Source Source = null!;
         internal Task<Song> Loading = null!;
         internal IntPtr Conductor;
-        internal bool CustomSong;          // no Wwise music to fall back on
+        internal bool CustomBattle;          // no Wwise music to fall back on
         internal float WaitingSince = -1f; // when the conductor first wanted to start
         internal bool StartCue;            // whether the conductor was waiting for Wwise's start cue
         internal bool HeldCombat;          // the wait set waitForStartCue, so combat waits too
@@ -52,7 +52,7 @@ internal static class CustomMusic
     private const uint FakePlayingId = 0xC0570000;
     // The conductor stops following positions past the playing segment's length; a song has none.
     private const double NoSegmentEnd = 1e6;
-    // How long the chart waits at its start for a song that's still decoding: a custom song has
+    // How long the chart waits at its start for a song that's still decoding: a custom battle has
     // no other music, a custom chart falls back to the game's.
     private const float MaxSongLoadWait = 20f;
     private const float MaxChartLoadWait = 8f;
@@ -64,7 +64,7 @@ internal static class CustomMusic
 
     private static Pending? pending;
     private static WwiseConductor? owner;      // the conductor of the battle the song belongs to
-    private static IntPtr customConductor;     // a custom song's battle conductor, which has no Wwise cues to take
+    private static IntPtr customConductor;     // a custom battle's conductor, which has no Wwise cues to take
     private static EditorAudio? player;
     private static WwiseConductor? conductor;  // set while the song plays
     private static double origin;
@@ -108,7 +108,7 @@ internal static class CustomMusic
     /// How far Wwise's reported position runs ahead of what's heard, less the same for the mod's
     /// player: measured from a loopback recording as 45.5 ms for Wwise and -1.3 ms for the player
     /// (steady to a few ms). Reporting the player this much ahead keeps the game's latency
-    /// calibration, which was made against Wwise, right for custom songs. It was measured with the
+    /// calibration, which was made against Wwise, right for custom battles. It was measured with the
     /// song started on Wwise's start cue; the PlayWWiseTrack start needs a new loopback measurement.
     /// </summary>
     private const double ClockLead = 0.0468;
@@ -148,7 +148,7 @@ internal static class CustomMusic
         {
             Name = $"{music} for {chart.DisplayName}",
             Key = $"{files.Describe(name)}|{stamp}",
-            Read = () => files.ReadAllBytes(name, SongPackage.MaxAudioBytes)
+            Read = () => files.ReadAllBytes(name, BattlePackage.MaxAudioBytes)
         };
     }
 
@@ -168,15 +168,15 @@ internal static class CustomMusic
 
     /// <summary>
     /// Called by ChartSwap when the battle's chart is built: starts decoding the song file, which
-    /// plays when the conductor starts its music. <paramref name="customSong"/> means the song has
+    /// plays when the conductor starts its music. <paramref name="customBattle"/> means the song has
     /// no Wwise music, so a file that fails leaves the battle silent rather than on the game's music.
     /// </summary>
-    internal static void Prepare(Source? source, WwiseConductor battle, bool customSong)
+    internal static void Prepare(Source? source, WwiseConductor battle, bool customBattle)
     {
         Stop();
         if (!battle) return;
         owner = battle;
-        if (customSong) customConductor = battle.Pointer;
+        if (customBattle) customConductor = battle.Pointer;
         if (source == null) return;
         Task<Song> loading;
         if (decoded is { } cached && source.Key.Length > 0 && cached.Key == source.Key)
@@ -186,8 +186,8 @@ internal static class CustomMusic
             var file = source;
             loading = Task.Run(() => Load(file));
         }
-        pending = new Pending { Source = source, Loading = loading, Conductor = battle.Pointer, CustomSong = customSong };
-        ModLog.Info($"Custom song {source.Name}: loading.");
+        pending = new Pending { Source = source, Loading = loading, Conductor = battle.Pointer, CustomBattle = customBattle };
+        ModLog.Info($"Custom music {source.Name}: loading.");
     }
 
     private static Song Load(Source source)
@@ -216,14 +216,14 @@ internal static class CustomMusic
             }
             if (!p.Loading.IsCompleted)
             {
-                if (Time.unscaledTime - p.WaitingSince > (p.CustomSong ? MaxSongLoadWait : MaxChartLoadWait))
+                if (Time.unscaledTime - p.WaitingSince > (p.CustomBattle ? MaxSongLoadWait : MaxChartLoadWait))
                     throw new TimeoutException("the song file took too long to load");
                 // Not starting the track keeps the chart's clock at its start: the conductor calls
                 // again next frame. Combat waits with it.
                 if (!p.Waited)
                 {
                     p.Waited = true;
-                    ModLog.Info($"Custom song {p.Source.Name}: the battle waits for the file to finish loading.");
+                    ModLog.Info($"Custom music {p.Source.Name}: the battle waits for the file to finish loading.");
                 }
                 if (!__instance.waitForStartCue)
                 {
@@ -238,16 +238,16 @@ internal static class CustomMusic
         catch (Exception ex)
         {
             var reason = ex is AggregateException agg && agg.InnerException != null ? agg.InnerException : ex;
-            bool custom = p.CustomSong;
+            bool custom = p.CustomBattle;
             pending = null;
             DisposePlayer();
             if (p.HeldCombat) __instance.waitForStartCue = false;
             if (!custom)
             {
-                ModLog.Error($"The custom song {p.Source.Name} couldn't play, so the game's music plays: {reason}");
+                ModLog.Error($"The custom music {p.Source.Name} couldn't play, so the game's music plays: {reason}");
                 return true;
             }
-            ModLog.Error($"The custom song {p.Source.Name} couldn't play, so the battle has no music: {reason}");
+            ModLog.Error($"The custom music {p.Source.Name} couldn't play, so the battle has no music: {reason}");
             try { StartWithoutMusic(__instance, p.StartCue); }
             catch (Exception inner) { Report(inner); }
             return false;
@@ -282,10 +282,10 @@ internal static class CustomMusic
         c.playingWwiseTrack = true;
         PostSilence();
         if (p.StartCue) InvokeStartCue(c);
-        ModLog.Info($"Custom song {playingName} started at song time {now:0.000} ({player.Length:0.0}s).");
+        ModLog.Info($"Custom music {playingName} started at song time {now:0.000} ({player.Length:0.0}s).");
     }
 
-    /// <summary>A custom song whose file failed still plays its chart, on the game's own clock.</summary>
+    /// <summary>A custom battle whose file failed still plays its chart, on the game's own clock.</summary>
     private static void StartWithoutMusic(WwiseConductor c, bool startCue)
     {
         c.waitForStartCue = false;
@@ -321,7 +321,7 @@ internal static class CustomMusic
 
     // Wwise user cues from other events (posted with callbacks) would replace the mod's playing
     // id and the segment times, so the battle's conductor doesn't take any while the mod's song
-    // plays, nor during a custom song's battle, which has no Wwise music of its own.
+    // plays, nor during a custom battle, which has no Wwise music of its own.
     private static bool CuePrefix(WwiseConductor __instance) => !OwnsConductor(__instance, customToo: true);
 
     private static bool BeatPrefix(WwiseConductor __instance) => !OwnsConductor(__instance, customToo: false);
@@ -453,7 +453,7 @@ internal static class CustomMusic
         {
             try { player.Dispose(); } catch { }
             player = null;
-            ModLog.Info($"Custom song {playingName} stopped.");
+            ModLog.Info($"Custom music {playingName} stopped.");
         }
         // The conductor goes back to its own clock rather than asking for a song that's gone.
         try
@@ -496,6 +496,6 @@ internal static class CustomMusic
     {
         if (reportedError) return;
         reportedError = true;
-        ModLog.Error("Custom song playback failed: " + ex);
+        ModLog.Error("Custom music playback failed: " + ex);
     }
 }

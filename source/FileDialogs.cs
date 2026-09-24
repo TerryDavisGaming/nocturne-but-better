@@ -65,7 +65,7 @@ internal static class FileDialogs
         internal static string[] Songs => new[] { "Music (*.ogg, *.mp3, *.wav, *.flac, *.m4a, *.wma)", "*.ogg;*.mp3;*.wav;*.flac;*.m4a;*.wma" };
         internal static string[] StepMania => new[] { "StepMania charts (*.sm, *.ssc)", "*.sm;*.ssc" };
         internal static string[] ChartPacks => new[] { "Nocturne But Better chart packs (*.nbbchart)", "*.nbbchart" };
-        internal static string[] SongPacks => new[] { "Nocturne But Better songs (*.nbbsong)", "*.nbbsong" };
+        internal static string[] BattlePacks => new[] { "Nocturne But Better battles (*.nbbbattle)", "*.nbbbattle" };
         internal static string[] AllFiles => new[] { "All files", "*.*" };
 
         /// <summary>Several presets in one list, in order; the first is selected when the dialog opens.</summary>
@@ -86,7 +86,7 @@ internal static class FileDialogs
         internal static readonly Purpose Songs = new("songs", MusicFolder, Filters.Join(Filters.Songs, Filters.AllFiles));
         internal static readonly Purpose StepMania = new("stepmania", DownloadsFolder, Filters.Join(Filters.StepMania, Filters.AllFiles));
         internal static readonly Purpose ChartPacks = new("chartpacks", DownloadsFolder, Filters.Join(Filters.ChartPacks, Filters.AllFiles));
-        internal static readonly Purpose SongPacks = new("songpacks", DownloadsFolder, Filters.Join(Filters.SongPacks, Filters.AllFiles));
+        internal static readonly Purpose BattlePacks = new("battlepacks", DownloadsFolder, Filters.Join(Filters.BattlePacks, Filters.AllFiles));
         /// <summary>For picking a whole song folder, like a StepMania song.</summary>
         internal static readonly Purpose SongFolders = new("songfolders", DownloadsFolder, Array.Empty<string>());
 

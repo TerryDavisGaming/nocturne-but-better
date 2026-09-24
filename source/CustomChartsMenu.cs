@@ -294,8 +294,8 @@ internal static class CustomChartsMenu
         var charts = song == null ? new List<CustomCharts.CustomChart>() : CustomCharts.ForSong(song).ToList();
         var picked = song == null ? null : CustomCharts.Selected(song);
         bool page = CanOpenPage();
-        // A custom song's battle shows its title rather than its SongData's name.
-        string shown = song == null ? "" : CustomSongs.TitleOf(song) ?? song;
+        // A custom battle shows its title rather than its SongData's name.
+        string shown = song == null ? "" : CustomBattles.TitleOf(song) ?? song;
         string name, desc;
         if (song == null || charts.Count == 0)
         {

@@ -114,8 +114,8 @@ internal sealed class PackageFiles
     }
 }
 
-/// <summary>song.json, the manifest of a custom song package.</summary>
-internal sealed class SongManifest
+/// <summary>battle.json, the manifest of a custom battle package.</summary>
+internal sealed class BattleManifest
 {
     public int format { get; set; }
     public string? kind { get; set; }
@@ -136,7 +136,7 @@ internal sealed class SongManifest
 }
 
 /// <summary>
-/// A custom song's enemy. Mode "placeholder" is a game enemy (its art, sounds and abilities)
+/// A custom battle's enemy. Mode "placeholder" is a game enemy (its art, sounds and abilities)
 /// with the song's own stats and info boxes. Mode "custom" (the player's own images and videos)
 /// comes later; until then such an enemy plays as its rig, or as the placeholder.
 /// </summary>
@@ -170,7 +170,7 @@ internal sealed class EnemyInfoBox
     public string? description { get; set; }
 }
 
-/// <summary>Which game enemies can stand in for a custom song's enemy.</summary>
+/// <summary>Which game enemies can stand in for a custom battle's enemy.</summary>
 internal static class EnemyPlaceholders
 {
     internal const string Default = "EnemyData_Mantis";
@@ -211,19 +211,19 @@ internal static class EnemyPlaceholders
 }
 
 /// <summary>
-/// A custom song: a folder with song.json, or a .nbbsong zip of the same files, in the
-/// CustomSongs folder. song.json names the chart (one .sm with every difficulty), the audio
+/// A custom battle: a folder with battle.json, or a .nbbbattle zip of the same files, in the
+/// CustomBattles folder. battle.json names the chart (one .sm with every difficulty), the audio
 /// file, the card image and the enemy. Loading checks everything the game needs and builds the
 /// chart the game plays. This file has no Unity or game dependencies.
 /// </summary>
-internal sealed class SongPackage
+internal sealed class BattlePackage
 {
     internal const int FormatVersion = 2;
-    internal const string Extension = ".nbbsong";
-    internal const string ManifestName = "song.json";
+    internal const string Extension = ".nbbbattle";
+    internal const string ManifestName = "battle.json";
     internal const string DefaultChart = "charts/song.sm";
-    /// <summary>Custom songs' score keys (and their SongData names) start with this.</summary>
-    internal const string ScoreKeyPrefix = "NocturneButBetter/song/";
+    /// <summary>Custom battles' score keys (and their SongData names) start with this.</summary>
+    internal const string ScoreKeyPrefix = "NocturneButBetter/battle/";
 
     internal const long MaxJsonBytes = 1024 * 1024;
     internal const long MaxChartBytes = 8 * 1024 * 1024;
@@ -254,7 +254,7 @@ internal sealed class SongPackage
     internal string EnemyPlaceholder = EnemyPlaceholders.Default;
 
     internal PackageFiles Files = null!;
-    /// <summary>The folder or .nbbsong file.</summary>
+    /// <summary>The folder or .nbbbattle file.</summary>
     internal string Location = "";
     /// <summary>Changes when any file the song uses changes.</summary>
     internal string Fingerprint = "";
@@ -278,15 +278,15 @@ internal sealed class SongPackage
 
     internal string DisplayName => string.IsNullOrWhiteSpace(Artist) ? Title : $"{Title} ({Artist})";
 
-    /// <summary>Loads a package from a folder with song.json, or from a .nbbsong file.</summary>
-    internal static SongPackage Load(string path)
+    /// <summary>Loads a package from a folder with battle.json, or from a .nbbbattle file.</summary>
+    internal static BattlePackage Load(string path)
     {
         PackageFiles files;
         if (Directory.Exists(path)) files = PackageFiles.Folder(path);
         else if (File.Exists(path) && path.EndsWith(Extension, StringComparison.OrdinalIgnoreCase)) files = OpenZip(path);
         else throw new FileNotFoundException("not a song folder or " + Extension + " file", path);
 
-        var manifest = JsonSerializer.Deserialize<SongManifest>(files.ReadAllText(ManifestName, MaxJsonBytes), JsonOptions)
+        var manifest = JsonSerializer.Deserialize<BattleManifest>(files.ReadAllText(ManifestName, MaxJsonBytes), JsonOptions)
             ?? throw new InvalidDataException(ManifestName + " is empty");
         if (manifest.format > FormatVersion) throw new InvalidDataException($"made for a newer version (format {manifest.format})");
         if (manifest.format != FormatVersion) throw new InvalidDataException($"{ManifestName} needs \"format\": {FormatVersion}");
@@ -295,7 +295,7 @@ internal sealed class SongPackage
         if (!Guid.TryParse(manifest.id?.Trim(), out var guid))
             throw new InvalidDataException($"{ManifestName} needs an \"id\" that is a GUID, like \"{Guid.Empty}\"");
 
-        var song = new SongPackage
+        var song = new BattlePackage
         {
             Id = guid.ToString("D"),
             Files = files,
@@ -329,7 +329,7 @@ internal sealed class SongPackage
         if (song.Offset > 0.001)
             song.Problems.Add($"#OFFSET is {song.Offset.ToString("0.###", CultureInfo.InvariantCulture)} s, so beat 0 comes before the audio starts; notes in the chart's first {song.Offset.ToString("0.###", CultureInfo.InvariantCulture)} s can't be played");
 
-        // The audio: song.json's, else the chart's #MUSIC.
+        // The audio: battle.json's, else the chart's #MUSIC.
         string audio = manifest.audio ?? song.Chart.GetTag("MUSIC") ?? "";
         song.AudioPath = PackageFiles.SafeName(audio) ?? throw new InvalidDataException("the song names no audio file (\"audio\" in " + ManifestName + ")");
         if (!files.Exists(song.AudioPath)) throw new InvalidDataException($"the audio file {song.AudioPath} is missing");
@@ -371,7 +371,7 @@ internal sealed class SongPackage
         return 4;
     }
 
-    /// <summary>A .nbbsong zip: song.json at its root, or inside its one top folder.</summary>
+    /// <summary>A .nbbbattle zip: battle.json at its root, or inside its one top folder.</summary>
     private static PackageFiles OpenZip(string path)
     {
         using var zip = ZipFile.OpenRead(path);
@@ -413,28 +413,28 @@ internal sealed class SongPackage
     }
 
     /// <summary>
-    /// Every song package in a folder: folders with song.json (at most two levels down, so songs
-    /// can be grouped) and .nbbsong files. A package that doesn't load is reported and skipped;
+    /// Every battle package in a folder: folders with battle.json (at most two levels down, so battles
+    /// can be grouped) and .nbbbattle files. A package that doesn't load is reported and skipped;
     /// of two packages with the same id, the first by path is used.
     /// </summary>
-    internal static List<SongPackage> Scan(string root, Action<string> report)
+    internal static List<BattlePackage> Scan(string root, Action<string> report)
     {
-        var found = new List<SongPackage>();
+        var found = new List<BattlePackage>();
         var ids = new Dictionary<string, string>();
         foreach (var path in Candidates(root, 0, report))
         {
-            SongPackage song;
+            BattlePackage song;
             try { song = Load(path); }
             catch (Exception ex)
             {
                 // One broken package must not hide the others.
                 bool expected = ex is InvalidDataException or IOException or JsonException or UnauthorizedAccessException;
-                report($"Skipping custom song {path}: {(expected ? ex.Message : ex.ToString())}");
+                report($"Skipping custom battle {path}: {(expected ? ex.Message : ex.ToString())}");
                 continue;
             }
             if (ids.TryGetValue(song.Id, out var first))
             {
-                report($"Skipping custom song {path}: it has the same id as {first}");
+                report($"Skipping custom battle {path}: it has the same id as {first}");
                 continue;
             }
             ids[song.Id] = path;

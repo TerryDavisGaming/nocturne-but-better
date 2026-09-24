@@ -4,16 +4,16 @@ using HarmonyLib;
 namespace NocturneFlatScroll;
 
 /// <summary>
-/// Lists the custom songs in the Arcade and High Scores screens as one more chapter, "Custom
+/// Lists the custom battles in the Arcade and High Scores screens as one more chapter, "Custom
 /// Songs", after the game's own. Both screens rebuild their chapter tabs and song cards from the
 /// ArcadeDatabase each time they open, so the chapter is put into the database's list right
 /// before that. It is marked debug-only like the game's own test chapter: the discovery
-/// percentage and the trophy ranks skip such chapters, so custom songs change neither, and the
+/// percentage and the trophy ranks skip such chapters, so custom battles change neither, and the
 /// screen is told to show it anyway. Its songs are always unlocked, with their one melody.
 /// </summary>
-internal static class CustomSongsArcade
+internal static class CustomBattlesArcade
 {
-    private const string ChapterName = "Custom Songs";
+    private const string ChapterName = "Custom Battles";
     private const string ChapterShortName = "Custom";
 
     private static ArcadeCategory? chapter;
@@ -70,15 +70,15 @@ internal static class CustomSongsArcade
         catch (Exception ex) { Report(ex); }
     }
 
-    // A custom song has one melody. The results screen counts the melodies a score unlocks,
+    // A custom battle has one melody. The results screen counts the melodies a score unlocks,
     // which would otherwise announce a second one.
     private static void UnlockedMelodiesPostfix(string highScoreKey, ref int __result)
     {
-        if (__result > 1 && highScoreKey != null && highScoreKey.StartsWith(SongPackage.ScoreKeyPrefix, StringComparison.Ordinal))
+        if (__result > 1 && highScoreKey != null && highScoreKey.StartsWith(BattlePackage.ScoreKeyPrefix, StringComparison.Ordinal))
             __result = 1;
     }
 
-    private static HarmonyMethod Hook(string name) => new(typeof(CustomSongsArcade), name);
+    private static HarmonyMethod Hook(string name) => new(typeof(CustomBattlesArcade), name);
 
     // Runs before the screen builds its tabs and cards from the database.
     private static void ActivatePrefix(GenericArcadeMenuV2 __instance)
@@ -89,7 +89,7 @@ internal static class CustomSongsArcade
             if (!__instance) return;
             database = __instance.arcadeDatabase;
             if (database == null || !database) return;
-            CustomSongs.Refresh();
+            CustomBattles.Refresh();
             Put(database);
         }
         catch (Exception ex)
@@ -107,7 +107,7 @@ internal static class CustomSongsArcade
         var list = database.songCategories;
         if (list == null) return;
         Take(list);
-        var songs = CustomSongs.All;
+        var songs = CustomBattles.All;
         if (songs.Count == 0) return;
         var built = Chapter();
         // After every game chapter, whatever their numbers.
@@ -115,7 +115,7 @@ internal static class CustomSongsArcade
         for (int i = 0; i < list.Count; i++)
             if (list[i] != null) index = Math.Max(index, list[i].index + 1);
         built.index = index;
-        if (builtVersion != CustomSongs.Version)
+        if (builtVersion != CustomBattles.Version)
         {
             var infos = new Il2CppSystem.Collections.Generic.List<ArcadeSongInfo>();
             SongInfos.Clear();
@@ -127,7 +127,7 @@ internal static class CustomSongsArcade
                 SongInfos.Add(info.Pointer);
             }
             built.arcadeSongs = infos;
-            builtVersion = CustomSongs.Version;
+            builtVersion = CustomBattles.Version;
         }
         list.Add(built);
     }
@@ -199,6 +199,6 @@ internal static class CustomSongsArcade
     {
         if (reportedError) return;
         reportedError = true;
-        ModLog.Error("Custom songs in the arcade failed: " + ex);
+        ModLog.Error("Custom battles in the arcade failed: " + ex);
     }
 }

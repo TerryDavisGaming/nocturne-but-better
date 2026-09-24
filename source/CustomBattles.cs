@@ -8,22 +8,22 @@ using Object = UnityEngine.Object;
 namespace NocturneFlatScroll;
 
 /// <summary>
-/// Custom songs in the game. Each package in the CustomSongs folder becomes a runtime SongData
+/// Custom battles in the game. Each package in the CustomBattles folder becomes a runtime SongData
 /// (its six-difficulty chart, a score key of its own, no Wwise music), an EnemyData copied from
 /// a game enemy with the package's stats and info boxes, and an arcade entry. They are built when
 /// an arcade screen opens and kept for the session; a package that changes on disk is rebuilt
 /// the next time. They only exist in the arcade: nothing puts them anywhere else.
 /// </summary>
-internal static class CustomSongs
+internal static class CustomBattles
 {
     /// <summary>Names of the mod's runtime SongData and EnemyData start with this.</summary>
     internal const string RuntimePrefix = "NocturneButBetter/";
     private const string EnemyKeyPrefix = "NocturneButBetter/enemy/";
 
-    /// <summary>One custom song and the game objects made for it.</summary>
-    internal sealed class Song
+    /// <summary>One custom battle and the game objects made for it.</summary>
+    internal sealed class Battle
     {
-        internal SongPackage Package = null!;
+        internal BattlePackage Package = null!;
         internal SongData Data = null!;
         internal EnemyData Enemy = null!;
         internal TextAsset Beatmap = null!;
@@ -39,14 +39,14 @@ internal static class CustomSongs
         internal ChartText Chart => Package.Chart;
     }
 
-    private static readonly Dictionary<string, Song> ById = new();
-    private static readonly Dictionary<IntPtr, Song> ByData = new();
-    private static List<Song> ordered = new();
+    private static readonly Dictionary<string, Battle> ById = new();
+    private static readonly Dictionary<IntPtr, Battle> ByData = new();
+    private static List<Battle> ordered = new();
     private static readonly HashSet<string> Reported = new();
     private static bool reportedFields, reportedBattleError, listed;
 
     /// <summary>The songs, by title.</summary>
-    internal static IReadOnlyList<Song> All => ordered;
+    internal static IReadOnlyList<Battle> All => ordered;
 
     /// <summary>Changes whenever the list of songs or any song's objects change.</summary>
     internal static int Version { get; private set; }
@@ -55,7 +55,7 @@ internal static class CustomSongs
     {
         get
         {
-            string path = Path.Combine(Application.persistentDataPath, "NocturneButBetter", "CustomSongs");
+            string path = Path.Combine(Application.persistentDataPath, "NocturneButBetter", "CustomBattles");
             Directory.CreateDirectory(path);
             return path;
         }
@@ -70,17 +70,17 @@ internal static class CustomSongs
             ?? throw new MissingMethodException(typeof(CombatNoteFieldView).FullName, "RemoveColumn");
         var combatEnded = AccessTools.DeclaredMethod(typeof(AchievementManager), "CombatEnded")
             ?? throw new MissingMethodException(typeof(AchievementManager).FullName, "CombatEnded");
-        var arcade = CustomSongsArcade.Methods();
-        harmony.Patch(showColumns, postfix: new HarmonyMethod(typeof(CustomSongs), nameof(ShowColumnsPostfix)));
-        harmony.Patch(removeColumn, prefix: new HarmonyMethod(typeof(CustomSongs), nameof(RemoveColumnPrefix)));
-        harmony.Patch(combatEnded, prefix: new HarmonyMethod(typeof(CustomSongs), nameof(CombatEndedPrefix)));
-        CustomSongsArcade.Install(harmony, arcade);
+        var arcade = CustomBattlesArcade.Methods();
+        harmony.Patch(showColumns, postfix: new HarmonyMethod(typeof(CustomBattles), nameof(ShowColumnsPostfix)));
+        harmony.Patch(removeColumn, prefix: new HarmonyMethod(typeof(CustomBattles), nameof(RemoveColumnPrefix)));
+        harmony.Patch(combatEnded, prefix: new HarmonyMethod(typeof(CustomBattles), nameof(CombatEndedPrefix)));
+        CustomBattlesArcade.Install(harmony, arcade);
     }
 
     // ---- the registry ----------------------------------------------------------------------------
 
-    /// <summary>The custom song a SongData was made for, or null for the game's own songs.</summary>
-    internal static Song? Find(SongData? data)
+    /// <summary>The custom battle a SongData was made for, or null for the game's own songs.</summary>
+    internal static Battle? Find(SongData? data)
     {
         if (data == null || !data) return null;
         return ByData.TryGetValue(data.Pointer, out var song) ? song : null;
@@ -89,24 +89,24 @@ internal static class CustomSongs
     /// <summary>Whether a SongData or EnemyData name is one of the mod's runtime objects.</summary>
     internal static bool IsRuntimeName(string? name) => name != null && name.StartsWith(RuntimePrefix, StringComparison.Ordinal);
 
-    /// <summary>A custom song's title, for screens that would show its SongData's name.</summary>
+    /// <summary>A custom battle's title, for screens that would show its SongData's name.</summary>
     internal static string? TitleOf(SongData? data) => Find(data)?.Title;
 
-    /// <summary>The title of the custom song whose SongData has this name, or null.</summary>
+    /// <summary>The title of the custom battle whose SongData has this name, or null.</summary>
     internal static string? TitleOf(string? name)
     {
-        if (name == null || !name.StartsWith(SongPackage.ScoreKeyPrefix, StringComparison.Ordinal)) return null;
-        return ById.TryGetValue(name.Substring(SongPackage.ScoreKeyPrefix.Length), out var song) ? song.Title : null;
+        if (name == null || !name.StartsWith(BattlePackage.ScoreKeyPrefix, StringComparison.Ordinal)) return null;
+        return ById.TryGetValue(name.Substring(BattlePackage.ScoreKeyPrefix.Length), out var song) ? song.Title : null;
     }
 
-    /// <summary>Reads the CustomSongs folder again and builds the songs that are new or changed.</summary>
+    /// <summary>Reads the CustomBattles folder again and builds the songs that are new or changed.</summary>
     internal static void Refresh()
     {
-        List<SongPackage> found;
-        try { found = SongPackage.Scan(Folder, message => Note(message)); }
+        List<BattlePackage> found;
+        try { found = BattlePackage.Scan(Folder, message => Note(message)); }
         catch (Exception ex)
         {
-            Note("Listing the custom songs failed: " + ex.Message);
+            Note("Listing the custom battles failed: " + ex.Message);
             return;
         }
         bool changed = false;
@@ -136,10 +136,10 @@ internal static class CustomSongs
         ByData.Clear();
         foreach (var song in ordered) ByData[song.Data.Pointer] = song;
         Version++;
-        ModLog.Info($"Custom songs: {ordered.Count} in {Folder}.");
+        ModLog.Info($"Custom battles: {ordered.Count} in {Folder}.");
     }
 
-    private static bool Alive(Song song) => song.Data && song.Enemy && song.Beatmap && song.Card;
+    private static bool Alive(Battle song) => song.Data && song.Enemy && song.Beatmap && song.Card;
 
     /// <summary>The game's enemies by asset name, without the mod's copies.</summary>
     private static Dictionary<string, EnemyData> GameEnemies()
@@ -151,21 +151,21 @@ internal static class CustomSongs
     }
 
     // A replaced song's objects are destroyed, unless its battle is still going on.
-    private static void Retire(Song song)
+    private static void Retire(Battle song)
     {
-        if (ChartSwap.CurrentSong == song) return;
+        if (ChartSwap.CurrentBattle == song) return;
         foreach (Object? obj in new Object?[] { song.Beatmap, song.Data, song.Enemy, song.CardTexture != null ? song.Card : null, song.CardTexture })
             if (obj != null && obj) Object.Destroy(obj);
     }
 
     // ---- building ----------------------------------------------------------------------------------
 
-    private static Song? Build(SongPackage package, Dictionary<string, EnemyData> enemies)
+    private static Battle? Build(BattlePackage package, Dictionary<string, EnemyData> enemies)
     {
         var made = new List<Object>();
         try
         {
-            foreach (var problem in package.Problems) Note($"Custom song {package.Title}: {problem}.");
+            foreach (var problem in package.Problems) Note($"Custom battle {package.Title}: {problem}.");
             CheckChart(package);
             var enemy = BuildEnemy(package, enemies, made);
             var beatmap = new TextAsset(package.PlayableText) { name = package.ScoreKey, hideFlags = HideFlags.DontUnloadUnusedAsset };
@@ -173,7 +173,7 @@ internal static class CustomSongs
             var data = BuildSongData(package, beatmap, enemy, made);
             enemy.songData = data;
             var (card, texture) = LoadCard(package, made);
-            var song = new Song
+            var song = new Battle
             {
                 Package = package,
                 Data = data,
@@ -186,7 +186,7 @@ internal static class CustomSongs
             };
             string difficulties = string.Join(", ", Enumerable.Range(0, package.Slots.Length)
                 .Where(s => package.Slots[s] != null).Select(s => ChartText.GameDifficultyLabels[s]));
-            ModLog.Info($"Custom song {package.DisplayName}: {package.Lanes} lanes, {difficulties}; enemy {enemy.name} from {package.EnemyPlaceholder}.");
+            ModLog.Info($"Custom battle {package.DisplayName}: {package.Lanes} lanes, {difficulties}; enemy {enemy.name} from {package.EnemyPlaceholder}.");
             return song;
         }
         catch (Exception ex)
@@ -194,26 +194,26 @@ internal static class CustomSongs
             foreach (var obj in made)
                 if (obj) Object.Destroy(obj);
             bool expected = ex is InvalidDataException or IOException;
-            Note($"Skipping custom song {package.Title} ({package.Location}): {(expected ? ex.Message : ex.ToString())}");
+            Note($"Skipping custom battle {package.Title} ({package.Location}): {(expected ? ex.Message : ex.ToString())}");
             return null;
         }
     }
 
     // The game's own reader must take the chart, or the battle couldn't start.
-    private static void CheckChart(SongPackage package)
+    private static void CheckChart(BattlePackage package)
     {
         var built = NotesLoaderSM.Instance.LoadFromText(package.PlayableText);
         if (built == null || built.steps == null || built.steps.Count == 0 || built.timingData == null)
             throw new InvalidDataException("the game's chart reader found nothing playable in it");
         if (built.steps.Count != ChartText.GameDifficultyNames.Length)
-            Note($"Custom song {package.Title}: the game read {built.steps.Count} of its 6 difficulties.", error: false);
+            Note($"Custom battle {package.Title}: the game read {built.steps.Count} of its 6 difficulties.", error: false);
     }
 
-    private static SongData BuildSongData(SongPackage package, TextAsset beatmap, EnemyData enemy, List<Object> made)
+    private static SongData BuildSongData(BattlePackage package, TextAsset beatmap, EnemyData enemy, List<Object> made)
     {
         SongData? data = null;
         try { data = ScriptableObject.CreateInstance(Il2CppType.Of<SongData>())?.TryCast<SongData>(); }
-        catch (Exception ex) { Note("Custom songs: making a SongData failed, so a game song is copied instead: " + ex.Message); }
+        catch (Exception ex) { Note("Custom battles: making a SongData failed, so a game song is copied instead: " + ex.Message); }
         bool created = data != null;
         data ??= CopyGameSong();
         made.Add(data);
@@ -281,17 +281,17 @@ internal static class CustomSongs
         reportedFields = true;
         static string Has(object? value) => value != null ? "set" : "missing";
         var cues = data.Cues;
-        ModLog.Info($"Custom songs: a SongData from {(created ? "CreateInstance" : "a copied game song")} has playEvent {Has(data.playEvent)}, " +
+        ModLog.Info($"Custom battles: a SongData from {(created ? "CreateInstance" : "a copied game song")} has playEvent {Has(data.playEvent)}, " +
             $"StepSwitch {Has(data.StepSwitch)}, soundBank {Has(data.soundBank)}, Cues {(cues == null ? "missing" : cues.Count + " cues")}, " +
             $"onInitializeCombat {Has(data.onInitializeCombat)}, onSongStart {Has(data.onSongStart)}.");
     }
 
-    private static EnemyData BuildEnemy(SongPackage package, Dictionary<string, EnemyData> enemies, List<Object> made)
+    private static EnemyData BuildEnemy(BattlePackage package, Dictionary<string, EnemyData> enemies, List<Object> made)
     {
         var definition = package.Enemy;
         if (!enemies.TryGetValue(package.EnemyPlaceholder, out var template))
         {
-            Note($"Custom song {package.Title}: the game has no enemy {package.EnemyPlaceholder}; {EnemyPlaceholders.Default} stands in.");
+            Note($"Custom battle {package.Title}: the game has no enemy {package.EnemyPlaceholder}; {EnemyPlaceholders.Default} stands in.");
             if (!enemies.TryGetValue(EnemyPlaceholders.Default, out template))
                 throw new InvalidOperationException("the game's enemies aren't loaded");
         }
@@ -364,7 +364,7 @@ internal static class CustomSongs
         CombatEffectType.TriggerRandomVine, CombatEffectType.ResetRandomVineBasedOnCharge
     };
 
-    private static void FitFiveLanes(SongPackage package, EnemyData clone)
+    private static void FitFiveLanes(BattlePackage package, EnemyData clone)
     {
         // Column triggers like "Initialize Vine" move 5 lanes into 4-lane places.
         clone.combatStartColumnAnimationTrigger = "";
@@ -382,7 +382,7 @@ internal static class CustomSongs
             else kept.Add(data);
         }
         clone.combatEffects = kept;
-        if (dropped.Count > 0) Note($"Custom song {package.Title}: 5 lanes leave out the enemy's {string.Join(", ", dropped)}.", error: false);
+        if (dropped.Count > 0) Note($"Custom battle {package.Title}: 5 lanes leave out the enemy's {string.Join(", ", dropped)}.", error: false);
     }
 
     private static bool ChangesColumns(CombatEffectData data)
@@ -397,7 +397,7 @@ internal static class CustomSongs
         return false;
     }
 
-    private static ArcadeSongInfo BuildInfo(SongPackage package, SongData data, Sprite card)
+    private static ArcadeSongInfo BuildInfo(BattlePackage package, SongData data, Sprite card)
     {
         // Every reference is set: the arcade screens and the battle launch read them without checks.
         var info = new ArcadeSongInfo();
@@ -416,7 +416,7 @@ internal static class CustomSongs
         return info;
     }
 
-    private static string LoreText(SongPackage package)
+    private static string LoreText(BattlePackage package)
     {
         if (package.Lore.Length > 0) return package.Lore;
         var lines = new List<string>();
@@ -425,7 +425,7 @@ internal static class CustomSongs
         return string.Join("\n", lines);
     }
 
-    private static CustomMusic.Source MusicSource(SongPackage package)
+    private static CustomMusic.Source MusicSource(BattlePackage package)
     {
         var files = package.Files;
         string name = package.AudioPath;
@@ -433,19 +433,19 @@ internal static class CustomSongs
         {
             Name = $"{name} for {package.Title}",
             Key = $"{files.Describe(name)}|{files.Stamp(name)}",
-            Read = () => files.ReadAllBytes(name, SongPackage.MaxAudioBytes)
+            Read = () => files.ReadAllBytes(name, BattlePackage.MaxAudioBytes)
         };
     }
 
     // ---- card images -------------------------------------------------------------------------------
 
-    private static (Sprite Card, Texture2D? Texture) LoadCard(SongPackage package, List<Object> made)
+    private static (Sprite Card, Texture2D? Texture) LoadCard(BattlePackage package, List<Object> made)
     {
         if (package.CardPath != null)
         {
             try
             {
-                var bytes = package.Files.ReadAllBytes(package.CardPath, SongPackage.MaxImageBytes);
+                var bytes = package.Files.ReadAllBytes(package.CardPath, BattlePackage.MaxImageBytes);
                 var texture = CardImages.Decode(bytes, package.ScoreKey + "/card");
                 if (texture != null)
                 {
@@ -454,11 +454,11 @@ internal static class CustomSongs
                     made.Add(sprite);
                     return (sprite, texture);
                 }
-                Note($"Custom song {package.Title}: {package.CardPath} isn't a PNG or JPEG the game can read, so its card is plain for now.");
+                Note($"Custom battle {package.Title}: {package.CardPath} isn't a PNG or JPEG the game can read, so its card is plain for now.");
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException)
             {
-                Note($"Custom song {package.Title}: the card image couldn't be read ({ex.Message}).");
+                Note($"Custom battle {package.Title}: the card image couldn't be read ({ex.Message}).");
             }
         }
         return (CardImages.Placeholder, null);
@@ -481,7 +481,7 @@ internal static class CustomSongs
                 looked = true;
                 IntPtr call = IL2CPP.il2cpp_resolve_icall("UnityEngine.ImageConversion::LoadImage");
                 if (call != IntPtr.Zero) loadImage = Marshal.GetDelegateForFunctionPointer<LoadImageCall>(call);
-                else ModLog.Info("Custom songs: the game has no image decoder, so cards are plain.");
+                else ModLog.Info("Custom battles: the game has no image decoder, so cards are plain.");
             }
             if (loadImage == null || bytes.Length == 0) return null;
             var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = name, hideFlags = HideFlags.HideAndDontSave };
@@ -564,7 +564,7 @@ internal static class CustomSongs
 
     private static int FieldColumns(CombatNoteFieldView view)
     {
-        var song = ChartSwap.CurrentSong;
+        var song = ChartSwap.CurrentBattle;
         if (song != null) return song.Lanes;
         var field = view.noteFieldBehaviour;
         return field ? field.ActiveColumnCount : 0;
@@ -588,14 +588,14 @@ internal static class CustomSongs
         }
     }
 
-    // A custom song is anyone's chart, so its battles don't count towards the game's (Steam)
+    // A custom battle is anyone's chart, so its battles don't count towards the game's (Steam)
     // achievements, which can't be taken back. The game checks them all when a battle ends.
     private static bool CombatEndedPrefix(CombatSummary summary)
     {
         try
         {
-            if (ChartSwap.PlayingSong == null && !IsRuntimeName(summary?.EnemyId)) return true;
-            Note("Custom song battles don't count towards achievements.", error: false);
+            if (ChartSwap.PlayingBattle == null && !IsRuntimeName(summary?.EnemyId)) return true;
+            Note("Custom battles don't count towards achievements.", error: false);
             return false;
         }
         catch (Exception ex)
@@ -609,7 +609,7 @@ internal static class CustomSongs
     {
         if (reportedBattleError) return;
         reportedBattleError = true;
-        ModLog.Error("Custom song battle hooks failed: " + ex);
+        ModLog.Error("Custom battle hooks failed: " + ex);
     }
 
     /// <summary>Logs a message once a session, so a broken package isn't reported on every arcade visit.</summary>
