@@ -21,7 +21,7 @@ internal static class WavFile
         {
             int size = BitConverter.ToInt32(b, pos + 4);
             int body = pos + 8;
-            if (size < 0 || body + size > b.Length) size = b.Length - body;
+            if (size < 0 || (long)body + size > b.Length) size = b.Length - body;
             if (b[pos] == id[0] && b[pos + 1] == id[1] && b[pos + 2] == id[2] && b[pos + 3] == id[3]) return (body, size);
             pos = body + size + (size & 1);
         }
@@ -38,7 +38,9 @@ internal static class WavFile
             string id = System.Text.Encoding.ASCII.GetString(b, pos, 4);
             int size = BitConverter.ToInt32(b, pos + 4);
             int body = pos + 8;
-            if (size < 0 || body + size > b.Length) size = b.Length - body;
+            // In long arithmetic: a streamed file can claim a length near 2 GB, which must be
+            // cut to the file rather than wrap around.
+            if (size < 0 || (long)body + size > b.Length) size = b.Length - body;
             if (id == "fmt ")
             {
                 format = BitConverter.ToUInt16(b, body);

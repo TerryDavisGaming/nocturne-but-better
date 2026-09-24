@@ -90,7 +90,8 @@ internal static class AudioFile
         if (tag == 1 || tag == 3 || tag == -1)
         {
             var (stereo, rate, channels) = WavFile.Decode(bytes);
-            return (stereo, rate, $"WAV, {Describe(channels)}");
+            // The WAV reader keeps the first two channels as they are (as it always has).
+            return (stereo, rate, channels > 2 ? $"WAV, {channels} channels (the first two are used)" : $"WAV, {Describe(channels)}");
         }
         // Compressed WAV (ADPCM, MP3 in WAV and so on): Windows may have a decoder for it.
         try
@@ -112,12 +113,17 @@ internal static class AudioFile
     private static (short[], int, string) DecodeOgg(byte[] bytes)
     {
         var ogg = OggVorbis.Open(bytes);
-        var pcm = new StereoPcm(ogg.Channels, SpeakerLayouts.Vorbis(ogg.Channels), StereoPcm.Plausible(Math.Max(0, ogg.LastGranule), bytes.Length));
+        // The last granule position is the length after trimming, so the buffer fills exactly;
+        // the packet count bounds it when the granule positions don't start at zero.
+        long frames = ogg.CountFrames();
+        if (ogg.LastGranule > 0) frames = Math.Min(frames, ogg.LastGranule);
+        var pcm = new StereoPcm(ogg.Channels, SpeakerLayouts.Vorbis(ogg.Channels), StereoPcm.Plausible(frames, bytes.Length));
         ogg.DecodeTo(pcm);
         var how = $"Ogg Vorbis, {Describe(ogg.Channels)}";
         if (ogg.Vendor.Length > 0) how += $", encoder \"{ogg.Vendor}\"";
         if (ogg.TrimmedStart > 0 || ogg.TrimmedEnd > 0) how += $", granule trim {ogg.TrimmedStart} at the start and {ogg.TrimmedEnd} at the end";
-        if (ogg.DamagedPages > 0 || ogg.FilledGaps > 0) how += $", {ogg.DamagedPages} damaged pages ({ogg.FilledGaps} frames of silence put in their place)";
+        if (ogg.DamagedPages > 0 || ogg.Gaps > 0 || ogg.FilledGaps > 0)
+            how += $", {ogg.DamagedPages} damaged pages and {ogg.Gaps} gaps in the page sequence ({ogg.FilledGaps} frames of silence put in their place)";
         if (ogg.SkippedPackets > 0) how += $", {ogg.SkippedPackets} bad packets skipped";
         if (ogg.Truncated) how += ", the file is cut short";
         return (pcm.ToArray(), ogg.Rate, how);

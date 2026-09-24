@@ -20,6 +20,8 @@ internal sealed class OggVorbis
     /// <summary>The last granule position in the file, about the song's length in frames (-1 if none).</summary>
     internal long LastGranule => ogg.LastGranule;
     internal int DamagedPages => ogg.DamagedPages;
+    /// <summary>Places where pages of the stream are missing (a damaged page makes one too).</summary>
+    internal int Gaps => ogg.Gaps;
     internal bool Truncated => !ogg.SawEndOfStream;
 
     // Filled by DecodeTo.
@@ -89,6 +91,35 @@ internal sealed class OggVorbis
         if (length <= (uint)(p.Length - 11)) Vendor = Encoding.UTF8.GetString(p.Data, p.Offset + 11, (int)length);
     }
 
+    /// <summary>
+    /// The frames the audio packets make before any trimming, counted from each packet's mode
+    /// (its block size) without decoding. The buffer is sized from this when the last granule
+    /// position is larger: a stream cut out of a longer one (a radio recording, say) keeps
+    /// counting granules from the original start.
+    /// </summary>
+    internal long CountFrames()
+    {
+        var br = new VorbisBitReader();
+        var packets = ogg.Packets;
+        long total = 0;
+        int prev = 0;
+        for (int i = 3; i < packets.Count; i++)
+        {
+            var p = packets[i];
+            if (p.AfterGap) prev = 0;
+            br.Init(p.Data, p.Offset, p.Length);
+            if (br.Read(1) != 0) continue;
+            int mode = br.Read(setup.ModeBits);
+            if (mode < 0 || mode >= setup.Modes.Length) continue;
+            bool longBlock = setup.Modes[mode].BlockFlag;
+            if (longBlock && br.Read(2) < 0) continue;
+            int n = longBlock ? BlockSize1 : BlockSize0;
+            if (prev != 0) total += prev / 4 + n / 4;
+            prev = n;
+        }
+        return total;
+    }
+
     /// <summary>Decodes every audio packet into <paramref name="writer"/>.</summary>
     internal void DecodeTo(IPcmWriter writer)
     {
@@ -97,6 +128,7 @@ internal sealed class OggVorbis
         long decoded = 0;      // frames from the packets before the first granule position
         long granule = -1;     // the stream position at the end of the output, once known
         long gapAt = -1, gapGranule = 0, sinceGap = 0;
+        long earlyGapAt = -1;  // where audio went missing before the first granule position
 
         for (int i = 3; i < packets.Count; i++)
         {
@@ -109,6 +141,10 @@ internal sealed class OggVorbis
                     gapAt = writer.Frames;
                     gapGranule = granule;
                     sinceGap = 0;
+                }
+                else if (granule < 0 && earlyGapAt < 0)
+                {
+                    earlyGapAt = writer.Frames;
                 }
             }
             int n = decoder.Decode(p.Data, p.Offset, p.Length);
@@ -141,6 +177,14 @@ internal sealed class OggVorbis
                     long extra = Math.Min(decoded - granule, writer.Frames);
                     if (p.EndOfStream) { writer.TrimEnd(extra); TrimmedEnd += extra; }
                     else { writer.TrimStart(extra); TrimmedStart += extra; }
+                }
+                else if (earlyGapAt >= 0 && decoded < granule && granule - decoded <= Rate * 60L)
+                {
+                    // The first audio page was lost: the granule position says how much audio
+                    // came before what survived, so silence takes its place and the song keeps
+                    // its timing.
+                    writer.InsertSilence(earlyGapAt, granule - decoded);
+                    FilledGaps += granule - decoded;
                 }
             }
             else if (gapAt >= 0)

@@ -22,7 +22,8 @@ internal interface IPcmWriter
 /// </summary>
 internal sealed class StereoPcm : IPcmWriter
 {
-    private const int MaxFrames = int.MaxValue / 2 - 16;
+    // Two shorts per frame, within the largest array .NET allows.
+    private static readonly int MaxFrames = Array.MaxLength / 2;
 
     private readonly int channels;
     private readonly float[] toLeft, toRight;   // per source channel
