@@ -281,6 +281,7 @@ internal static class ModSetup
         Run("Chart editor", () => ChartEditor.Install(harmony));
         Run("Scroll speed changes", () => ScrollSpeedHooks.Install(harmony));
         Run("Custom songs", () => CustomMusic.Install(harmony));
+        Run("Main menu arcade", () => ArcadeSession.Install(harmony));
         Run("Title text", () => TitleBranding.InstallTitle(harmony));
         Run("Intro text", () => TitleBranding.InstallIntro(harmony));
     }
