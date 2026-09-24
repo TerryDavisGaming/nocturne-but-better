@@ -34,17 +34,24 @@ internal static class ChartSwap
         }
     }
 
-    // The score key the playing song records under; only that key is redirected.
-    private static string? playingScoreKey;
+    // A custom difficulty's scores go under a key of their own, so the song's high scores and the
+    // melodies they unlock stay the game's. The song's own score key is pointed at that key for
+    // the battle (SongData.HighScoreKey reads highScoreKey when overrideHighScoreKey is set) and
+    // put back afterwards, so the game records the score as usual. The score methods themselves
+    // aren't patched: TryRecordScore returns a small struct (ValueTuple<bool, int>), which
+    // Il2CppInterop's patch trampoline returns as a pointer, and the results screen then read a
+    // garbage "new high score" and previous score in every battle.
+    private static SongData? keyedSong;
+    private static WwiseConductor? keyedConductor;
+    private static bool keyedOverride;
+    private static string? keyedKey;
 
     internal static void Install(HarmonyLib.Harmony harmony)
     {
         harmony.Patch(Method(typeof(WwiseConductor), "Initialize"), prefix: new HarmonyMethod(typeof(ChartSwap), nameof(InitializePrefix)));
         harmony.Patch(Method(typeof(WwiseConductor), "CreateBeatmap"), prefix: new HarmonyMethod(typeof(ChartSwap), nameof(CreateBeatmapPrefix)));
-        // A custom difficulty's scores go under a key of their own, so the song's high scores
-        // and the melodies they unlock stay the game's.
-        foreach (var name in new[] { "TryRecordScore", "IsNewHighScore" })
-            harmony.Patch(Method(typeof(ScoreManager), name), prefix: new HarmonyMethod(typeof(ChartSwap), nameof(ScoreKeyPrefix_)));
+        // The song's score key goes back once the battle is left (after its score is recorded).
+        harmony.Patch(Method(typeof(CombatManagerV3), "ExitCombat"), postfix: new HarmonyMethod(typeof(ChartSwap), nameof(ExitCombatPostfix)));
         // Only custom songs need this, so custom charts keep working if it can't be installed.
         try { harmony.Patch(Method(typeof(WwiseConductor), "InitializeNoteField"), postfix: new HarmonyMethod(typeof(ChartSwap), nameof(InitializeNoteFieldPostfix))); }
         catch (Exception ex) { ModLog.Error("Custom songs' full-length battles could not be installed: " + ex); }
@@ -57,7 +64,7 @@ internal static class ChartSwap
     private static void InitializePrefix(WwiseConductor __instance, SongData songData, ref Il2CppStructArray<int> melodies)
     {
         Playing = null;
-        playingScoreKey = null;
+        RestoreScoreKey(__instance);
         ScrollSpeedHooks.Prepare(null);
         CustomMusic.Reset(__instance);
         try
@@ -91,10 +98,52 @@ internal static class ChartSwap
                 melodies = new Il2CppStructArray<int>(new[] { melody, melody });
             }
             Playing = chart;
-            playingScoreKey = songData.HighScoreKey;
+            SwapScoreKey(__instance, songData, ScoreKeyPrefix + chart.Key);
         }
         catch (Exception ex) { ReportOnce(ex); }
     }
+
+    private static void SwapScoreKey(WwiseConductor conductor, SongData song, string key)
+    {
+        RestoreScoreKey(null);
+        keyedOverride = song.overrideHighScoreKey;
+        keyedKey = song.highScoreKey;
+        keyedSong = song;
+        keyedConductor = conductor;
+        song.overrideHighScoreKey = true;
+        song.highScoreKey = key;
+    }
+
+    /// <summary>
+    /// Puts the song's own score key back. With a conductor, only when that conductor is the one
+    /// whose battle took the key, or that battle is over (a menu's conductor starting during a
+    /// battle leaves the battle's key alone).
+    /// </summary>
+    private static void RestoreScoreKey(WwiseConductor? starting)
+    {
+        var song = keyedSong;
+        if (song == null) return;
+        try
+        {
+            if (starting != null)
+            {
+                var battle = keyedConductor;
+                bool running = battle != null && battle && battle.Pointer != starting.Pointer && battle.initializedSong && !battle.endedSong;
+                if (running) return;
+            }
+            if (song)
+            {
+                song.overrideHighScoreKey = keyedOverride;
+                song.highScoreKey = keyedKey;
+            }
+        }
+        catch (Exception ex) { ReportOnce(ex); }
+        keyedSong = null;
+        keyedConductor = null;
+        keyedKey = null;
+    }
+
+    private static void ExitCombatPostfix() => RestoreScoreKey(null);
 
     /// <summary>
     /// Notes the custom song a conductor starts, if it is one. Another conductor starting (a
@@ -155,7 +204,7 @@ internal static class ChartSwap
             // A broken chart must not stop the battle: the game's own chart plays instead.
             ModLog.Error($"Custom chart {chart.DisplayName} could not be loaded, so the game's chart plays: {ex}");
             Playing = null;
-            playingScoreKey = null;
+            RestoreScoreKey(null);
             return true;
         }
     }
@@ -199,12 +248,6 @@ internal static class ChartSwap
             field.maxTapRow = last;
         }
         catch (Exception ex) { ReportOnce(ex); }
-    }
-
-    private static void ScoreKeyPrefix_(ref string songId)
-    {
-        var chart = Playing;
-        if (chart != null && playingScoreKey != null && songId == playingScoreKey) songId = ScoreKeyPrefix + chart.Key;
     }
 
     private static void ReportOnce(Exception ex)
