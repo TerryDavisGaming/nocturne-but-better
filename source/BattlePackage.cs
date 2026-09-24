@@ -284,14 +284,14 @@ internal sealed class BattlePackage
         PackageFiles files;
         if (Directory.Exists(path)) files = PackageFiles.Folder(path);
         else if (File.Exists(path) && path.EndsWith(Extension, StringComparison.OrdinalIgnoreCase)) files = OpenZip(path);
-        else throw new FileNotFoundException("not a song folder or " + Extension + " file", path);
+        else throw new FileNotFoundException("not a battle folder or " + Extension + " file", path);
 
         var manifest = JsonSerializer.Deserialize<BattleManifest>(files.ReadAllText(ManifestName, MaxJsonBytes), JsonOptions)
             ?? throw new InvalidDataException(ManifestName + " is empty");
         if (manifest.format > FormatVersion) throw new InvalidDataException($"made for a newer version (format {manifest.format})");
         if (manifest.format != FormatVersion) throw new InvalidDataException($"{ManifestName} needs \"format\": {FormatVersion}");
-        if (!"song".Equals(manifest.kind?.Trim(), StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException($"{ManifestName} needs \"kind\": \"song\"");
+        if (!"battle".Equals(manifest.kind?.Trim(), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException($"{ManifestName} needs \"kind\": \"battle\"");
         if (!Guid.TryParse(manifest.id?.Trim(), out var guid))
             throw new InvalidDataException($"{ManifestName} needs an \"id\" that is a GUID, like \"{Guid.Empty}\"");
 
