@@ -266,7 +266,10 @@ internal sealed class SongPackage
     internal string PlayableText = "";
     /// <summary>The last note row over every difficulty, so each one runs as long as the song.</summary>
     internal int LastNoteRow;
-    /// <summary>#OFFSET: chart time t is audio file time t + OFFSET.</summary>
+    /// <summary>
+    /// #OFFSET, as in StepMania: beat 0 is at audio file time -OFFSET. The game's chart reader
+    /// applies it; the audio itself always starts with the battle's clock.
+    /// </summary>
     internal double Offset;
     /// <summary>Things that don't stop the song from playing, for the log.</summary>
     internal readonly List<string> Problems = new();
@@ -322,6 +325,9 @@ internal sealed class SongPackage
         song.Offset = double.TryParse(song.Chart.GetTag("OFFSET"), NumberStyles.Float, CultureInfo.InvariantCulture, out double offset) ? offset : 0;
         if (Math.Abs(song.Offset) > LeadIn.MaxOffset)
             throw new InvalidDataException($"#OFFSET is {song.Offset:0.###} s; it can be at most {LeadIn.MaxOffset:0} s either way");
+        // The battle's clock starts with the audio, so a chart that starts before it loses its start.
+        if (song.Offset > 0.001)
+            song.Problems.Add($"#OFFSET is {song.Offset.ToString("0.###", CultureInfo.InvariantCulture)} s, so beat 0 comes before the audio starts; notes in the chart's first {song.Offset.ToString("0.###", CultureInfo.InvariantCulture)} s can't be played");
 
         // The audio: song.json's, else the chart's #MUSIC.
         string audio = manifest.audio ?? song.Chart.GetTag("MUSIC") ?? "";
@@ -463,21 +469,22 @@ internal sealed class SongPackage
 }
 
 /// <summary>
-/// Where a song file sits on the chart's clock. The battle starts the music at chart time -0.1 s
+/// Where a song file sits on the battle's clock. The battle starts the music at clock time -0.1 s
 /// or a moment later, so the file must already be playing there: silence is added before it
-/// when its first sample comes later (a lead-in, or #OFFSET 0).
+/// when its first sample comes later. The clock is the song file's own time (the game applies
+/// the chart's #OFFSET to the notes itself), so a song's first sample is at 0.
 /// </summary>
 internal static class LeadIn
 {
-    /// <summary>How much of the chart's clock before 0 the file covers.</summary>
+    /// <summary>How much of the clock before 0 the file covers.</summary>
     internal const double StartMargin = 0.25;
     /// <summary>A bigger #OFFSET is a mistake rather than a lead-in.</summary>
     internal const double MaxOffset = 600;
 
     /// <summary>
-    /// Interleaved stereo with enough silence in front that chart time -StartMargin is in the
-    /// file, and the chart time of its new first sample. <paramref name="origin"/> is the chart
-    /// time of the file's first sample (#OFFSET).
+    /// Interleaved stereo with enough silence in front that clock time -StartMargin is in the
+    /// file, and the clock time of its new first sample. <paramref name="origin"/> is the clock
+    /// time of the file's first sample.
     /// </summary>
     internal static (short[] Stereo, double Origin) Pad(short[] stereo, int rate, double origin)
     {

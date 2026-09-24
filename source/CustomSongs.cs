@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Runtime.InteropServices;
 using HarmonyLib;
 using Il2CppInterop.Runtime;
@@ -69,9 +68,12 @@ internal static class CustomSongs
             ?? throw new MissingMethodException(typeof(CombatNoteFieldView).FullName, "ShowColumns");
         var removeColumn = AccessTools.DeclaredMethod(typeof(CombatNoteFieldView), "RemoveColumn")
             ?? throw new MissingMethodException(typeof(CombatNoteFieldView).FullName, "RemoveColumn");
+        var combatEnded = AccessTools.DeclaredMethod(typeof(AchievementManager), "CombatEnded")
+            ?? throw new MissingMethodException(typeof(AchievementManager).FullName, "CombatEnded");
         var arcade = CustomSongsArcade.Methods();
         harmony.Patch(showColumns, postfix: new HarmonyMethod(typeof(CustomSongs), nameof(ShowColumnsPostfix)));
         harmony.Patch(removeColumn, prefix: new HarmonyMethod(typeof(CustomSongs), nameof(RemoveColumnPrefix)));
+        harmony.Patch(combatEnded, prefix: new HarmonyMethod(typeof(CustomSongs), nameof(CombatEndedPrefix)));
         CustomSongsArcade.Install(harmony, arcade);
     }
 
@@ -89,6 +91,13 @@ internal static class CustomSongs
 
     /// <summary>A custom song's title, for screens that would show its SongData's name.</summary>
     internal static string? TitleOf(SongData? data) => Find(data)?.Title;
+
+    /// <summary>The title of the custom song whose SongData has this name, or null.</summary>
+    internal static string? TitleOf(string? name)
+    {
+        if (name == null || !name.StartsWith(SongPackage.ScoreKeyPrefix, StringComparison.Ordinal)) return null;
+        return ById.TryGetValue(name.Substring(SongPackage.ScoreKeyPrefix.Length), out var song) ? song.Title : null;
+    }
 
     /// <summary>Reads the CustomSongs folder again and builds the songs that are new or changed.</summary>
     internal static void Refresh()
@@ -423,8 +432,7 @@ internal static class CustomSongs
         return new CustomMusic.Source
         {
             Name = $"{name} for {package.Title}",
-            Key = $"{files.Describe(name)}|{files.Stamp(name)}|{package.Offset.ToString("R", CultureInfo.InvariantCulture)}",
-            Offset = package.Offset,
+            Key = $"{files.Describe(name)}|{files.Stamp(name)}",
             Read = () => files.ReadAllBytes(name, SongPackage.MaxAudioBytes)
         };
     }
@@ -571,6 +579,23 @@ internal static class CustomSongs
             var countdown = __instance.columnDisableCountdown;
             if (countdown == null || (index >= 0 && index < countdown.Length)) return true;
             Note($"Skipped removing lane {index + 1}: this note field has {countdown.Length} lanes that can be removed.");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            ReportBattle(ex);
+            return true;
+        }
+    }
+
+    // A custom song is anyone's chart, so its battles don't count towards the game's (Steam)
+    // achievements, which can't be taken back. The game checks them all when a battle ends.
+    private static bool CombatEndedPrefix(CombatSummary summary)
+    {
+        try
+        {
+            if (ChartSwap.PlayingSong == null && !IsRuntimeName(summary?.EnemyId)) return true;
+            Note("Custom song battles don't count towards achievements.", error: false);
             return false;
         }
         catch (Exception ex)

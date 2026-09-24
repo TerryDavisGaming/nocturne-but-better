@@ -1,4 +1,3 @@
-using System.Globalization;
 using HarmonyLib;
 using UnityEngine;
 
@@ -13,7 +12,9 @@ namespace NocturneFlatScroll;
 /// AudioController.TryGetSongPosition where that id is, and the mod answers from its player,
 /// so the notes follow the file. No Wwise cue is involved: the battle ends a beat after the
 /// chart's last note, and the song fades when the game's victory, pre-end or leave-combat music
-/// would start. The chart's #OFFSET places the file: chart time t is file time t + OFFSET.
+/// would start. The conductor's clock is the song file's own time, as it is the Wwise track's
+/// time for the game's songs. The game's chart reader applies #OFFSET itself (beat 0 comes at
+/// clock time -OFFSET, as in StepMania), so the file is never shifted by it here.
 /// </summary>
 internal static class CustomMusic
 {
@@ -23,8 +24,6 @@ internal static class CustomMusic
         internal string Name = "";
         /// <summary>The file and its size and time, so a retry reuses the decoded song.</summary>
         internal string Key = "";
-        /// <summary>#OFFSET: the chart time of the file's first sample.</summary>
-        internal double Offset;
         /// <summary>Reads the file; runs on a worker thread.</summary>
         internal Func<byte[]> Read = () => Array.Empty<byte>();
     }
@@ -33,7 +32,7 @@ internal static class CustomMusic
     {
         internal short[] Stereo = Array.Empty<short>();
         internal int Rate;
-        internal double Origin;   // chart time of the first sample, after the lead-in silence
+        internal double Origin;   // clock time of the first sample, after the lead-in silence
     }
 
     // A song decoding for a battle, until the conductor starts its music.
@@ -114,7 +113,7 @@ internal static class CustomMusic
     /// </summary>
     private const double ClockLead = 0.0468;
 
-    /// <summary>The song's chart time as the conductor's segment time (it adds the finished segments).</summary>
+    /// <summary>The song's clock time as the conductor's segment time (it adds the finished segments).</summary>
     private static double SegmentTime(EditorAudio p) => p.Time + ClockLead + origin - conductor!.previousSongSegmentTime;
 
     // ---- preparing -----------------------------------------------------------------------------
@@ -145,12 +144,10 @@ internal static class CustomMusic
             stamp = files.Stamp(name);
         }
         catch { return null; }
-        double offset = double.TryParse(chart.Chart.GetTag("OFFSET"), NumberStyles.Float, CultureInfo.InvariantCulture, out double o) ? o : 0;
         return new Source
         {
             Name = $"{music} for {chart.DisplayName}",
-            Key = $"{files.Describe(name)}|{stamp}|{offset.ToString("R", CultureInfo.InvariantCulture)}",
-            Offset = offset,
+            Key = $"{files.Describe(name)}|{stamp}",
             Read = () => files.ReadAllBytes(name, SongPackage.MaxAudioBytes)
         };
     }
@@ -197,7 +194,8 @@ internal static class CustomMusic
     {
         byte[] bytes = source.Read();
         var (stereo, rate) = AudioFile.Decode(bytes, source.Name);
-        var (padded, first) = LeadIn.Pad(stereo, rate, source.Offset);
+        // The file's first sample is at clock time 0; the chart's #OFFSET is the game's to apply.
+        var (padded, first) = LeadIn.Pad(stereo, rate, 0);
         return new Song { Stereo = padded, Rate = rate, Origin = first };
     }
 
@@ -284,7 +282,7 @@ internal static class CustomMusic
         c.playingWwiseTrack = true;
         PostSilence();
         if (p.StartCue) InvokeStartCue(c);
-        ModLog.Info($"Custom song {playingName} started at chart time {now:0.000} ({player.Length:0.0}s).");
+        ModLog.Info($"Custom song {playingName} started at song time {now:0.000} ({player.Length:0.0}s).");
     }
 
     /// <summary>A custom song whose file failed still plays its chart, on the game's own clock.</summary>
@@ -306,7 +304,7 @@ internal static class CustomMusic
     }
 
     // Answers the conductor's question for the mod's playing id. The conductor adds the time of
-    // the segments Wwise already finished (none here), so the answer is the song's chart time.
+    // the segments Wwise already finished (none here), so the answer is the song's clock time.
     private static bool PositionPrefix(uint playingId, ref double songPosition, ref bool __result)
     {
         if (playingId != FakePlayingId) return true;
@@ -380,7 +378,9 @@ internal static class CustomMusic
                 Stop();
                 return;
             }
-            bool pause = live && (AudioController.IsPausedCombat || c.Paused);
+            // A song paused when its battle ends (quit from the pause menu) stays paused while it
+            // fades, rather than playing on for a moment as the game unpauses.
+            bool pause = (paused && (!live || fadeStart >= 0)) || (live && (AudioController.IsPausedCombat || c.Paused));
             if (pause != paused)
             {
                 paused = pause;
