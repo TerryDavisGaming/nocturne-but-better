@@ -26,7 +26,8 @@ internal static class CustomSongsArcade
 
     internal sealed class Targets
     {
-        internal MethodInfo Activate = null!, ShouldShowCategory = null!, IsArcadeSongUnlocked = null!, GetUnlockedMelodyCount = null!;
+        internal MethodInfo Activate = null!, ShouldShowCategory = null!, IsArcadeSongUnlocked = null!, GetUnlockedMelodyCount = null!,
+            PopulateCategoryButton = null!, GetUnlockedMelodiesForSong = null!;
     }
 
     /// <summary>The methods patched, looked up before anything is installed.</summary>
@@ -35,7 +36,9 @@ internal static class CustomSongsArcade
         Activate = Method(typeof(GenericArcadeMenuV2), "Activate"),
         ShouldShowCategory = Method(typeof(GenericArcadeMenuV2), "ShouldShowCategory"),
         IsArcadeSongUnlocked = Method(typeof(ArcadeUtility), "IsArcadeSongUnlocked"),
-        GetUnlockedMelodyCount = Method(typeof(ArcadeUtility), "GetUnlockedMelodyCount")
+        GetUnlockedMelodyCount = Method(typeof(ArcadeUtility), "GetUnlockedMelodyCount"),
+        PopulateCategoryButton = Method(typeof(GenericArcadeMenuV2), "PopulateCategoryButton"),
+        GetUnlockedMelodiesForSong = Method(typeof(ScoreManager), "GetUnlockedMelodiesForSong")
     };
 
     private static MethodInfo Method(Type type, string name) =>
@@ -47,6 +50,32 @@ internal static class CustomSongsArcade
         harmony.Patch(targets.ShouldShowCategory, prefix: Hook(nameof(ShouldShowCategoryPrefix)));
         harmony.Patch(targets.IsArcadeSongUnlocked, prefix: Hook(nameof(IsArcadeSongUnlockedPrefix)));
         harmony.Patch(targets.GetUnlockedMelodyCount, prefix: Hook(nameof(GetUnlockedMelodyCountPrefix)));
+        harmony.Patch(targets.PopulateCategoryButton, postfix: Hook(nameof(PopulateCategoryButtonPostfix)));
+        harmony.Patch(targets.GetUnlockedMelodiesForSong, postfix: Hook(nameof(UnlockedMelodiesPostfix)));
+    }
+
+    // The chapter tab buttons are sized for "Ch. 1"; the chapter's name shrinks to one line.
+    private static void PopulateCategoryButtonPostfix(CustomButton categoryButton, ArcadeCategory category)
+    {
+        try
+        {
+            if (category == null || !Chapters.Contains(category.Pointer) || !categoryButton) return;
+            var label = categoryButton.GetComponentInChildren<TMP_Text>(true);
+            if (!label) return;
+            label!.enableWordWrapping = false;
+            label.enableAutoSizing = true;
+            label.fontSizeMax = label.fontSize;
+            label.fontSizeMin = Math.Max(1f, label.fontSize * 0.5f);
+        }
+        catch (Exception ex) { Report(ex); }
+    }
+
+    // A custom song has one melody. The results screen counts the melodies a score unlocks,
+    // which would otherwise announce a second one.
+    private static void UnlockedMelodiesPostfix(string highScoreKey, ref int __result)
+    {
+        if (__result > 1 && highScoreKey != null && highScoreKey.StartsWith(SongPackage.ScoreKeyPrefix, StringComparison.Ordinal))
+            __result = 1;
     }
 
     private static HarmonyMethod Hook(string name) => new(typeof(CustomSongsArcade), name);
