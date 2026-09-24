@@ -87,6 +87,9 @@ internal static class OptionsMenuIntegration
             AccessTools.DeclaredMethod(typeof(GameplayOptionsMenu), "ResetDefaults")
                 ?? throw new MissingMethodException(typeof(GameplayOptionsMenu).FullName, "ResetDefaults"),
             postfix: new HarmonyMethod(typeof(OptionsMenuIntegration), nameof(ResetDefaultsPostfix)));
+        // Picks up charts dropped into the folder by hand while the game was running.
+        harmony.Patch(AccessTools.DeclaredMethod(typeof(GameplayOptionsMenu), "DidShow"),
+            prefix: new HarmonyMethod(typeof(CustomChartOptions), nameof(CustomChartOptions.MenuShownPrefix)));
         installed = true;
     }
 
@@ -100,6 +103,24 @@ internal static class OptionsMenuIntegration
     }
 
     /// <summary>Called after SettingsState changes, including changes outside this menu.</summary>
+    /// <summary>Whether a screen point is on the shown row with this name.</summary>
+    internal static bool PointerOverRow(string rowName, Vector2 screenPoint)
+    {
+        foreach (var rows in Menus.Values)
+        {
+            foreach (var row in rows.Rows)
+            {
+                if (row.Spec.Name != rowName || !row.IsAlive || !row.Root.activeInHierarchy) continue;
+                var rect = row.Root.GetComponent<RectTransform>();
+                if (!rect) continue;
+                var canvas = rect.GetComponentInParent<Canvas>();
+                Camera? camera = canvas && canvas.renderMode != RenderMode.ScreenSpaceOverlay ? canvas.worldCamera : null;
+                if (RectTransformUtility.RectangleContainsScreenPoint(rect, screenPoint, camera)) return true;
+            }
+        }
+        return false;
+    }
+
     internal static void RefreshAll()
     {
         if (refreshing) return;
@@ -162,7 +183,7 @@ internal static class OptionsMenuIntegration
         try
         {
             // Each clone is inserted directly above Speed Mod, so creation order is display order.
-            foreach (var spec in Specs) created.Add(CreateRow(template, parent, anchor, spec));
+            foreach (var spec in Specs.Concat(CustomChartOptions.Rows)) created.Add(CreateRow(template, parent, anchor, spec));
             if (parent.TryCast<RectTransform>() is { } content)
                 LayoutRebuilder.MarkLayoutForRebuild(content);
             ModLog.Info("Added flat-scroll rows to Options > Gameplay.");
@@ -229,11 +250,8 @@ internal static class OptionsMenuIntegration
             button.onClick = new Button.ButtonClickedEvent();
 
             toggle.localizeStates = false;
-            var states = new Il2CppSystem.Collections.Generic.List<string>();
-            foreach (var state in spec.States) states.Add(state);
-            toggle.PopulateStates(states);
-
             var row = new OptionRow(clone, button, toggle, spec);
+            SetStates(row, spec.CurrentStates());
             // Replacing, rather than appending, prevents the cloned Run Mode action from firing.
             button.onClick.AddListener(row.Click);
             toggle.NextState = row.Next;
@@ -254,8 +272,61 @@ internal static class OptionsMenuIntegration
     private static void RefreshRows(MenuRows rows)
     {
         foreach (var row in rows.Rows) RefreshRow(row);
-        InsertIntoNavigation(rows);
-        RefreshPreview(rows);
+        ApplyPage(rows);
+        if (CustomChartsMenu.ChartsPage) LinkChartRows(rows);
+        else
+        {
+            InsertIntoNavigation(rows);
+            RefreshPreview(rows);
+        }
+    }
+
+    private static bool IsChartRow(OptionRow row) => CustomChartOptions.Rows.Contains(row.Spec);
+
+    /// <summary>
+    /// The page shows either the gameplay settings, or only the custom chart rows when it was
+    /// opened from the Custom Charts tab. Rows hidden for the chart page come back afterwards.
+    /// </summary>
+    private static void ApplyPage(MenuRows rows)
+    {
+        var anchor = rows.Menu.noteSpeedModButton;
+        if (!anchor) return;
+        var parent = anchor.transform.parent;
+        var charts = new HashSet<IntPtr>(rows.Rows.Where(IsChartRow).Select(row => row.Root.Pointer));
+        if (CustomChartsMenu.ChartsPage)
+        {
+            for (int i = 0; i < parent.childCount; i++)
+            {
+                var child = parent.GetChild(i).gameObject;
+                if (charts.Contains(child.Pointer) || !child.activeSelf) continue;
+                child.SetActive(false);
+                rows.HiddenByPage.Add(child);
+            }
+            if (!rows.PageShown && rows.Menu.gameObject.activeInHierarchy)
+            {
+                rows.PageShown = true;
+                if (rows.Menu.scrollRect) rows.Menu.scrollRect.verticalNormalizedPosition = 1f;
+                var first = rows.Rows.FirstOrDefault(IsChartRow);
+                if (first != null) first.Button.Select(true);
+            }
+        }
+        else
+        {
+            foreach (var hidden in rows.HiddenByPage)
+                if (hidden) hidden.SetActive(true);
+            rows.HiddenByPage.Clear();
+            rows.PageShown = false;
+        }
+        foreach (var row in rows.Rows)
+            if (IsChartRow(row) && row.Root.activeSelf != CustomChartsMenu.ChartsPage) row.Root.SetActive(CustomChartsMenu.ChartsPage);
+        if (parent.TryCast<RectTransform>() is { } content) LayoutRebuilder.MarkLayoutForRebuild(content);
+    }
+
+    private static void LinkChartRows(MenuRows rows)
+    {
+        var buttons = rows.Rows.Where(IsChartRow).Select(row => (Selectable)row.Button).ToList();
+        for (int i = 0; i < buttons.Count; i++)
+            SetVertical(buttons[i], i == 0 ? null : buttons[i - 1], i == buttons.Count - 1 ? null : buttons[i + 1]);
     }
 
     private static void RefreshRow(OptionRow row)
@@ -263,9 +334,20 @@ internal static class OptionsMenuIntegration
         EnsureToggleLayout(row.Toggle);
         row.Button.Text = row.Spec.Title;
         row.Button.ButtonHelpText = row.Spec.Help;
-        row.Toggle.State = row.Spec.GetState();
+        if (row.Spec.Dynamic) SetStates(row, row.Spec.CurrentStates());
+        row.Toggle.State = Math.Clamp(row.Spec.GetState(), 0, Math.Max(0, row.States.Length - 1));
         row.Toggle.Refresh();
         row.Toggle.UpdatePreferredTextWidth();
+    }
+
+    /// <summary>Gives a row its values, only when they changed.</summary>
+    private static void SetStates(OptionRow row, string[] states)
+    {
+        if (row.States.SequenceEqual(states)) return;
+        row.States = states;
+        var list = new Il2CppSystem.Collections.Generic.List<string>();
+        foreach (var state in states) list.Add(state);
+        row.Toggle.PopulateStates(list);
     }
 
     private static void EnsureToggleLayout(CustomToggleState toggle)
@@ -289,7 +371,7 @@ internal static class OptionsMenuIntegration
     {
         var anchor = rows.Menu.noteSpeedModButton;
         if (!anchor) return;
-        var buttons = rows.Rows.Select(row => (Selectable)row.Button).ToList();
+        var buttons = rows.Rows.Where(row => !IsChartRow(row)).Select(row => (Selectable)row.Button).ToList();
 
         // RefreshViews reconstructs a hardcoded native navigation list. Insert our rows again
         // after every refresh; using the actual predecessor also handles hidden native rows.
@@ -320,7 +402,7 @@ internal static class OptionsMenuIntegration
         return false;
     }
 
-    private static void SetVertical(Selectable row, Selectable? up, Selectable down)
+    private static void SetVertical(Selectable row, Selectable? up, Selectable? down)
     {
         var nav = row.navigation;
         nav.mode = Navigation.Mode.Explicit;
@@ -371,13 +453,14 @@ internal static class OptionsMenuIntegration
         }
     }
 
-    private sealed class RowSpec
+    internal sealed class RowSpec
     {
         internal readonly string Name;
         internal readonly string Title;
         internal readonly string Help;
-        internal readonly string[] States;
         internal readonly Func<int> GetState;
+        private readonly string[]? _states;
+        private readonly Func<string[]>? _dynamicStates;
         private readonly Action<int, bool> _change;
 
         internal RowSpec(string name, string title, string help, string[] states,
@@ -386,9 +469,22 @@ internal static class OptionsMenuIntegration
             Name = name;
             Title = title;
             Help = help;
-            States = states;
+            _states = states;
             GetState = getState;
             _change = change;
+        }
+
+        /// <summary>A row whose values are worked out again on every refresh.</summary>
+        internal RowSpec(string name, string title, string help, Func<string[]> states,
+                         Func<int> getState, Action<int, bool> change)
+            : this(name, title, help, Array.Empty<string>(), getState, change) => _dynamicStates = states;
+
+        internal bool Dynamic => _dynamicStates != null;
+
+        internal string[] CurrentStates()
+        {
+            var states = _dynamicStates != null ? _dynamicStates() : _states!;
+            return states.Length > 0 ? states : new[] { "-" };
         }
 
         /// <param name="wrap">Clicking cycles through every value; left and right stop at the ends.</param>
@@ -411,6 +507,9 @@ internal static class OptionsMenuIntegration
         internal readonly GameplayOptionsMenu Menu;
         internal readonly List<OptionRow> Rows;
         internal readonly NoteColorPreview? Preview;
+        // Rows of the game's own that the chart page switched off, to switch back on.
+        internal readonly List<GameObject> HiddenByPage = new();
+        internal bool PageShown;
 
         internal MenuRows(GameplayOptionsMenu menu, List<OptionRow> rows, NoteColorPreview? preview)
         {
@@ -423,6 +522,9 @@ internal static class OptionsMenuIntegration
 
         internal void Destroy()
         {
+            foreach (var hidden in HiddenByPage)
+                if (hidden) hidden.SetActive(true);
+            HiddenByPage.Clear();
             foreach (var row in Rows) row.Destroy();
             Preview?.Destroy();
         }
@@ -434,6 +536,7 @@ internal static class OptionsMenuIntegration
         internal readonly CustomButton Button;
         internal readonly CustomToggleState Toggle;
         internal readonly RowSpec Spec;
+        internal string[] States = Array.Empty<string>();
         // Retain the managed delegate wrappers while their IL2CPP listeners are registered.
         internal readonly UnityAction Click;
         internal readonly Il2CppSystem.Action Next;

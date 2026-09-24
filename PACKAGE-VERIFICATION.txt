@@ -1,18 +1,18 @@
-nocturne but better 2.4.1 - package verification
+nocturne but better 2.5.0 - package verification
 checked september 24, 2026 on windows 11, using windows powershell 5.1.
 
 installer
-39 checks ran against throwaway copies of the game files. the real game
+43 checks ran against throwaway copies of the game files. the real game
 folder was not used, and its files were unchanged afterwards.
 - every package script parses in windows powershell 5.1.
 - install previews (-whatif) leave the game folder unchanged for both
   loaders, and so does the uninstall preview.
 - a game without melonloader gets the bundled bepinex and the plugin. a
   repeat install changes nothing.
-- upgrading from the published 2.1.2, 2.2.0, or 2.4.0 plugin, or from an
-  earlier unpublished 2.3.0 test build, installs 2.4.1 and keeps the old dll
-  as a backup. upgrading the 2.2.0, 2.4.0, or test-build melonloader mod
-  does the same.
+- upgrading from the published 2.1.2, 2.2.0, or 2.4.1 plugin, or from the
+  earlier unpublished 2.3.0 and 2.5.0 test builds, installs 2.5.0 and keeps
+  the old dll as a backup. upgrading the 2.2.0, 2.4.1, or test-build
+  melonloader mods does the same.
 - with melonloader 0.7.3 installed and turned on, the mod goes into mods and
   the bepinex copy is disabled. a melonloader-only game gets no bepinex
   files. a repeat install changes nothing.
@@ -30,29 +30,48 @@ folder was not used, and its files were unchanged afterwards.
   unknown game asset, a conflicting loader binary, and a disabled doorstop
   configuration. an existing compatible doorstop configuration is kept.
 
-the real installer was also run on the test pc, on nocturne 1.0.1 (steam
-build 25487568). without a folder argument it found the steam installation
-and upgraded the installed 2.4.0 bepinex plugin to this release, keeping the
-old dll as a backup.
-
-after the 1.0.1 update, the 2.4.0 dll loaded every part of the mod in the
-updated game, and the source built against the updated game's code with no
-changes. the battle was also played on the updated game.
-
-the optional fullscreen script moved to the 1.0.1 files. on a copy of them,
-a preview changed nothing, enabling produced the pinned patched file and a
-verified backup, a second enable changed nothing, restoring gave back the
-original byte for byte, and a 1.0.0 file was refused and left alone.
+for 2.5.0 the real installer was not run on the test pc's own game; the
+installer script only changed its version and pinned dll hashes since 2.4.1,
+when it was. the optional fullscreen script is unchanged since 2.4.1.
 
 shareable dlls
-- both are built from the 2.4.1 source with debug symbols disabled and no
+- both are built from the 2.5.0 source with debug symbols disabled and no
   git commit hash, so they contain no development-machine paths.
 - two clean builds of the source folder with -c Release gave the same
   bytes for both dlls.
 
 gameplay coverage
 both loaders were tested in-game with qa builds: the same source plus test
-hooks. with the game's auto-play on every lane, the firefly battle ran
+hooks. for 2.5.0: a chart pack was imported, exported, and re-imported
+(recognized as already there). the real windows open and save dialogs were
+driven from the game: a typed path imported a pack, a typed name exported
+one, and a cancelled dialog changed nothing. charts with a note row of the
+wrong width, with no song, or for a split boss fight were refused with the
+reason; a lowercase song name matched the game's; a missing ';' didn't
+break the next tag. "write game charts" wrote 177 charts, all 941 of their
+difficulties passed the chart check, and one imported. with a custom chart
+picked, the firefly battle played it on its melody, and the score the game
+records under "Firefly - 1" went to the custom chart's own key instead.
+the player's saves were restored and checked by hash after each run.
+the custom charts page opened from the main menu and from the difficulty
+screen's custom entry and showed only its six rows, and the gameplay page
+got its own rows back. the chart editor was driven with real key presses
+and mouse clicks (filtering songs, picking a melody and a starting chart,
+play/pause, snap, speed, tools, placing and deleting a note, drawing a hold,
+select all, mirror, undo, naming), escape never reached the menus under it,
+and back worked again after it closed. its firefly music matched a
+reference render to the sample, and a chart it saved played in the firefly
+battle. the redesigned editor was then tested on a 5120x2160 screen on
+both loaders: every tab, a saved chart with two scroll speed sections and a
+bookmark, an export pack holding the notes, events and scroll speeds, and
+real clicks on its tabs and a key rebound through the keys tab and used.
+in battle the notes moved at half and double speed in those sections and
+at normal speed elsewhere. on a song with enemy events a saved chart kept
+all 7 of the song's events, and an edited event was saved with the chart
+and read by the game. a chapter button turned gold with its sparkles once
+every card in the chapter showed theirs.
+
+earlier features: with the game's auto-play on every lane, the firefly battle ran
 through the circle and arrow skins in all three scroll modes, receptor
 heights from -10 to +30, note sizes from 70% to 150%, and lane spacings from
 70% to 150%, with note flares off and on and enemy attack opacity at 0%,

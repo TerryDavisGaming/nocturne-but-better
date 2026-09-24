@@ -6,7 +6,7 @@ internal static class ModInfo
 {
     public const string Id = "local.nocturne.flat-scroll";
     public const string Name = "Nocturne But Better";
-    public const string Version = "2.4.1";
+    public const string Version = "2.5.0";
 }
 
 /// <summary>Routes messages to whichever loader started the mod.</summary>
@@ -275,6 +275,11 @@ internal static class ModSetup
         Run("Miss sound", () => MissSound.Install(harmony));
         Run("Ready key filter", () => ReadyKeyFilter.Install(harmony));
         Run("Note color preview", () => NoteColorPreview.Install(harmony));
+        Run("Custom charts", () => ChartSwap.Install(harmony));
+        Run("Custom charts menus", () => CustomChartsMenu.Install(harmony));
+        Run("Chapter badges", () => ChapterBadges.Install(harmony));
+        Run("Chart editor", () => ChartEditor.Install(harmony));
+        Run("Scroll speed changes", () => ScrollSpeedHooks.Install(harmony));
         Run("Title text", () => TitleBranding.InstallTitle(harmony));
         Run("Intro text", () => TitleBranding.InstallIntro(harmony));
     }
@@ -385,6 +390,10 @@ internal static class LayoutDriver
         catch (Exception ex) { ReportOnce(ref _reportedSkinError, "Note skins failed: ", ex); }
         HitSound.Update();
         MissSound.Update();
+        try { CustomChartOptions.Update(); }
+        catch (Exception ex) { ReportOnce(ref _reportedChartError, "Custom chart options failed: ", ex); }
+        ChapterBadges.Update();
+        ChartEditor.Update();
     }
 
     private static void FadeAttacks(CombatNoteFieldView view, bool active)
@@ -400,7 +409,7 @@ internal static class LayoutDriver
         catch (Exception ex) { ReportOnce(ref _reportedBarError, "Timing bar failed: ", ex); }
     }
 
-    private static bool _reportedSkinError, _reportedBarError, _reportedFadeError;
+    private static bool _reportedSkinError, _reportedBarError, _reportedFadeError, _reportedChartError;
 
     private static void ReportOnce(ref bool reported, string prefix, Exception ex)
     {

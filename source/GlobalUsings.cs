@@ -10,6 +10,10 @@ global using NoteFieldBehaviour = Il2CppGameframe.SMRhythmPresenter.NoteFieldBeh
 global using TMP_Text = Il2CppTMPro.TMP_Text;
 global using TextMeshProUGUI = Il2CppTMPro.TextMeshProUGUI;
 global using TextAlignmentOptions = Il2CppTMPro.TextAlignmentOptions;
+global using TextOverflowModes = Il2CppTMPro.TextOverflowModes;
+global using PanelStackPresenter = Il2CppCRL.Gui.PanelStackPresenter;
+global using ISongPosition = Il2CppGameframe.SMRhythmEngine.ISongPosition;
+global using BaseNoteMover = Il2CppGameframe.SMRhythmPresenter.BaseNoteMover;
 global using ShapeRenderer = Il2CppShapes.ShapeRenderer;
 global using TapNote = Il2CppGameframe.SMReader.TapNote;
 global using TapNoteType = Il2CppGameframe.SMReader.TapNoteType;
@@ -19,6 +23,8 @@ global using HoldResult = Il2CppGameframe.SMRhythmEngine.HoldResult;
 global using AkSoundEngine = Il2Cpp.AkSoundEngine;
 global using AkAudioListener = Il2Cpp.AkAudioListener;
 global using AkBankManager = Il2Cpp.AkBankManager;
+global using SmSongData = Il2CppGameframe.SMReader.SongData;
+global using NotesLoaderSM = Il2CppGameframe.SMReader.NotesLoaderSM;
 #else
 global using Nocturne;
 global using Localize = I2.Loc.Localize;
@@ -26,11 +32,17 @@ global using NoteFieldBehaviour = Gameframe.SMRhythmPresenter.NoteFieldBehaviour
 global using TMP_Text = TMPro.TMP_Text;
 global using TextMeshProUGUI = TMPro.TextMeshProUGUI;
 global using TextAlignmentOptions = TMPro.TextAlignmentOptions;
+global using TextOverflowModes = TMPro.TextOverflowModes;
+global using PanelStackPresenter = CRL.Gui.PanelStackPresenter;
+global using ISongPosition = Gameframe.SMRhythmEngine.ISongPosition;
+global using BaseNoteMover = Gameframe.SMRhythmPresenter.BaseNoteMover;
 global using ShapeRenderer = Shapes.ShapeRenderer;
 global using TapNote = Gameframe.SMReader.TapNote;
 global using TapNoteType = Gameframe.SMReader.TapNoteType;
 global using TapResult = Gameframe.SMRhythmEngine.TapResult;
 global using TapResultSource = Gameframe.SMRhythmEngine.TapResultSource;
 global using HoldResult = Gameframe.SMRhythmEngine.HoldResult;
+global using SmSongData = Gameframe.SMReader.SongData;
+global using NotesLoaderSM = Gameframe.SMReader.NotesLoaderSM;
 // The Wwise types (AkSoundEngine, AkAudioListener, AkBankManager) are in the global namespace.
 #endif

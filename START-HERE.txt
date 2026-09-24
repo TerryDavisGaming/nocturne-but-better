@@ -1,4 +1,4 @@
-nocturne but better 2.4.1 (formerly nocturne flat scroll)
+nocturne but better 2.5.0 (formerly nocturne flat scroll)
 windows x64 | steam nocturne 1.0.1 | tested steam build 25487568
 works with bepinex 6 (bundled) or melonloader 0.7.3 and newer (not bundled)
 
@@ -41,9 +41,32 @@ only one copy runs at a time. to switch loaders, run install.cmd again; it
 disables the copy for the other loader. do not keep bepinex and melonloader
 in the same game folder, because only one of them can start.
 
-the flat modes include compact, vertical health/energy bars. new
-alt, tab, and the windows key no longer start a battle at "press any key".
-any other key or a controller button still does.
+custom difficulties and chart editor (new)
+press custom charts on the main menu, or the custom charts tab in options:
+   chart editor         - make or edit a chart for any song, with the song's
+                          music playing, like osu!mania's editor: tools,
+                          bookmarks, metronome, scroll speed changes, the
+                          enemy's events, and keys you can change
+   import custom chart  - opens a windows file picker; pick a .nbbchart
+                          pack or an .sm file
+   custom chart song    - the songs you have custom charts for
+   custom difficulty    - off, or the chart to play instead of the game's
+                          chart on that song, whatever difficulty you pick
+   export custom charts - saves this song's or all songs' picked charts
+                          into one .nbbchart file to share
+   custom chart folder  - open it, or write the game's own charts into it
+the difficulty screen also gets a custom entry under zen. the song's enemy
+events stay in, and custom chart scores are saved apart from the game's high
+scores. boss fights split into parts (m1 to m3, gauntlets 1 to 4) can't take
+custom charts yet. the readme explains the editor.
+
+chapter badges (new)
+in arcade and high scores, a chapter button turns gold with two sparkles
+once every encounter in it has its sparkles.
+
+the flat modes include compact, vertical health/energy bars. alt, tab, and
+the windows key don't start a battle at "press any key". any other key or a
+controller button still does.
 
 installations start on default, 0%, 100% size and spacing, default skin,
 note flares on, timing bar off and below the enemy, enemy attack opacity
@@ -61,7 +84,7 @@ remove
 close nocturne, then run uninstall.cmd to disable this mod for both loaders.
 run restore-fullscreen-fix.cmd too if you enabled the display fix.
 uninstall keeps the loaders because other mods may use them. saves, scores,
-other mods, and saved scrolling preferences are left in place.
+other mods, custom charts, and saved scrolling preferences are left in place.
 
 if something does not work
 - access denied: right-click the relevant .cmd and run as administrator.
@@ -77,7 +100,7 @@ if something does not work
   this package must be checked again after a game update.
 
 share
-send the original nocturne-flat-scroll-2.4.1-windows.zip to the other person
+send the original nocturne-flat-scroll-2.5.0-windows.zip to the other person
 or device. they need their own installed copy of nocturne. the package
 contains no game assets, game-generated assemblies, saves, or account data.
 it does not support macos, linux, or steam deck through these installers.
