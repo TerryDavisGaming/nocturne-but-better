@@ -6,7 +6,7 @@ internal static class ModInfo
 {
     public const string Id = "local.nocturne.flat-scroll";
     public const string Name = "Nocturne But Better";
-    public const string Version = "2.4.0";
+    public const string Version = "2.4.1";
 }
 
 /// <summary>Routes messages to whichever loader started the mod.</summary>

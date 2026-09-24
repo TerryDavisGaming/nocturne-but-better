@@ -3,7 +3,7 @@
 .SYNOPSIS
 Enables or restores the optional Direct3D 11 fullscreen fix for Nocturne.
 .DESCRIPTION
-Supports Steam build 25460029 only. Changes three bytes and four padding bytes
+Supports Steam build 25487568 only. Changes three bytes and four padding bytes
 in the local globalgamemanagers file; this script contains no game assets.
 The original file is backed up beside it. Saves and preferences are untouched.
 Close Nocturne first. Use -WhatIf to check compatibility without writing files.
@@ -21,10 +21,10 @@ param(
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
-$originalHash = 'FE762444F73E4D28B198B13793B6BBF191BC5782678B5A043561CF65AD6C4566'
-$displayHash = '01D4723A65A8C0016BDC2FEC4408E577EC3B192748F2F870B783BD8E103F9890'
-$assemblyHash = 'FD4D5879A71CE00CA3FC3C3D176FFB3F146E9CEC52DD6A06807CF564C6542940'
-$metadataHash = '3BB22E4F33C103F6612AD5988C87528BD46BB23142CD733D22375CBE84837054'
+$originalHash = 'D59B6C07BA986BB126D10004CC33E7986836C5B58E419C4789A3B187DB84EEE9'
+$displayHash = '5982971BE3365B716E0204E8C99EACCEA05D7C82F52D787C13E3EE5B19B11418'
+$assemblyHash = 'D7F8BD3A701D5154EBD57840AD9F1E11D14B307D242CFD53CFCACB72DB50B9D1'
+$metadataHash = 'A8ED37CBD7754037ADC72DC5D4B3A5E5C9D803355B80C8CAF9FE7C0C7BAA33EE'
 
 function Get-FileSha256([string]$Path) {
     if (-not [IO.File]::Exists($Path)) { throw "Required file is missing: $Path" }
@@ -150,14 +150,14 @@ function Write-VerifiedStage([string]$Directory, [byte[]]$Bytes, [string]$Expect
 $root = Find-NocturneGamePath $GamePath
 $data = Join-Path $root 'Nocturne_Data'
 $target = Join-Path $data 'globalgamemanagers'
-$backup = Join-Path $data 'globalgamemanagers.nocturne-fullscreen-original-25460029.bak'
+$backup = Join-Path $data 'globalgamemanagers.nocturne-fullscreen-original-25487568.bak'
 if (-not [IO.File]::Exists((Join-Path $root 'Nocturne.exe'))) { throw 'GamePath does not contain Nocturne.exe.' }
 if ((Get-FileSha256 (Join-Path $root 'GameAssembly.dll')) -ne $assemblyHash -or
     (Get-FileSha256 (Join-Path $data 'il2cpp_data\Metadata\global-metadata.dat')) -ne $metadataHash) {
-    throw 'This game build is not supported. This fix supports Steam build 25460029 only; no files were changed.'
+    throw 'This game build is not supported. This fix supports Steam build 25487568 only; no files were changed.'
 }
 $steamManifest = Join-Path (Split-Path (Split-Path $root -Parent) -Parent) 'appmanifest_1374860.acf'
-if ([IO.File]::Exists($steamManifest) -and [IO.File]::ReadAllText($steamManifest) -notmatch '"buildid"\s+"25460029"') {
+if ([IO.File]::Exists($steamManifest) -and [IO.File]::ReadAllText($steamManifest) -notmatch '"buildid"\s+"25487568"') {
     throw 'Steam reports an unsupported Nocturne build. No files were changed.'
 }
 
@@ -176,7 +176,7 @@ $original = Convert-DisplayBytes $source $sourceHash $false
 $needsBackup = $enable -and -not [IO.File]::Exists($backup)
 $needsChange = $sourceHash -ne $desiredHash
 if (-not $WhatIfPreference) { Assert-NocturneClosed }
-Write-Output "Compatibility verified: Nocturne Steam build 25460029; action $Action."
+Write-Output "Compatibility verified: Nocturne Steam build 25487568; action $Action."
 if (-not ($needsBackup -or $needsChange)) { Write-Output 'Already in the requested state. No files changed.'; return }
 if (-not $PSCmdlet.ShouldProcess($target, "$Action optional Direct3D 11 fullscreen fix; keep a verified original backup")) { return }
 

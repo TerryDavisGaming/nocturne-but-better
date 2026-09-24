@@ -6,7 +6,7 @@ it works on the base steam game, with melonloader, or with bepinex. YOU DON'T NE
 
 it started out as nocturne flat scroll. the download and its files still use that name, so upgrades from older versions keep working.
 
-[download for windows](https://github.com/TerryDavisGaming/nocturne-but-better/releases/download/v2.4.0/Nocturne-Flat-Scroll-2.4.0-Windows.zip) · [latest release](https://github.com/TerryDavisGaming/nocturne-but-better/releases/latest)
+[download for windows](https://github.com/TerryDavisGaming/nocturne-but-better/releases/download/v2.4.1/Nocturne-Flat-Scroll-2.4.1-Windows.zip) · [latest release](https://github.com/TerryDavisGaming/nocturne-but-better/releases/latest)
 
 use the release zip to install. github's source download does not include the plugin or loader payload.
 
@@ -72,13 +72,13 @@ don't keep bepinex and melonloader in the same game folder. both hook the same s
 
 melonloader users can also install by hand: copy `nocturneflatscroll.melonloader.dll` from the release into the game's `mods` folder.
 
-this package supports windows x64, steam nocturne 1.0.0, build 25460029. the installer checks the game files and refuses unknown builds or conflicting loader files. if access is denied, run the installer as administrator. a steam update needs another compatibility check.
+this package supports windows x64, steam nocturne 1.0.1, build 25487568. the installer checks the game files and refuses unknown builds or conflicting loader files. if access is denied, run the installer as administrator. a steam update needs another compatibility check.
 
 ## optional fullscreen flicker fix
 
 for flickering black bars, close the game and run `enable-fullscreen-fix.cmd`. this applies a reversible directx 11 preference. run `restore-fullscreen-fix.cmd` to undo it. the scrolling mod works independently of this fix.
 
-the fix stopped flickering on the original test pc; other display and gpu combinations haven't been verified.
+the fix stopped flickering on the original test pc under nocturne 1.0.0; other display and gpu combinations haven't been verified. game updates replace the patched file, so run `enable-fullscreen-fix.cmd` again after one.
 
 ## remove it
 
@@ -86,7 +86,7 @@ close the game and run `uninstall.cmd`. this disables the mod for both loaders a
 
 ## what was tested
 
-version 2.4.0 was tested in-game on bepinex 6.0.0-be.788 and on melonloader 0.7.3. the melonloader test ran in a separate copy of the game folder. on both loaders, a test build played the firefly battle with the game's auto-play on every lane and stepped through the settings:
+version 2.4.1 was tested in-game on bepinex 6.0.0-be.788 and on melonloader 0.7.3. the melonloader test ran in a separate copy of the game folder. on both loaders, a test build played the firefly battle with the game's auto-play on every lane and stepped through the settings:
 
 - circle and arrow skins in default, 2d downscroll, and 2d upscroll, at receptor heights from -10% to +30%, note sizes from 70% to 150%, and lane spacings from 70% to 150%, with holds and receptor flashes.
 - the game's own move from four lanes to five and back, with the spacing following the lanes as they moved.

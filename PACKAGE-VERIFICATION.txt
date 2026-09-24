@@ -1,5 +1,5 @@
-nocturne but better 2.4.0 - package verification
-checked september 23, 2026 on windows 11, using windows powershell 5.1.
+nocturne but better 2.4.1 - package verification
+checked september 24, 2026 on windows 11, using windows powershell 5.1.
 
 installer
 39 checks ran against throwaway copies of the game files. the real game
@@ -9,9 +9,9 @@ folder was not used, and its files were unchanged afterwards.
   loaders, and so does the uninstall preview.
 - a game without melonloader gets the bundled bepinex and the plugin. a
   repeat install changes nothing.
-- upgrading from the published 2.1.2, 2.2.0, or 2.3.0 plugin, or from an
-  earlier unpublished 2.3.0 test build, installs 2.4.0 and keeps the old dll
-  as a backup. upgrading the 2.2.0, 2.3.0, or test-build melonloader mod
+- upgrading from the published 2.1.2, 2.2.0, or 2.4.0 plugin, or from an
+  earlier unpublished 2.3.0 test build, installs 2.4.1 and keeps the old dll
+  as a backup. upgrading the 2.2.0, 2.4.0, or test-build melonloader mod
   does the same.
 - with melonloader 0.7.3 installed and turned on, the mod goes into mods and
   the bepinex copy is disabled. a melonloader-only game gets no bepinex
@@ -30,16 +30,22 @@ folder was not used, and its files were unchanged afterwards.
   unknown game asset, a conflicting loader binary, and a disabled doorstop
   configuration. an existing compatible doorstop configuration is kept.
 
-the real installer was also run on the test pc. without a folder argument
-it found the steam installation and upgraded the installed 2.3.0 bepinex
-plugin to this release, keeping the old dll as a backup. the game then
-started with the release dll and loaded every part of the mod without an
-error.
+the real installer was also run on the test pc, on nocturne 1.0.1 (steam
+build 25487568). without a folder argument it found the steam installation
+and upgraded the installed 2.4.0 bepinex plugin to this release, keeping the
+old dll as a backup.
 
-the optional fullscreen script is unchanged since 2.1.2 and was not retested.
+after the 1.0.1 update, the 2.4.0 dll loaded every part of the mod in the
+updated game, and the source built against the updated game's code with no
+changes. the battle was also played on the updated game.
+
+the optional fullscreen script moved to the 1.0.1 files. on a copy of them,
+a preview changed nothing, enabling produced the pinned patched file and a
+verified backup, a second enable changed nothing, restoring gave back the
+original byte for byte, and a 1.0.0 file was refused and left alone.
 
 shareable dlls
-- both are built from the 2.4.0 source with debug symbols disabled and no
+- both are built from the 2.4.1 source with debug symbols disabled and no
   git commit hash, so they contain no development-machine paths.
 - two clean builds of the source folder with -c Release gave the same
   bytes for both dlls.

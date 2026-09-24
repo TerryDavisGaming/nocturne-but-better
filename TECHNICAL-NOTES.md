@@ -1,8 +1,8 @@
-# nocturne but better 2.4.0
+# nocturne but better 2.4.1
 
 formerly nocturne flat scroll. the files, the plugin id, and the saved settings keep that name, so upgrades from earlier versions keep working.
 
-the package targets windows x64, steam app 1374860, nocturne 1.0.0, build 25460029, unity 2022.3.62f2. the installer pins game code, metadata, and original layout assets. it refuses unknown versions rather than assuming an update is compatible. previous experimental static layout patches must be restored before using this portable package.
+the package targets windows x64, steam app 1374860, nocturne 1.0.1, build 25487568, unity 2022.3.62f2. 2.4.1 moves the installer and the fullscreen script to that game update; the mod code is the same as 2.4.0. the installer pins game code, metadata, and original layout assets. it refuses unknown versions rather than assuming an update is compatible. previous experimental static layout patches must be restored before using this portable package.
 
 ## loaders
 
@@ -15,7 +15,7 @@ the installer's `-loader` option chooses between them. `auto`, the default, uses
 
 game-specific interop files are generated on the recipient's pc during the first launch with either loader and are not included. a .net sdk is only needed to rebuild the source.
 
-the optional fullscreen script applies a small, reversible byte patch to the recipient's `nocturne_data\globalgamemanagers` to prefer directx 11. it validates both the input and resulting sha-256 hashes. no original or modified game asset is distributed with this package.
+the optional fullscreen script applies a small, reversible byte patch to the recipient's `nocturne_data\globalgamemanagers` to prefer directx 11. it validates both the input and resulting sha-256 hashes. the 1.0.1 update left the file the same size with the same graphics api bytes at the same offsets (only its build guid text changed), so the patch is the same three bytes plus four padding bytes, with new pinned hashes. no original or modified game asset is distributed with this package.
 
 ## settings
 
@@ -99,7 +99,7 @@ the output goes to `source\bin\<loader>\Release\net6.0`. keep `Release` capitali
 
 ## scope of validation
 
-version 2.4.0 was tested in-game on bepinex 6.0.0-be.788 and melonloader 0.7.3, the melonloader one in a separate copy of the game folder. a qa-only build turned on the game's auto-play for every lane, started the firefly battle, and stepped through twelve combinations of scroll mode, skin, receptor height (-10 to +30), note size (70 to 150) and lane spacing (70 to 150), taking a screenshot and logging the lane positions, receptor scale, label offset, note scale, hold width, and the bar's position of each. one step fired the game's own `Five` and `Default` lane animations to check that spacing follows animated lanes. before the first change and after returning to default, it recorded 70 values the mod touches (lane positions, receptor parts, lane strips, beams, labels, note parts); all 70 matched on both loaders. the timing bar got synthetic hits, since auto-played hits are excluded.
+version 2.4.1 was tested in-game on bepinex 6.0.0-be.788 and melonloader 0.7.3, the melonloader one in a separate copy of the game folder. a qa-only build turned on the game's auto-play for every lane, started the firefly battle, and stepped through twelve combinations of scroll mode, skin, receptor height (-10 to +30), note size (70 to 150) and lane spacing (70 to 150), taking a screenshot and logging the lane positions, receptor scale, label offset, note scale, hold width, and the bar's position of each. one step fired the game's own `Five` and `Default` lane animations to check that spacing follows animated lanes. before the first change and after returning to default, it recorded 70 values the mod touches (lane positions, receptor parts, lane strips, beams, labels, note parts); all 70 matched on both loaders. the timing bar got synthetic hits, since auto-played hits are excluded.
 
 a second qa run on bepinex turned auto-play off and answered the game's `CombatPlayerInput.GetTapDown` for each lane as notes crossed a random point near the receptors. the game judged 319 of those presses as player taps (offsets -12 to +75 ms); the timing bar and the hit sound both reacted to them. the hit sound was also measured on both loaders with a wasapi loopback recording lined up by high-resolution timestamps: at 100%, 50%, 20% and 5% the recorded peaks were exactly 1, 0.5, 0.2 and 0.05 of full, about 56 ms after each post, and gains of 150 to 300% came out only about 10% louder than 100%. on bepinex, the same build opened options > gameplay and logged the seven rows, their navigation links, changed values, and the values after reset to default, then opened the latency calibration preview with the arrow skin at 140% size and 130% spacing (capped to 110% there). on both loaders it opened options > audio and logged the hit sound switch and volume slider below ui, their navigation links, the slider stopping at 5%, and the switch turning the sound off. the qa build is the release source plus test hooks; the release dlls themselves were checked by the installer tests and a real install, not by another game launch.
 
@@ -121,12 +121,12 @@ package checks cover windows powershell parsing and isolated installation, upgra
 ## integrity
 
 bepinex plugin sha-256:
-`cabb75ab8a25f50dabf97e64f6152435a6f0dd026b755840e904325907a98bda`
+`eeca5992cb2a195bcbe9b51bb9160165e166a6b153501e74dab5bd16f6a18b50`
 
 melonloader mod sha-256:
-`3a1876189499d11d57b4102cbd1b88d47ec0e8594eac0b861b533f2f0414a6bd`
+`4a9ca300577ad598e5b2498acde6ed7d65cabe2dcce169832bae9a13a44e4bc0`
 
-both dlls are compiled from the same 2.4.0 source with debug symbols disabled, so they contain no development-machine pdb path. the installer also recognizes both 2.3.0 dlls, an earlier 2.3.0 test build, both 2.2.0 dlls, and earlier 2.1.x bepinex builds when upgrading or uninstalling.
+both dlls are compiled from the same 2.4.1 source with debug symbols disabled, so they contain no development-machine pdb path. the installer also recognizes both 2.4.0 dlls, both 2.3.0 dlls, an earlier 2.3.0 test build, both 2.2.0 dlls, and earlier 2.1.x bepinex builds when upgrading or uninstalling.
 
 official loader archive sha-256:
 `f4cc496bd098a0df4164b81e3737297707f13a47c2478dba2f60eefab784817a`
