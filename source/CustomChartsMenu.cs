@@ -294,16 +294,18 @@ internal static class CustomChartsMenu
         var charts = song == null ? new List<CustomCharts.CustomChart>() : CustomCharts.ForSong(song).ToList();
         var picked = song == null ? null : CustomCharts.Selected(song);
         bool page = CanOpenPage();
+        // A custom song's battle shows its title rather than its SongData's name.
+        string shown = song == null ? "" : CustomSongs.TitleOf(song) ?? song;
         string name, desc;
         if (song == null || charts.Count == 0)
         {
             name = "Custom";
-            desc = song == null ? "No custom charts yet" : $"No custom charts for {song} yet";
+            desc = song == null ? "No custom charts yet" : $"No custom charts for {shown} yet";
         }
         else
         {
             name = picked == null ? "Custom: Off" : Shorten(picked.DisplayName, 22);
-            desc = $"{song}: left/right to choose" + (BattleSong() != null ? ", starts next try" : "");
+            desc = $"{shown}: left/right to choose" + (BattleSong() != null ? ", starts next try" : "");
         }
         if (page) desc += ", select for Custom Charts";
         SetTexts(difficultyEntry!, name, desc);

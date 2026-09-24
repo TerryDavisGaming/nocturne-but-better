@@ -25,6 +25,10 @@ global using AkAudioListener = Il2Cpp.AkAudioListener;
 global using AkBankManager = Il2Cpp.AkBankManager;
 global using SmSongData = Il2CppGameframe.SMReader.SongData;
 global using NotesLoaderSM = Il2CppGameframe.SMReader.NotesLoaderSM;
+global using LocalizedString = Il2CppI2.Loc.LocalizedString;
+global using WwiseEvent = Il2CppAK.Wwise.Event;
+global using WwiseSwitch = Il2CppAK.Wwise.Switch;
+global using WwiseBank = Il2CppAK.Wwise.Bank;
 #else
 global using Nocturne;
 global using Localize = I2.Loc.Localize;
@@ -44,5 +48,9 @@ global using TapResultSource = Gameframe.SMRhythmEngine.TapResultSource;
 global using HoldResult = Gameframe.SMRhythmEngine.HoldResult;
 global using SmSongData = Gameframe.SMReader.SongData;
 global using NotesLoaderSM = Gameframe.SMReader.NotesLoaderSM;
+global using LocalizedString = I2.Loc.LocalizedString;
+global using WwiseEvent = AK.Wwise.Event;
+global using WwiseSwitch = AK.Wwise.Switch;
+global using WwiseBank = AK.Wwise.Bank;
 // The Wwise types (AkSoundEngine, AkAudioListener, AkBankManager) are in the global namespace.
 #endif
