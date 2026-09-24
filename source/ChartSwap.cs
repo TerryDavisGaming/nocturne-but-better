@@ -45,6 +45,7 @@ internal static class ChartSwap
         Playing = null;
         playingScoreKey = null;
         ScrollSpeedHooks.Prepare(null);
+        CustomMusic.Prepare(null);
         try
         {
             if (!songData) return;
@@ -94,6 +95,7 @@ internal static class ChartSwap
                 throw new InvalidDataException("the game's reader found no playable chart in it");
             __result = built;
             ScrollSpeedHooks.Prepare(chart.Chart);
+            CustomMusic.Prepare(chart);
             ModLog.Info($"Playing custom chart {chart.DisplayName} for {song.name}.");
             return false;
         }

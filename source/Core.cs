@@ -280,6 +280,7 @@ internal static class ModSetup
         Run("Chapter badges", () => ChapterBadges.Install(harmony));
         Run("Chart editor", () => ChartEditor.Install(harmony));
         Run("Scroll speed changes", () => ScrollSpeedHooks.Install(harmony));
+        Run("Custom songs", () => CustomMusic.Install(harmony));
         Run("Title text", () => TitleBranding.InstallTitle(harmony));
         Run("Intro text", () => TitleBranding.InstallIntro(harmony));
     }
@@ -394,6 +395,7 @@ internal static class LayoutDriver
         catch (Exception ex) { ReportOnce(ref _reportedChartError, "Custom chart options failed: ", ex); }
         ChapterBadges.Update();
         ChartEditor.Update();
+        CustomMusic.Update();
     }
 
     private static void FadeAttacks(CombatNoteFieldView view, bool active)
