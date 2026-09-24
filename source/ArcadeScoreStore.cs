@@ -444,14 +444,25 @@ internal static class ArcadeScoreStore
         }
         StoredFile? file = null;
         // A missing file is a fresh start. A broken one is kept aside on the next save, and its
-        // backup (the version before the last save) is used meanwhile.
+        // backup (the version before the last save) is used meanwhile. A newer mod's file is
+        // never written over, even when this version can't read it.
         if (File.Exists(path))
         {
             file = TryRead(path, out string? error);
-            if (file == null)
+            if (file == null && DeclaredVersion(path) is int newer && newer > FormatVersion)
+            {
+                // A newer mod's file that this one can't parse is left exactly as it is.
+                readOnly = true;
+                ModLog.Error($"Arcade: {path} was written by a newer version of the mod (version {newer}) and can't be read " +
+                             "by this one; it's left as it is and arcade scores aren't saved until the mod is updated. Trying its backup.");
+            }
+            else if (file == null)
             {
                 mainBroken = true;
                 ModLog.Error($"Arcade: {path} could not be read ({error}); trying its backup.");
+            }
+            if (file == null)
+            {
                 string backup = path + ".bak";
                 if (File.Exists(backup))
                 {
@@ -502,6 +513,32 @@ internal static class ArcadeScoreStore
             error = ex.Message;
             return null;
         }
+    }
+
+    /// <summary>
+    /// The top-level "version" of a file that didn't read as this version's layout, or null when it
+    /// has none or isn't JSON at all. Tells a newer mod's file apart from a broken one.
+    /// </summary>
+    private static int? DeclaredVersion(string path)
+    {
+        try
+        {
+            if (new FileInfo(path).Length > MaxFileBytes) return null;
+            using var document = JsonDocument.Parse(File.ReadAllText(path, Encoding.UTF8),
+                new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return null;
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (!property.Name.Equals("version", StringComparison.OrdinalIgnoreCase)) continue;
+                var value = property.Value;
+                if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out int number)) return number;
+                if (value.ValueKind == JsonValueKind.String &&
+                    int.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out number)) return number;
+                return null;
+            }
+        }
+        catch (Exception) { }
+        return null;
     }
 
     private static SavedScoresData FromFile(StoredFile file, out int entries)
@@ -632,6 +669,9 @@ internal static class ArcadeScoreStore
         if (!File.Exists(path))
         {
             File.Move(temp, path);
+            // An unreadable file that is gone by now has nothing left to keep aside; without this
+            // the next save would move this good file aside as "unreadable".
+            mainBroken = false;
             return;
         }
         if (mainBroken)
