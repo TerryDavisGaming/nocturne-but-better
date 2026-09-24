@@ -27,6 +27,8 @@ internal static class ArcadeSession
     private static string? saveFolder;
     private static Dictionary<string, Fingerprint>? fingerprints;
     private static bool gameOverContinueOff, tempSaveBefore;
+    // Set while MainMenu.WillShow refreshes the title under the open arcade.
+    private static bool refreshUnderArcade;
 
     // The story's save files that hold where the player is: ProdAutoSave.sav, ProdSlot0001.sav and
     // so on. The slot .score files are arcade progress and are written as usual.
@@ -57,7 +59,8 @@ internal static class ArcadeSession
         // story, so the story starts from what is on disk.
         Patch(harmony, typeof(ArcadeMenuV2), "Deactivate", postfix: nameof(ArcadeClosedPostfix));
         foreach (var name in new[] { "WillShow", "Continue", "LoadGame", "NewGame", "Gauntlet" })
-            Patch(harmony, typeof(MainMenu), name, prefix: nameof(MainMenuPrefix), required: false);
+            Patch(harmony, typeof(MainMenu), name, prefix: nameof(MainMenuPrefix),
+                  postfix: name == "WillShow" ? nameof(WillShowPostfix) : null, required: false);
         foreach (var name in new[] { "CreateNewData", "LoadFilename", "EraseAllData", "SetCurrentGameData" })
             Patch(harmony, typeof(SaveFileManager), name, prefix: nameof(StoryDataPrefix), required: false);
 
@@ -182,12 +185,50 @@ internal static class ArcadeSession
             ModLog.Error("Arcade: there is no save data in memory, so the arcade stays closed.");
             return false;
         }
+        if (!ReadSlotScores(saveFile))
+        {
+            ModLog.Error("Arcade: the latest save's scores could not be read, so the arcade stays closed.");
+            return false;
+        }
         saveFolder = SaveFolder(saveFile);
         fingerprints = TakeFingerprints(saveFolder);
         tempSaveBefore = PendingTempSave(clear: false);
         Active = true;
         ModLog.Info($"Arcade: session started on the latest save; {fingerprints.Count} story save files noted in {saveFolder}.");
         return true;
+    }
+
+    /// <summary>
+    /// Puts the loaded save's slot scores, read from its .score file, in memory. When the
+    /// autosave is newer than every slot save, the game loads it with whatever scores are
+    /// already in memory rather than its slot's .score file. After a fresh start those are the
+    /// empty scores of a new game, and the first arcade battle would write them over the slot's
+    /// .score file. Scores an older save carried inside its .sav are what the game loaded and
+    /// are kept.
+    /// </summary>
+    private static bool ReadSlotScores(SaveFileManager saveFile)
+    {
+        try
+        {
+            var data = saveFile.currentSaveData!;
+            var save = data.saveData;
+            var meta = save?.meta;
+            if (meta == null) return false;
+            if (save!.MigratedScoresData != null) return true;
+            // SaveScores writes a save without a slot to slot 1.
+            int slot = meta.slotIndex > 0 ? meta.slotIndex : 1;
+            var scores = saveFile.GetSavedScoresData(slot);
+            if (scores == null) return false;
+            if (scores.meta != null) scores.meta.slotIndex = meta.slotIndex;
+            data.scoresData = scores;
+            ModLog.Info($"Arcade: read the scores of save slot {slot} ({scores.songScores?.Count ?? 0} songs).");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            ReportOnce("reading the latest save's scores", ex);
+            return false;
+        }
     }
 
     /// <summary>
@@ -258,6 +299,7 @@ internal static class ArcadeSession
 
     private static void MainMenuPrefix(MethodBase __originalMethod)
     {
+        refreshUnderArcade = false;
         if (!Active) return;
         try
         {
@@ -266,6 +308,8 @@ internal static class ArcadeSession
             // refreshing the menus under it, and the session goes on.
             if (name == "WillShow" && (ArcadeUtility.IsRunning || ArcadeMenuOnStack()))
             {
+                // WillShow reads the latest save again, which would otherwise end the session.
+                refreshUnderArcade = true;
                 ModLog.Info("Arcade: the title menu was refreshed under the arcade; the session goes on.");
                 return;
             }
@@ -289,12 +333,16 @@ internal static class ArcadeSession
         return false;
     }
 
+    private static void WillShowPostfix() => refreshUnderArcade = false;
+
     // A story load or a new game while the session is open ends it first; the load then reads
     // the story from disk as usual.
     private static void StoryDataPrefix(MethodBase __originalMethod)
     {
         if (!Active) return;
-        try { End("SaveFileManager." + (__originalMethod?.Name ?? "?"), reload: false); }
+        string name = __originalMethod?.Name ?? "?";
+        if (refreshUnderArcade && name == "SetCurrentGameData") return;
+        try { End("SaveFileManager." + name, reload: false); }
         catch (Exception ex) { ReportOnce("ending the arcade session", ex); }
     }
 
