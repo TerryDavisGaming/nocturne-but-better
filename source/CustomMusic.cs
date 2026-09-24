@@ -46,8 +46,16 @@ internal static class CustomMusic
         harmony.Patch(beat, prefix: new HarmonyMethod(typeof(CustomMusic), nameof(BeatPrefix)));
     }
 
+    /// <summary>
+    /// How far Wwise's reported position runs ahead of what's heard, less the same for the mod's
+    /// player: measured from a loopback recording as 45.5 ms for Wwise and -1.3 ms for the player
+    /// (steady to a few ms). Reporting the player this much ahead keeps the game's latency
+    /// calibration, which was made against Wwise, right for custom songs.
+    /// </summary>
+    private const double ClockLead = 0.0468;
+
     /// <summary>The song's chart time as the conductor's segment time (it adds the finished segments).</summary>
-    private static double SegmentTime(EditorAudio p) => p.Time + origin - conductor!.previousSongSegmentTime;
+    private static double SegmentTime(EditorAudio p) => p.Time + ClockLead + origin - conductor!.previousSongSegmentTime;
 
     // Wwise's beat callback also sets the conductor's track time, from Wwise's position; it gets
     // the song's instead.
