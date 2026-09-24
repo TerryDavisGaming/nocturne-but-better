@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text;
 using UnityEngine;
+using static NocturneFlatScroll.EditorInput;
+using static NocturneFlatScroll.EditorUi;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using InputMouse = UnityEngine.InputSystem.Mouse;
 using Key = UnityEngine.InputSystem.Key;
@@ -31,8 +33,6 @@ internal static partial class ChartEditor
     private static bool ticksDirty = true;
     private static TextField typing;
     private static string typed = "";
-    private static string message = "";
-    private static float messageUntil;
     private static Task<string?>? exportDialog;
 
     // The clock: the music's when it's loaded, otherwise a plain timer.
@@ -84,7 +84,7 @@ internal static partial class ChartEditor
         selection.Clear();
         drag = DragKind.None;
         typing = TextField.None;
-        rebinding = null;
+        keyMap.Rebinding = null;
         manualPlaying = false;
         manualTime = chart.Notes.Count > 0 ? Math.Max(0, chart.RowToSeconds(chart.Notes[0].Row) - 1) : 0;
         manualLength = Math.Max(120, chart.Notes.Count > 0 ? chart.RowToSeconds(chart.Notes.Max(n => n.LastRow)) + 10 : 0);
@@ -105,11 +105,8 @@ internal static partial class ChartEditor
         Say("Space plays. Click in a lane to place a note; right click deletes.", 5f);
     }
 
-    private static void Say(string text, float seconds = 4f)
-    {
-        message = text;
-        messageUntil = Time.unscaledTime + seconds;
-    }
+    /// <summary>Shows a message in the status line for a few seconds.</summary>
+    private static void Say(string text, float seconds = 4f) => ui?.Say(text, seconds);
 
     // ---- the frame --------------------------------------------------------------------------
 
@@ -117,10 +114,10 @@ internal static partial class ChartEditor
     {
         FinishLoading();
         FinishExport();
-        bool clicked = UpdateButtons(mouse);
+        bool clicked = Ui.UpdateButtons(mouse);
         if (!IsOpen) return;
         if (exportDialog != null) { }
-        else if (rebinding != null) UpdateRebinding(keyboard);
+        else if (keyMap.Rebinding != null) keyMap.UpdateRebinding(keyboard, Say);
         else if (typing != TextField.None) UpdateTyping(keyboard);
         else if (!HandleKeys(keyboard)) return; // closed
         if (mouse != null && tab != Tab.Keys && exportDialog == null) HandleMouse(mouse, clicked);
@@ -284,17 +281,6 @@ internal static partial class ChartEditor
         }, 60f);
     }
 
-    /// <summary>
-    /// Typed text goes into the .sm file, where ':' and ';' end a value, '//' starts a comment and
-    /// a '#' at the start of a line starts a tag, so those are left out.
-    /// </summary>
-    private static string CleanText(string text)
-    {
-        var clean = text.Replace(":", " ").Replace(";", " ");
-        while (clean.Contains("//")) clean = clean.Replace("//", "/");
-        return clean.Trim().TrimStart('#').Trim();
-    }
-
     private static void UpdateTyping(InputKeyboard k)
     {
         int max = typing == TextField.EventMods ? 160 : typing == TextField.ScrollSpeed ? 6 : 40;
@@ -327,7 +313,7 @@ internal static partial class ChartEditor
                 break;
         }
         typing = TextField.None;
-        if (message.StartsWith("Type")) Say("", 0f);
+        if (Ui.Message.StartsWith("Type")) Say("", 0f);
     }
 
     private static void SetTool(Tool next)
@@ -378,12 +364,12 @@ internal static partial class ChartEditor
         mouseY = local.y;
         double now = Now;
         int lane = (int)Math.Floor((mouseX - FieldLeft) / LaneWidth);
-        bool inField = RectTransformUtility.RectangleContainsScreenPoint(fieldArea, screenPos, null) && !OverUi(screenPos);
+        bool inField = RectTransformUtility.RectangleContainsScreenPoint(fieldArea, screenPos, null) && !Ui.OverUi(screenPos);
         hoverLane = inField && lane >= 0 && lane < chart!.Lanes ? lane : -1;
         hoverRow = SnapRow(chart!.SecondsToRow(YToTime(mouseY, now)));
 
         float wheel = mouse.scroll.ReadValue().y;
-        if (wheel != 0 && !OverUi(screenPos))
+        if (wheel != 0 && !Ui.OverUi(screenPos))
         {
             int notches = wheel > 0 ? 1 : -1;
             var k = InputKeyboard.current;
@@ -880,17 +866,10 @@ internal static partial class ChartEditor
         // The Events tab's list and buttons reach further down, so its help text gets less room.
         tabText.rectTransform.offsetMax = new Vector2(-16, tab == Tab.Events ? 200 : 250);
         if (tab == Tab.Events) UpdateEventRows();
-        string status = Time.unscaledTime < messageUntil ? Escape(message) : "";
-        if (typing != TextField.None) status = $"{Escape(message)}\n<color=#EAE6F5>{Escape(typed)}_</color>";
-        statusText!.text = status;
-        statusBg!.gameObject.SetActive(status.Length > 0);
-        if (status.Length > 0)
-        {
-            float areaWidth = canvasRect!.rect.width - LeftW - RightW;
-            var size = statusText.GetPreferredValues(status, areaWidth - 76, 0);
-            statusBg.sizeDelta = new Vector2(Math.Min(size.x, areaWidth - 76) + 36, size.y + 14);
-            statusBg.anchoredPosition = new Vector2(LeftW + areaWidth / 2, BottomH + 8);
-        }
+        string status = Ui.MessageShowing ? Escape(Ui.Message) : "";
+        if (typing != TextField.None) status = $"{Escape(Ui.Message)}\n<color=#EAE6F5>{Escape(typed)}_</color>";
+        // Centred over the playfield, just above the bottom bar.
+        Ui.DrawStatus(status, LeftW, RightW, BottomH);
     }
 
     private static double ScrollAt(double beat)

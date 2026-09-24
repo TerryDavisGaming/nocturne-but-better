@@ -1,11 +1,8 @@
-using System.Text;
-using HarmonyLib;
 using UnityEngine;
-using UnityEngine.UI;
+using static NocturneFlatScroll.EditorInput;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using InputMouse = UnityEngine.InputSystem.Mouse;
 using Key = UnityEngine.InputSystem.Key;
-using Object = UnityEngine.Object;
 
 namespace NocturneFlatScroll;
 
@@ -13,8 +10,8 @@ namespace NocturneFlatScroll;
 /// An osu!mania-style chart editor on top of the game: pick a song and melody, start from a blank
 /// chart, a copy of one of the game's difficulties, or a custom chart, then place taps, holds and
 /// mines on a snapped grid while the music plays (at 25% to 100% speed), and save it as a custom
-/// difficulty. It draws its own screen and reads the keyboard and mouse itself; the game's menus
-/// underneath are locked while it is open.
+/// difficulty. It draws its own screen (an <see cref="EditorUi"/>) and reads the keyboard and
+/// mouse itself; the game's menus underneath are locked while it is open (<see cref="EditorOverlay"/>).
 /// </summary>
 internal static partial class ChartEditor
 {
@@ -24,43 +21,20 @@ internal static partial class ChartEditor
     private enum Screen { Songs, Melody, Source, Edit }
     private enum Tool { Select, Note, Hold, Mine }
 
-    internal static bool IsOpen => root;
+    internal static bool IsOpen => ui != null && ui.IsAlive;
 
-    private static GameObject? root;
-    private static RectTransform? canvasRect;
+    // The screen, built on open and destroyed on close.
+    private static EditorUi? ui;
+    private static EditorUi Ui => ui ?? throw new InvalidOperationException("the chart editor's screen isn't built");
     private static Screen screen;
+
+    // Names the editor to EditorOverlay, which keeps the menus locked while any editor is open.
+    private static readonly object OverlayOwner = "chart editor";
 
     // ---- opening and closing ----------------------------------------------------------------
 
-    internal static void Install(HarmonyLib.Harmony harmony)
-    {
-        // While the editor is open, Back (Escape, the pad's B) must not close the menus underneath;
-        // LockGameInput also turns off the open panels' own back setting.
-        var back = AccessTools.DeclaredMethod(typeof(MenuPanel), "TryBackAction")
-            ?? throw new MissingMethodException(typeof(MenuPanel).FullName, "TryBackAction");
-        harmony.Patch(back, prefix: new HarmonyMethod(typeof(ChartEditor), nameof(BackPrefix)));
-    }
-
-    // The Escape that closes the editor is still down for a few frames; the menus mustn't see it.
-    private static int blockBackUntilFrame = -1;
-    private static bool pendingUnlock;
-
-    private static bool BlockBack
-    {
-        get
-        {
-            if (IsOpen || Time.frameCount <= blockBackUntilFrame) return true;
-            var keyboard = InputKeyboard.current;
-            return pendingUnlock && keyboard != null && keyboard[Key.Escape].isPressed;
-        }
-    }
-
-    private static bool BackPrefix(ref bool __result)
-    {
-        if (!BlockBack) return true;
-        __result = false;
-        return false;
-    }
+    // The Back blocker that keeps the menus underneath closed is shared by the editor screens.
+    internal static void Install(HarmonyLib.Harmony harmony) => EditorOverlay.Install(harmony);
 
     /// <summary>Opens the editor on its song list, or on a song when one is given.</summary>
     internal static void Open(string? song = null)
@@ -68,10 +42,8 @@ internal static partial class ChartEditor
         if (IsOpen) return;
         try
         {
-            pendingUnlock = false;
             BuildCanvas();
-            LockGameInput(true);
-            cursorWas = (Cursor.lockState, Cursor.visible);
+            EditorOverlay.Enter(OverlayOwner);
             songs = AllSongs();
             filter = "";
             listIndex = song == null ? 0 : Math.Max(0, songs.FindIndex(s => s.name == song));
@@ -90,97 +62,38 @@ internal static partial class ChartEditor
         audio?.Dispose();
         audio = null;
         loading = null;
-        if (root) Object.Destroy(root);
-        root = null;
-        if (cursorWas is { } was)
-        {
-            Cursor.lockState = was.Lock;
-            Cursor.visible = was.Visible;
-            cursorWas = null;
-        }
-        // Menus come back once the key that closed the editor is let go.
-        blockBackUntilFrame = Time.frameCount + 3;
-        pendingUnlock = true;
+        ui?.Destroy();
+        ui = null;
+        // Gives the cursor back; the menus come back once the key that closed the editor is let go.
+        EditorOverlay.Leave(OverlayOwner);
         exportDialog = null;
         typing = TextField.None;
-        rebinding = null;
+        keyMap.Rebinding = null;
         notePool.Clear();
         linePool.Clear();
         wavePool.Clear();
         markerPool.Clear();
         labelPool.Clear();
-        uiButtons.Clear();
-        listRows.Clear();
         eventRows.Clear();
         ModLog.Info("Chart editor closed.");
     }
 
-    /// <summary>
-    /// Stops the menu underneath from reacting to the editor's keys: its navigation, select and
-    /// back events. (The game's own input lock also holds keyboard events back, which the editor
-    /// needs.) Back is also blocked by <see cref="BackPrefix"/>.
-    /// </summary>
-    private static void LockGameInput(bool locked)
-    {
-        try
-        {
-            var events = UnityEngine.EventSystems.EventSystem.current;
-            if (locked)
-            {
-                if (events && lockedEvents == null)
-                {
-                    lockedEvents = events;
-                    navigationWas = events.sendNavigationEvents;
-                    events.sendNavigationEvents = false;
-                }
-                // The game only pops a panel on Back when the panel allows it.
-                foreach (var panel in Resources.FindObjectsOfTypeAll<MenuPanel>())
-                {
-                    if (!panel || !panel.gameObject.activeInHierarchy || !panel.allowBacktrack) continue;
-                    panel.allowBacktrack = false;
-                    noBackPanels.Add(panel);
-                }
-            }
-            else
-            {
-                if (lockedEvents != null)
-                {
-                    if (lockedEvents) lockedEvents.sendNavigationEvents = navigationWas;
-                    lockedEvents = null;
-                }
-                foreach (var panel in noBackPanels)
-                    if (panel) panel.allowBacktrack = true;
-                noBackPanels.Clear();
-            }
-        }
-        catch (Exception ex) { ModLog.Error("Locking the menus for the editor failed: " + ex.Message); }
-    }
-
-    // The game can lock and hide the cursor; the editor needs it free while it's open.
-    private static (CursorLockMode Lock, bool Visible)? cursorWas;
-
-    private static void FreeCursor()
-    {
-        if (Cursor.lockState != CursorLockMode.None) Cursor.lockState = CursorLockMode.None;
-        if (!Cursor.visible) Cursor.visible = true;
-    }
-
-    private static UnityEngine.EventSystems.EventSystem? lockedEvents;
-    private static readonly List<MenuPanel> noBackPanels = new();
-    private static bool navigationWas = true;
-
     /// <summary>Called every frame.</summary>
     internal static void Update()
     {
-        if (pendingUnlock && !BlockBack)
-        {
-            pendingUnlock = false;
-            LockGameInput(false);
-        }
-        if (!IsOpen) return;
+        // Unlocks the menus after a close, and keeps the cursor free while an editor is open.
+        EditorOverlay.Update();
+        if (ui == null) return;
         try
         {
-            FreeCursor();
+            // Only something else destroying the canvas gets here with the screen still set. Close
+            // properly, or EditorOverlay would keep the menus and their Back locked for good.
+            if (!ui.IsAlive)
+            {
+                ModLog.Error("The chart editor's screen was destroyed from outside; closing it.");
+                Close();
+                return;
+            }
             var keyboard = InputKeyboard.current;
             if (keyboard == null) return;
             switch (screen)
@@ -226,22 +139,8 @@ internal static partial class ChartEditor
     private static List<SongData> FilteredSongs() =>
         filter.Length == 0 ? songs : songs.Where(s => s.name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
 
-    // A row clicked with the mouse, chosen on the next update.
-    private static int listClick = -1;
-
-    private static void ClickListRow(int row) => listClick = listFirst + row;
-
-    private static bool Chosen(InputKeyboard keyboard, int count)
-    {
-        if (listClick >= 0 && listClick < count)
-        {
-            listIndex = listClick;
-            listClick = -1;
-            return true;
-        }
-        listClick = -1;
-        return count > 0 && (Pressed(keyboard, Key.Enter) || Pressed(keyboard, Key.NumpadEnter));
-    }
+    // A row clicked with the mouse is chosen on the next update.
+    private static bool Chosen(InputKeyboard keyboard, int count) => Ui.Chosen(keyboard, count, ref listIndex);
 
     private static void UpdateSongList(InputKeyboard keyboard)
     {
@@ -258,7 +157,7 @@ internal static partial class ChartEditor
             return;
         }
         var lines = list.Select(s => $"{s.name}  ({CustomCharts.LanesOf(s)} lanes{(s.beatmaps.Length > 1 ? $", {s.beatmaps.Length} melodies" : "")})").ToList();
-        DrawList("Chart editor: pick a song",
+        Ui.DrawList("Chart editor: pick a song",
             (filter.Length > 0 ? $"Filter: {filter}_" : "Type to filter") + "     Click a song, or Up/Down and Enter.  Esc leaves",
             lines, listIndex);
     }
@@ -269,7 +168,7 @@ internal static partial class ChartEditor
         int count = song!.beatmaps.Length;
         listIndex = MoveInList(keyboard, listIndex, count);
         if (Chosen(keyboard, count)) { melody = listIndex + 1; ShowSourceScreen(); return; }
-        DrawList($"{song.name}: pick a melody", "Each melody has its own music.  Esc goes back",
+        Ui.DrawList($"{song.name}: pick a melody", "Each melody has its own music.  Esc goes back",
             Enumerable.Range(1, count).Select(i => $"Melody {i}").ToList(), listIndex);
     }
 
@@ -302,7 +201,7 @@ internal static partial class ChartEditor
         }
         listIndex = MoveInList(keyboard, listIndex, sources.Count);
         if (Chosen(keyboard, sources.Count)) { sources[listIndex].Choose(); return; }
-        DrawList($"{song!.name}, melody {melody}: start from", "Click one, or Up/Down and Enter.  Esc goes back",
+        Ui.DrawList($"{song!.name}, melody {melody}: start from", "Click one, or Up/Down and Enter.  Esc goes back",
             sources.Select(s => s.Label).ToList(), listIndex);
     }
 
@@ -312,61 +211,5 @@ internal static partial class ChartEditor
         var maps = song!.beatmaps;
         var map = maps[Math.Clamp(melody - 1, 0, maps.Length - 1)];
         return ChartText.Parse(map ? map.text : "");
-    }
-
-    // ---- helpers shared by the screens ------------------------------------------------------
-
-    private static bool Pressed(InputKeyboard keyboard, Key key) => keyboard[key].wasPressedThisFrame;
-    private static bool Held(InputKeyboard keyboard, Key key) => keyboard[key].isPressed;
-    private static bool Ctrl(InputKeyboard keyboard) => Held(keyboard, Key.LeftCtrl) || Held(keyboard, Key.RightCtrl);
-    private static bool Shift(InputKeyboard keyboard) => Held(keyboard, Key.LeftShift) || Held(keyboard, Key.RightShift);
-    private static bool Alt(InputKeyboard keyboard) => Held(keyboard, Key.LeftAlt) || Held(keyboard, Key.RightAlt);
-
-    private static int MoveInList(InputKeyboard keyboard, int index, int count)
-    {
-        if (count == 0) return 0;
-        if (Pressed(keyboard, Key.DownArrow)) index++;
-        if (Pressed(keyboard, Key.UpArrow)) index--;
-        if (Pressed(keyboard, Key.PageDown)) index += 10;
-        if (Pressed(keyboard, Key.PageUp)) index -= 10;
-        return Math.Clamp(index, 0, count - 1);
-    }
-
-    private static readonly (Key Key, char Lower, char Upper)[] TypingKeys = BuildTypingKeys();
-
-    private static (Key, char, char)[] BuildTypingKeys()
-    {
-        var keys = new List<(Key, char, char)>();
-        for (int i = 0; i < 26; i++) keys.Add((Key.A + i, (char)('a' + i), (char)('A' + i)));
-        // The digit keys aren't numbered in order (Digit0 comes after Digit9), so list them.
-        Key[] digits = { Key.Digit0, Key.Digit1, Key.Digit2, Key.Digit3, Key.Digit4, Key.Digit5, Key.Digit6, Key.Digit7, Key.Digit8, Key.Digit9 };
-        for (int i = 0; i < 10; i++) keys.Add((digits[i], (char)('0' + i), ")!@#$%^&*("[i]));
-        keys.Add((Key.Space, ' ', ' '));
-        keys.Add((Key.Minus, '-', '_'));
-        keys.Add((Key.Period, '.', '>'));
-        keys.Add((Key.Comma, ',', '<'));
-        keys.Add((Key.Quote, '\'', '"'));
-        keys.Add((Key.Equals, '=', '+'));
-        keys.Add((Key.Slash, '/', '?'));
-        keys.Add((Key.NumpadPeriod, '.', '.'));
-        keys.Add((Key.NumpadMinus, '-', '-'));
-        Key[] pad = { Key.Numpad0, Key.Numpad1, Key.Numpad2, Key.Numpad3, Key.Numpad4, Key.Numpad5, Key.Numpad6, Key.Numpad7, Key.Numpad8, Key.Numpad9 };
-        for (int i = 0; i < 10; i++) keys.Add((pad[i], (char)('0' + i), (char)('0' + i)));
-        return keys.ToArray();
-    }
-
-    /// <summary>Adds typed characters to <paramref name="text"/>; Backspace deletes. True when it changed.</summary>
-    private static bool TypeInto(InputKeyboard keyboard, ref string text, int max = 40)
-    {
-        bool changed = false;
-        if (Ctrl(keyboard) || Alt(keyboard)) return false;
-        foreach (var (key, lower, upper) in TypingKeys)
-        {
-            if (!Pressed(keyboard, key) || text.Length >= max) continue;
-            text += Shift(keyboard) ? upper : lower;
-            changed = true;
-        }
-        if (Pressed(keyboard, Key.Backspace) && text.Length > 0) { text = text.Substring(0, text.Length - 1); changed = true; }
-        return changed;
     }
 }
