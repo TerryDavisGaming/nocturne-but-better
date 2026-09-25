@@ -8,9 +8,9 @@ namespace NocturneFlatScroll;
 /// song's audio, or the song file a custom chart names with #MUSIC (StepMania's tag). The
 /// conductor starts its music in PlayWWiseTrack. For these battles the mod starts its player
 /// there instead, fades out the music from before the battle with Wwise's silence event, and
-/// gives the conductor a playing id of its own. Every frame the conductor asks
-/// AudioController.TryGetSongPosition where that id is, and the mod answers from its player,
-/// so the notes follow the file. No Wwise cue is involved: the battle ends a beat after the
+/// gives the conductor a playing id of its own. Every frame, just before the conductor moves the
+/// notes (UpdateBeatmapPosition), the mod sets its clock from the player the way the game sets it
+/// from Wwise's position, so the notes follow the file. No Wwise cue is involved: the battle ends a beat after the
 /// chart's last note, and the song fades when the game's victory, pre-end or leave-combat music
 /// would start. The conductor's clock is the song file's own time, as it is the Wwise track's
 /// time for the game's songs. The game's chart reader applies #OFFSET itself (beat 0 comes at
@@ -73,13 +73,14 @@ internal static class CustomMusic
     private static float fadeStart = -1f, fadeLength;
     private static (string Key, Song Song)? decoded;   // the last song decoded, for a quick retry
     private static bool reportedError;
+    private static bool loggedFollow;   // "the chart follows the song file", once per song
 
     internal static bool Active => player != null;
 
     internal static void Install(HarmonyLib.Harmony harmony)
     {
         // Everything is looked up first, so a missing method installs nothing.
-        var position = Method(typeof(AudioController), "TryGetSongPosition");
+        var beatmap = Method(typeof(WwiseConductor), "UpdateBeatmapPosition");
         var play = Method(typeof(WwiseConductor), "PlayWWiseTrack");
         var cue = Method(typeof(WwiseConductor), "OnAudioCue");
         var beat = Method(typeof(WwiseConductor), "OnSyncBeat");
@@ -88,7 +89,7 @@ internal static class CustomMusic
         var victory = Method(typeof(AudioController), "PlayCombatVictory");
         var preEnd = Method(typeof(AudioController), "PlayCombatPreEnd");
         var leave = Method(typeof(AudioController), "LeaveCombat");
-        harmony.Patch(position, prefix: Hook(nameof(PositionPrefix)));
+        harmony.Patch(beatmap, prefix: Hook(nameof(BeatmapPrefix)));
         harmony.Patch(play, prefix: Hook(nameof(PlayTrackPrefix)));
         harmony.Patch(cue, prefix: Hook(nameof(CuePrefix)));
         harmony.Patch(beat, prefix: Hook(nameof(BeatPrefix)));
@@ -270,12 +271,14 @@ internal static class CustomMusic
         player.Seek(now - origin);   // at least StartMargin into the file, thanks to the lead-in silence
         player.Play();
 
-        // The conductor takes the mod's id as the playing Wwise track and asks for its position;
-        // with no segment end or start cue to wait for, it follows the song to the chart's end.
+        // The conductor takes the mod's id as the playing Wwise track. With gotSyncBeat off it
+        // doesn't ask Wwise where that id is (BeatmapPrefix sets its clock instead), and with no
+        // segment end or start cue to wait for, it follows the song to the chart's end.
         c.waitForStartCue = false;
         c.waitForEndCue = false;
         c.currentPlayingId = FakePlayingId;
-        c.gotSyncBeat = true;
+        c.gotSyncBeat = false;
+        loggedFollow = false;
         c.skipNextSongPosition = false;
         c.activePlayingDuration = NoSegmentEnd;
         c.currentWwiseTrackTime = SegmentTime(player);
@@ -303,20 +306,44 @@ internal static class CustomMusic
         catch (Exception ex) { Report(ex); }
     }
 
-    // Answers the conductor's question for the mod's playing id. The conductor adds the time of
-    // the segments Wwise already finished (none here), so the answer is the song's clock time.
-    private static bool PositionPrefix(uint playingId, ref double songPosition, ref bool __result)
+    // SongUpdate steps the conductor's clock (its inlined UpdateSongPlayingTime) just before it
+    // calls UpdateBeatmapPosition. With gotSyncBeat off, that step only added the frame time; this
+    // redoes it with the song file's position, the way the game does with Wwise's, before the notes
+    // move: the same checks, the same drift for the notes to catch up, the same large-drift event.
+    // (Not a patch on AudioController.TryGetSongPosition: MelonLoader's Il2CppInterop can't call a
+    // patched method with an out double from native code, so any patch there breaks every battle.)
+    private static void BeatmapPrefix(WwiseConductor __instance, double deltaTime)
     {
-        if (playingId != FakePlayingId) return true;
         var p = player;
-        if (p == null || !conductor) return true;
+        if (p == null) return;
         try
         {
-            songPosition = SegmentTime(p);
-            __result = true;
-            return false;
+            var c = conductor;
+            if (c == null || !c || !__instance || c.Pointer != __instance.Pointer) return;
+            // SongUpdate also calls this before the music starts.
+            if (!c.playingWwiseTrack || c.currentPlayingId != FakePlayingId) return;
+            double position = SegmentTime(p);
+            double before = c.currentWwiseTrackTime - deltaTime;   // the clock before SongUpdate's step
+            if (Math.Abs(position - before) > 1.0) return;          // the game ignores jumps over a second
+            if (c.skipNextSongPosition)
+            {
+                if (!((double)0.05f > Math.Abs(position - c.activePlayingDuration))) c.skipNextSongPosition = false;
+                return;
+            }
+            if (position > c.activePlayingDuration) return;
+            var song = c.songPosition;
+            if (song == null) return;
+            c.currentWwiseTrackTime = position;
+            double drift = position + c.previousSongSegmentTime - song.RawTime;
+            c.timeDrift = drift;
+            if (Math.Abs((float)drift) > 0.5f) c.OnLargeTimeDrift?.Invoke();
+            if (!loggedFollow)
+            {
+                loggedFollow = true;
+                ModLog.Info($"Custom music {playingName}: the chart follows the song file (clock {position:0.000}, drift {drift:0.0000}).");
+            }
         }
-        catch (Exception ex) { Report(ex); return true; }
+        catch (Exception ex) { Report(ex); }
     }
 
     // Wwise user cues from other events (posted with callbacks) would replace the mod's playing
