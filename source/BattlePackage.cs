@@ -460,10 +460,10 @@ internal sealed class BattlePackage
             Artist = Clean(manifest.artist),
             Author = Clean(manifest.author),
             Lore = (manifest.lore ?? "").Trim(),
-            PreviewStart = Math.Max(0, manifest.previewStart ?? 0),
             DialoguePath = manifest.dialogue == null ? null : PackageFiles.SafeName(manifest.dialogue)
         };
         if (song.Title.Length == 0) song.Title = Path.GetFileNameWithoutExtension(path.TrimEnd('\\', '/'));
+        song.PreviewStart = Math.Max(0, Finite(manifest.previewStart, "\"previewStart\"", song.Problems) ?? 0);
 
         // The chart holds every difficulty.
         song.ChartPath = PackageFiles.SafeName(manifest.chart ?? DefaultChart)
@@ -504,6 +504,14 @@ internal sealed class BattlePackage
         }
 
         song.Enemy = ReadEnemy(manifest.enemy, files, song.Problems, Stamp);
+        if (song.Enemy.stats is EnemyStats stats)
+        {
+            stats.hp = Finite(stats.hp, "the enemy's \"hp\"", song.Problems);
+            stats.damage = Finite(stats.damage, "the enemy's \"damage\"", song.Problems);
+            stats.passiveEnergyCharge = Finite(stats.passiveEnergyCharge, "the enemy's \"passiveEnergyCharge\"", song.Problems);
+            stats.energyChargeOnMiss = Finite(stats.energyChargeOnMiss, "the enemy's \"energyChargeOnMiss\"", song.Problems);
+            stats.attackWindupTime = Finite(stats.attackWindupTime, "the enemy's \"attackWindupTime\"", song.Problems);
+        }
         string requested = song.Enemy.placeholder ?? "";
         if ("custom".Equals(song.Enemy.mode?.Trim(), StringComparison.OrdinalIgnoreCase))
         {
@@ -520,6 +528,15 @@ internal sealed class BattlePackage
         song.stampedFiles = stamped.Select(s => s.Name).ToArray();
         song.Fingerprint = FingerprintOf(path, stamped.Select(s => s.Stamp));
         return song;
+    }
+
+    // Numbers may be written as strings, and the JSON reader then takes "NaN" and "Infinity" too;
+    // those count as left out.
+    private static double? Finite(double? value, string name, List<string> problems)
+    {
+        if (value is not double number || double.IsFinite(number)) return value;
+        problems.Add($"{name} is {number.ToString(CultureInfo.InvariantCulture)}, which can't be used, so it's left out");
+        return null;
     }
 
     // Where the package is counts too: a battle moved or renamed on disk keeps its files' times.

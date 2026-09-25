@@ -358,8 +358,9 @@ internal static class CustomBattles
         clone.combatInitialized = AudioHook.CreateEmptyHook();
         clone.combatSongStart = AudioHook.CreateEmptyHook();
         clone.statSheetData = Stats(template.statSheetData, definition.stats);
-        if (definition.stats?.energyChargeOnMiss is double miss) clone.energyChargeOnMiss = (float)Math.Clamp(miss, 0, 1000);
-        if (definition.stats?.attackWindupTime is double windup) clone.attackWindupTime = (float)Math.Clamp(windup, 0.05, 60);
+        // The loader leaves out numbers that aren't finite; Math.Clamp would pass a NaN on.
+        if (definition.stats?.energyChargeOnMiss is double miss && double.IsFinite(miss)) clone.energyChargeOnMiss = (float)Math.Clamp(miss, 0, 1000);
+        if (definition.stats?.attackWindupTime is double windup && double.IsFinite(windup)) clone.attackWindupTime = (float)Math.Clamp(windup, 0.05, 60);
         if (definition.info != null) clone.enemyInfoEntries = InfoEntries(definition);
         if (package.Lanes == 5) FitFiveLanes(package, clone);
         clone.hideFlags = HideFlags.DontUnloadUnusedAsset;
@@ -379,9 +380,9 @@ internal static class CustomBattles
             sheet.impact = source.impact;
             sheet.focus = source.focus;
         }
-        if (stats?.hp is double hp) sheet.health = (float)Math.Clamp(hp, 1, 100000);
-        if (stats?.damage is double damage) sheet.damage = (float)Math.Clamp(damage, 0, 1000);
-        if (stats?.passiveEnergyCharge is double charge) sheet.passiveEnergyCharge = (float)Math.Clamp(charge, 0, 10000);
+        if (stats?.hp is double hp && double.IsFinite(hp)) sheet.health = (float)Math.Clamp(hp, 1, 100000);
+        if (stats?.damage is double damage && double.IsFinite(damage)) sheet.damage = (float)Math.Clamp(damage, 0, 1000);
+        if (stats?.passiveEnergyCharge is double charge && double.IsFinite(charge)) sheet.passiveEnergyCharge = (float)Math.Clamp(charge, 0, 10000);
         return sheet;
     }
 
