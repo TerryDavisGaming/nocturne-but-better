@@ -13,7 +13,7 @@ namespace NocturneFlatScroll;
 internal static partial class ChartEditor
 {
     private enum DragKind { None, Hold, Box, Move, Scrub }
-    private enum TextField { None, Title, Author, EventMods, ScrollSpeed, Bpm, BpmChange }
+    private enum TextField { None, Title, Author, EventMods, ScrollSpeed, Bpm, BpmChange, DialogueText }
 
     private const string AuthorPref = "NocturneFlatScroll.EditorAuthor.v1";
 
@@ -206,6 +206,7 @@ internal static partial class ChartEditor
     {
         if (Pressed(k, Key.Escape))
         {
+            if (speakerChoices != null) { speakerChoices = null; return true; }
             if (drag != DragKind.None) { drag = DragKind.None; return true; }
             if (selection.Count > 0) { selection.Clear(); return true; }
             return RequestCloseKeepOpen();
@@ -304,17 +305,22 @@ internal static partial class ChartEditor
     private static void StartTyping(TextField fieldToType)
     {
         if (fieldToType == TextField.EventMods && PickedEvent == null) { Say("Pick an event first (or add one)", 2f); return; }
+        if (fieldToType == TextField.DialogueText && PickedCue == null) { Say("Pick a line first (or add one)", 2f); return; }
         typing = fieldToType;
         typed = fieldToType switch
         {
             TextField.Title => title,
             TextField.Author => author,
             TextField.EventMods => PickedEvent!.Mods,
+            TextField.DialogueText => PickedCue!.Text,
             TextField.ScrollSpeed => "",
             _ => "",
         };
+        // A line of dialogue takes any letter the keyboard types, like the battle creator's fields.
+        if (fieldToType == TextField.DialogueText) BeginText();
         Say(fieldToType switch
         {
+            TextField.DialogueText => "Type the line, then Enter. Esc cancels.",
             TextField.EventMods => "Type the event (a verb and its values), Enter to finish, Esc to cancel.",
             TextField.ScrollSpeed => "Type how fast the notes scroll from here, like 0.5 or 2, then Enter.",
             TextField.Bpm => "Type the tempo in BPM, like 120 or 157.5, then Enter. It sets the tempo of the section you're in.",
@@ -325,12 +331,20 @@ internal static partial class ChartEditor
 
     private static void UpdateTyping(InputKeyboard k)
     {
-        int max = typing switch { TextField.EventMods => 160, TextField.ScrollSpeed => 6, TextField.Bpm or TextField.BpmChange => 8, _ => 40 };
-        TypeInto(k, ref typed, max);
-        if (Pressed(k, Key.Escape)) { typing = TextField.None; Say("", 0f); return; }
+        int max = typing switch { TextField.EventMods => 160, TextField.ScrollSpeed => 6, TextField.Bpm or TextField.BpmChange => 8, TextField.DialogueText => DialogueReader.MaxText, _ => 40 };
+        if (typing != TextField.DialogueText) TypeInto(k, ref typed, max);
+        else if (TypeText(k, ref typed, max) && typed.IndexOfAny(BoxRefused) >= 0)
+        {
+            typed = new string(typed.Where(c => Array.IndexOf(BoxRefused, c) < 0).ToArray());
+            Say("Type the line, then Enter. Esc cancels. The game's text box can't show < > { or }, so typing leaves them out.", 60f);
+        }
+        if (Pressed(k, Key.Escape)) { typing = TextField.None; EndText(); Say("", 0f); return; }
         if (!Pressed(k, Key.Enter) && !Pressed(k, Key.NumpadEnter)) return;
         switch (typing)
         {
+            case TextField.DialogueText:
+                SetCueText(typed);
+                break;
             case TextField.Title:
                 title = CleanText(typed).Length > 0 ? CleanText(typed) : "New chart";
                 dirty = true;
@@ -371,6 +385,7 @@ internal static partial class ChartEditor
             }
         }
         typing = TextField.None;
+        EndText();
         if (Ui.Message.StartsWith("Type")) Say("", 0f);
     }
 
@@ -601,6 +616,8 @@ internal static partial class ChartEditor
         internal bool Charted;
         internal List<(double Beat, double Bpm)>? Bpms;
         internal double Offset;
+        // Battles: the dialogue lines during the song (null for a game song).
+        internal List<DialogueCue>? Cues;
     }
 
     private static readonly List<Snapshot> undo = new(), redo = new();
@@ -615,6 +632,7 @@ internal static partial class ChartEditor
         Charted = tabCharted,
         Bpms = battle != null ? new List<(double, double)>(chart.Bpms) : null,
         Offset = chart.Offset,
+        Cues = CaptureCues(),
     };
 
     private static void Restore(Snapshot s)
@@ -626,6 +644,7 @@ internal static partial class ChartEditor
         eventIndex = Math.Min(eventIndex, events.Count - 1);
         selection.Clear();
         dirty = ticksDirty = true;
+        RestoreCues(s.Cues);
         if (battle == null || s.Bpms == null) return;
         tabCharted = s.Charted;
         if (chart.Offset == s.Offset && chart.Bpms.SequenceEqual(s.Bpms)) return;
@@ -959,7 +978,7 @@ internal static partial class ChartEditor
         sb.Append($"<color=#9D92B4>Scroll</color> x{ScrollAt(beat):0.##}   <color=#9D92B4>Snap</color> 1/{Snaps[snapIndex]}\n");
         sb.Append($"<color=#9D92B4>Notes</color> {chart.Notes.Count}  ({holds} holds, {mines} mines)\n");
         sb.Append($"<color=#9D92B4>Selected</color> {selection.Count}\n");
-        sb.Append(battle != null ? $"<color=#9D92B4>Events</color> {events.Count} (every difficulty)\n"
+        sb.Append(battle != null ? $"<color=#9D92B4>Events</color> {events.Count}   <color=#9D92B4>Dialogue</color> {cues.Count} (every difficulty)\n"
             : $"<color=#9D92B4>Events</color> {events.Count} {(eventsChanged ? "(edited)" : "(the song's)")}\n");
         sb.Append($"<color=#9D92B4>{Escape(musicState)}</color>\n");
         infoText!.text = sb.ToString();
@@ -968,7 +987,7 @@ internal static partial class ChartEditor
         {
             Tab.Compose => $"Click a lane to place with the tool. Hold tool: drag up. Select tool: click or drag a box, then drag to move. Right click deletes.\n\n{ShortKey(EditorAction.NudgeLater)} / {ShortKey(EditorAction.NudgeEarlier)} move the selection by a snap; {ShortKey(EditorAction.NudgeLeft)} / {ShortKey(EditorAction.NudgeRight)} change its lanes.",
             Tab.Timing => battle != null ? BattleTimingText() : TimingText(),
-            Tab.Events => battle != null ? BattleEventsText() : EventsText(),
+            Tab.Events => battle == null ? EventsText() : dialogueView ? DialogueEventsText() : BattleEventsText(),
             Tab.Setup => battle != null ? BattleSetupText() : SetupText(),
             _ => "Keys are saved on this PC and used every time you open the editor.",
         };
@@ -978,7 +997,11 @@ internal static partial class ChartEditor
         // and has room to: their buttons end higher up.
         float textTop = tab == Tab.Events ? (battle != null ? 180 : 200) : battle != null && (tab == Tab.Timing || tab == Tab.Setup) ? 280 : 250;
         tabText.rectTransform.offsetMax = new Vector2(-16, textTop);
-        if (tab == Tab.Events) UpdateEventRows();
+        if (tab == Tab.Events)
+        {
+            if (dialogueView) UpdateDialogueRows();
+            else UpdateEventRows();
+        }
         if (battle != null) DrawBattlePanels();
         string status = Ui.MessageShowing ? Escape(Ui.Message) : "";
         if (typing != TextField.None) status = $"{Escape(Ui.Message)}\n<color=#EAE6F5>{Escape(typed)}_</color>";

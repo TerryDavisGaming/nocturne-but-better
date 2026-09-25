@@ -35,6 +35,7 @@ internal static partial class BattleCreator
             return;
         }
         StopArtPreview(true);
+        StopDialoguePreview(true);
         draft = loaded;
         touched.Clear();
         RefreshBattleInfo();
@@ -60,7 +61,7 @@ internal static partial class BattleCreator
             Hint = i => i switch
             {
                 0 => "Saves the changes, then goes back to the list.",
-                1 => "Goes back to the list without the changes. Songs, images and art added since the last save go to the Recycle Bin.",
+                1 => "Goes back to the list without the changes. Songs, images, art and speakers' pictures added since the last save go to the Recycle Bin.",
                 _ => "Keeps editing.",
             },
             Choose = i =>
@@ -82,6 +83,7 @@ internal static partial class BattleCreator
         string? folder = draft?.Folder;
         StopPreview();
         StopArtPreview(true);
+        StopDialoguePreview(true);
         ClearCardPreview();
         EndTyping();
         CleanUnused();
@@ -102,6 +104,7 @@ internal static partial class BattleCreator
         try
         {
             charts = BattleFiles.SummarizeChart(draft.Folder, draft.ChartPath, draft.Lanes);
+            RefreshDialogueChart();
             if (PackageFiles.SafeName(draft.ChartPath) != null && draft.ChartFileProblem() is { } chartFile)
                 charts.Problems.Insert(0, chartFile + "; it can't be edited here");
             summary = BattleFiles.Read(draft.Folder, GameCheck);
@@ -123,6 +126,8 @@ internal static partial class BattleCreator
         // A click anywhere finishes the field being typed in (clicking it again starts it again).
         // A value the field refuses stays open with the reason showing, and the click does nothing else.
         if (typing != null && clicks != null && clicks.leftButton.wasPressedThisFrame && !Busy && !CommitTyping()) clicks = null;
+        // The Dialogue page's rows follow the draft before they're drawn.
+        if (page == Page.Dialogue) RefreshDialogue();
         Ui.UpdateButtons(clicks);
         if (!IsOpen || screen != Screen.Edit || draft == null) return;
         if (Live && !Busy)
@@ -131,12 +136,15 @@ internal static partial class BattleCreator
             else if (!HandleEditKeys(keyboard)) return;
         }
         if (page == Page.Art) UpdateArtPage(Live && !Busy ? clicks : null);
+        if (page == Page.Dialogue) UpdateDialoguePage(Live && !Busy ? clicks : null);
         DrawEdit();
     }
 
     /// <returns>False when the edit screen closed.</returns>
     private static bool HandleEditKeys(InputKeyboard k)
     {
+        // While the Dialogue page plays its preview, Enter goes on and Esc stops it.
+        if (HandleDialoguePlayKeys(k)) return true;
         if (Pressed(k, Key.Escape))
         {
             RequestBack();
@@ -150,6 +158,7 @@ internal static partial class BattleCreator
             return true;
         }
         if (HandleArtKeys(k)) return true;
+        if (HandleDialogueKeys(k)) return true;
         var shown = VisibleControls();
         if (Pressed(k, Key.DownArrow)) focus = shown.Count == 0 ? -1 : Math.Min(shown.Count - 1, focus + 1);
         if (Pressed(k, Key.UpArrow)) focus = shown.Count == 0 ? -1 : Math.Max(0, focus - 1);
@@ -169,15 +178,23 @@ internal static partial class BattleCreator
         internal Func<string>? Empty;
         internal int Max = 80;
         internal bool MultiLine;
+        /// <summary>Tall and wrapped like a multi-line text, but one line: Enter ends it (a line of dialogue).</summary>
+        internal bool Wrap;
+        internal bool Tall => MultiLine || Wrap;
         internal string Hint = "Type, then Enter. Esc cancels.";
         /// <summary>A part of the enemy, which can't change while the enemy's file can't be read.</summary>
         internal bool Enemy;
         /// <summary>More for the typing hint, worked out from what is typed (like how many lines it takes).</summary>
         internal Func<string, string>? Measure;
+        /// <summary>Letters that typing leaves out, and what it says when one is typed.</summary>
+        internal char[]? Refused;
+        internal string RefusedText = "";
     }
 
     private static TextField? typing;
     private static string typed = "";
+    // Until when the typing hint says a letter was left out.
+    private static float refusedUntil;
 
     private static void StartTyping(TextField field)
     {
@@ -186,6 +203,7 @@ internal static partial class BattleCreator
         if (field.Enemy && !EnemyEditable()) return;
         typing = field;
         typed = field.Get();
+        refusedUntil = 0;
         BeginText();
         SayTypingHint();
     }
@@ -197,6 +215,7 @@ internal static partial class BattleCreator
         var field = typing;
         if (field == null) return;
         string hint = field.MultiLine ? "Type, then Enter. Shift+Enter starts a new line. Esc cancels." : field.Hint;
+        if (Time.unscaledTime < refusedUntil) hint = field.RefusedText + "  " + hint;
         if (field.Max >= 100 || field.Measure != null) hint += BattleDraft.TypingCount(typed.Length, field.Max, field.Measure?.Invoke(typed));
         Say(hint, 3600f);
     }
@@ -216,7 +235,15 @@ internal static partial class BattleCreator
             }
             return;
         }
-        if (TypeText(k, ref typed, field.Max)) SayTypingHint();
+        if (TypeText(k, ref typed, field.Max))
+        {
+            if (field.Refused is { } refused && typed.IndexOfAny(refused) >= 0)
+            {
+                typed = new string(typed.Where(c => Array.IndexOf(refused, c) < 0).ToArray());
+                refusedUntil = Time.unscaledTime + 4f;
+            }
+            SayTypingHint();
+        }
         if (enter) CommitTyping();
     }
 
@@ -617,6 +644,7 @@ internal static partial class BattleCreator
             ModLog.Info($"Battle creator: moved {folder} to the Recycle Bin.");
             StopPreview();
             StopArtPreview(true);
+            StopDialoguePreview(true);
             ClearCardPreview();
             touched.Clear();
             draft = null;

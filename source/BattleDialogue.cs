@@ -24,8 +24,8 @@ internal static partial class BattleDialogue
     /// once a battle); battle.json keeps its "pause" either way.
     /// </summary>
     internal const bool BreaksEnabled = true;
-    /// <summary>A live line's bubble height in the dialogue canvas's game pixels: near the top, clear of the receptors.</summary>
-    private const float LiveBubbleHeight = 180f;
+    /// <summary>A live line's bubble height in the dialogue canvas's game pixels: near the top, clear of the receptors. The battle creator's preview uses it too.</summary>
+    internal const float LiveBubbleHeight = 180f;
     /// <summary>How long the song waits after a break's last line (real seconds), so the player's hands can get back to the lanes.</summary>
     private const float BreakResumeDelay = 1f;
     /// <summary>How long the lines before the fight wait for the game characters' faces once the battle has faded in.</summary>
