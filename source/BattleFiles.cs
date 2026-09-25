@@ -318,7 +318,19 @@ internal static class BattleFiles
         var ids = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var path in Candidates(root, 0))
         {
-            var entry = Read(path, gameCheck);
+            BattleEntry entry;
+            try { entry = Read(path, gameCheck); }
+            catch (Exception ex)
+            {
+                // Like the arcade's scan: one battle that can't be read never hides the others.
+                bool zip = File.Exists(path);
+                entry = new BattleEntry
+                {
+                    Path = path, IsZip = zip, Broken = !zip,
+                    Title = zip ? System.IO.Path.GetFileNameWithoutExtension(path) : System.IO.Path.GetFileName(path.TrimEnd('\\', '/')),
+                };
+                entry.Problems.Add(BattleDraft.IsFileProblem(ex) ? ex.Message : $"{ex.GetType().Name}: {ex.Message}");
+            }
             // Like the arcade's scan: of the battles that load, the first with an id is used.
             if (entry.Loads && entry.Id.Length > 0)
             {
@@ -396,7 +408,7 @@ internal static class BattleFiles
             entry.Overrides = BattleNotice.Summary(package.Gear.IsSet, package.Level.Level);
             entry.Loads = true;
         }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or UnauthorizedAccessException)
+        catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
         {
             entry.Problems.Add(ex.Message);
         }
@@ -408,7 +420,7 @@ internal static class BattleFiles
         var entry = new BattleEntry { Path = path, Title = Path.GetFileName(path.TrimEnd('\\', '/')) };
         BattleDraft draft;
         try { draft = BattleDraft.Load(path); }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or UnauthorizedAccessException)
+        catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
         {
             entry.Broken = true;
             entry.Problems.Add(ex.Message);
@@ -420,6 +432,9 @@ internal static class BattleFiles
         entry.Lanes = draft.Lanes;
         entry.Overrides = BattleNotice.Summary(draft.SetGear, draft.SetLevel ? draft.LevelValue : null);
         var summary = SummarizeChart(path, draft.ChartPath, entry.Lanes);
+        // A chart outside the battle is one of the summary's problems already.
+        if (PackageFiles.SafeName(draft.ChartPath) != null && draft.ChartFileProblem() is { } chartFile)
+            entry.Problems.Add(chartFile + "; the Charts page can't edit it");
         for (int s = 0; s < summary.Notes.Length; s++)
             if (summary.Notes[s] >= 0) entry.Charted.Add(ChartText.GameDifficultyLabels[s]);
         string? skipped = null;
@@ -434,7 +449,7 @@ internal static class BattleFiles
                 skipped = gameCheck?.Invoke(package);
                 entry.Loads = true;
             }
-            catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or UnauthorizedAccessException)
+            catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
             {
                 entry.Problems.Add(ex.Message);
             }
@@ -528,7 +543,7 @@ internal static class BattleFiles
         }
         ChartText chart;
         try { chart = ChartText.Parse(BattleDraft.ReadText(Path.Combine(folder, name.Replace('/', Path.DirectorySeparatorChar)), BattlePackage.MaxChartBytes)); }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+        catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
         {
             summary.Problems.Add($"the chart {name} couldn't be read ({ex.Message})");
             return summary;

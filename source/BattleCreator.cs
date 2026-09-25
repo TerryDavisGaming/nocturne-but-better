@@ -381,7 +381,7 @@ internal static partial class BattleCreator
             {
                 if (i == 1) { OpenBattle(folder); return; }
                 try { BattleFiles.MakeSeparate(folder); }
-                catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException)
+                catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
                 {
                     ModLog.Error($"Battle creator: giving {folder} a battle id of its own failed: {ex.Message}");
                     Say("It couldn't be made a separate battle: " + ex.Message, 7f);
@@ -510,6 +510,12 @@ internal static partial class BattleCreator
         string? chart = PackageFiles.SafeName(draft.ChartPath);
         string? audio = PackageFiles.SafeName(draft.EffectiveAudio);
         if (chart == null || audio == null) { Say("The battle needs a chart file and a song first.", 4f); return; }
+        // Saving writes chart text to the file battle.json's "chart" names, so it must be an .sm file of its own.
+        if (draft.ChartFileProblem() is { } bad)
+        {
+            Say($"The chart can't be edited here: {bad}. In battle.json, \"chart\" has to name an .sm file of its own.", 8f);
+            return;
+        }
         handedOver = true;
         handOverFrame = Time.frameCount;
         bool opened;

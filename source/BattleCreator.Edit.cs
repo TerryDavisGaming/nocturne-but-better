@@ -29,7 +29,7 @@ internal static partial class BattleCreator
     {
         BattleDraft loaded;
         try { loaded = BattleDraft.Load(folder); }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
         {
             Say("It can't be opened: " + ex.Message, 6f);
             return;
@@ -100,6 +100,8 @@ internal static partial class BattleCreator
         try
         {
             charts = BattleFiles.SummarizeChart(draft.Folder, draft.ChartPath, draft.Lanes);
+            if (PackageFiles.SafeName(draft.ChartPath) != null && draft.ChartFileProblem() is { } chartFile)
+                charts.Problems.Insert(0, chartFile + "; it can't be edited here");
             summary = BattleFiles.Read(draft.Folder, GameCheck);
         }
         catch (Exception ex)
@@ -255,13 +257,16 @@ internal static partial class BattleCreator
 
     private static string Num(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
 
-    /// <summary>A typed number, or null when nothing was typed. A comma works as the decimal point too.</summary>
+    /// <summary>
+    /// A typed number, or null when nothing was typed. A comma works as the decimal point too, but
+    /// one that could be a thousands separator ("1,500") is asked about, not guessed (NumberText).
+    /// </summary>
     private static double? ParseNumber(string text, double min, double max, string what)
     {
-        text = text.Trim().Replace(',', '.');
-        if (text.Length == 0) return null;
-        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) || double.IsNaN(value) || double.IsInfinity(value))
-            throw new InvalidDataException($"{what} has to be a number, like {Num(Math.Max(min, 1))}.");
+        var result = NumberText.Parse(text, out double value, out string either);
+        if (result == NumberText.Result.Empty) return null;
+        if (NumberText.Question(result, either) is { } question) throw new InvalidDataException($"{what}: {question}");
+        if (result != NumberText.Result.Number) throw new InvalidDataException($"{what} has to be a number, like {Num(Math.Max(min, 1))}.");
         if (value < min || value > max) throw new InvalidDataException($"{what} has to be between {Num(min)} and {Num(max)}.");
         return value;
     }

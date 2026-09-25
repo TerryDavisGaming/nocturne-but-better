@@ -115,7 +115,7 @@ internal sealed class BattleDraft
                     problems.Add($"{enemyFile} is missing; saving an enemy change writes a new one");
                     enemy = new JsonObject(NodeOptions);
                 }
-                catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or UnauthorizedAccessException)
+                catch (Exception ex) when (IsFileProblem(ex))
                 {
                     // The file is there: it is never saved over, so nothing in it is lost.
                     locked = $"{enemyFile} can't be read ({ex.Message}). Fix it by hand, then open the battle again. Until then the enemy can't be changed here.";
@@ -189,6 +189,8 @@ internal sealed class BattleDraft
 
     private void UpdateChartMusic(string audio)
     {
+        // Only a chart file of its own is written: never battle.json, the song, the card or the enemy's file.
+        if (ChartFileProblem() != null) return;
         string? chart = PackageFiles.SafeName(ChartPath);
         if (chart == null) return;
         string path = Path.Combine(Folder, chart.Replace('/', Path.DirectorySeparatorChar));
@@ -290,7 +292,7 @@ internal sealed class BattleDraft
             if (chart != null)
                 chartMusic = (ChartText.Parse(ReadText(Path.Combine(Folder, chart.Replace('/', Path.DirectorySeparatorChar)), BattlePackage.MaxChartBytes)).GetTag("MUSIC") ?? "").Trim();
         }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException) { }
+        catch (Exception ex) when (IsFileProblem(ex)) { }
         return chartMusic;
     }
 
@@ -318,6 +320,13 @@ internal sealed class BattleDraft
         }
     }
 
+    /// <summary>
+    /// Why the Charts page can't edit the chart file battle.json names, or null when it can (see
+    /// BattleChartTarget.ChartFileProblem): an .sm file of its own, not the song, card or enemy file.
+    /// </summary>
+    internal string? ChartFileProblem() => BattleChartTarget.ChartFileProblem(Folder, ChartPath,
+        ("song", EffectiveAudio), ("card image", Card), ("enemy file", enemyFile), ("dialogue", GetString(root, "dialogue")));
+
     private int? inferredLanes;
 
     /// <summary>
@@ -344,7 +353,7 @@ internal sealed class BattleDraft
             foreach (var block in parsed.Blocks)
                 if (ChartText.HasNotes(block)) return block.Lanes;
         }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException) { }
+        catch (Exception ex) when (IsFileProblem(ex)) { }
         return 4;
     }
 
@@ -837,6 +846,14 @@ internal sealed class BattleDraft
             throw new InvalidDataException($"{name} has {key} twice (letter case doesn't make two keys different)");
         }
     }
+
+    /// <summary>
+    /// Whether an exception is trouble with one battle's files: one that can't be read or isn't
+    /// valid, or a name in battle.json that can't be a path (a control character in it makes .NET
+    /// throw ArgumentException). Such a battle shows the problem, and the others still list.
+    /// </summary>
+    internal static bool IsFileProblem(Exception ex) =>
+        ex is IOException or InvalidDataException or JsonException or UnauthorizedAccessException or ArgumentException or NotSupportedException;
 
     internal static string ReadText(string path, long maxBytes)
     {
