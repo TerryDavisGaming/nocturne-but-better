@@ -29,6 +29,8 @@ internal static partial class EnemyArt
     private static CustomBattles.Battle? pendingBattle;
     private static ArtSet? pendingSet;
     private static string? pendingText;
+    // The enemy whose death the game played last (PlayDeath), for the attack fade; the next Initialize clears it.
+    private static IntPtr deadView;
     private static bool reportedHook;
     /// <summary>
     /// How long a battle's card must stay highlighted in the arcade before its art starts loading, so
@@ -78,6 +80,12 @@ internal static partial class EnemyArt
         return f != null && view != null && f.AttackShowing && f.ViewPointer == view.Pointer;
     }
 
+    /// <summary>
+    /// Whether the game played this enemy's death. Its health can reach 0 (the view's "murdered")
+    /// while the fight goes on, in battles whose enemies are defeated only by a flag.
+    /// </summary>
+    internal static bool Dead(CombatEnemyView view) => installed ? view.Pointer == deadView : view.murdered;
+
     // ---- hooks ------------------------------------------------------------------------------------
 
     // Before the game loads the enemy's art: a custom-art enemy's art is loaded now, and once its
@@ -93,6 +101,7 @@ internal static partial class EnemyArt
             pendingView = IntPtr.Zero;
             pendingSet = null;
             pendingText = null;
+            deadView = IntPtr.Zero;
             if (!installed) return;
             var data = model?.Data;
             var battle = data != null && data ? CustomBattles.FindEnemy(data) : null;
@@ -217,6 +226,7 @@ internal static partial class EnemyArt
     {
         try
         {
+            if (__instance != null) deadView = __instance.Pointer;
             var f = fight;
             if (f != null && f.Set != null && __instance != null && __instance.Pointer == f.ViewPointer) f.Die();
         }

@@ -113,7 +113,7 @@ internal static class EnemyAttackFade
             }
             var enemy = _enemy;
             // A defeated enemy is left to the game's own death effect.
-            bool alive = enemy && !enemy!.murdered;
+            bool alive = enemy && !EnemyArt.Dead(enemy!);
             float target = alive && opacity < 1f && Attacking(enemy!) ? opacity : 1f;
             _ramp = alive ? Mathf.MoveTowards(_ramp, target, Time.unscaledDeltaTime / RampSeconds) : 1f;
             bool faded = Apply(_enemySprites, _ramp, dying: enemy && !alive);
