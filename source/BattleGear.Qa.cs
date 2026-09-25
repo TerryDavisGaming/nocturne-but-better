@@ -2,8 +2,8 @@ namespace NocturneFlatScroll;
 
 /// <summary>
 /// A QA aid for in-game tests: with the environment variable NFS_QA_GEARDUMP=1, every arcade
-/// battle logs the equipment, gear counts and stats the game reads, at its start (before and
-/// after a set-gear swap) and after it ends, so the lead can compare them.
+/// battle logs the equipment, gear counts, level and stats the game reads, at its start (before
+/// and after a set-gear swap or a set level) and after it ends, so the lead can compare them.
 /// </summary>
 internal static partial class BattleGear
 {
@@ -66,10 +66,24 @@ internal static partial class BattleGear
     {
         try
         {
-            var model = GameDataManager.PlayerData?.TryCast<PlayerDataManager>()?.statModel;
-            if (model == null) return "unknown";
-            return string.Join(" ", DumpedStats.Select(s => $"{s.Name}={model[s.Stat]:0.##}"));
+            var player = GameDataManager.PlayerData?.TryCast<PlayerDataManager>();
+            var model = player?.statModel;
+            if (player == null || model == null) return "unknown";
+            // The level the game has now (it works it out with the stats), first.
+            return $"Level={player.PlayerLevel} " + string.Join(" ", DumpedStats.Select(s => $"{s.Name}={model[s.Stat]:0.##}"));
         }
         catch (Exception ex) { return "unreadable (" + ex.Message + ")"; }
     }
+
+    // ---- for the QA drivers: reads only --------------------------------------------------------------
+
+    /// <summary>The level the game's stat updates use now instead of the player's, or null.</summary>
+    internal static int? QaLevelOverride => levelOverride;
+
+    /// <summary>Whether achievements are held back now (a set-gear or set-level battle, or a test play).</summary>
+    internal static bool QaHoldsAchievements => setBattle != null || swap != null || levelOverride != null || TestPlay.Active;
+
+    /// <summary>The level a battle asking for <paramref name="level"/> would play at, or null when the game's levels can't be read. Changes nothing.</summary>
+    internal static int? QaClampLevel(int level) =>
+        GameMaxLevel() is int max ? Math.Clamp(level, LevelDefinition.MinLevel, max) : null;
 }
