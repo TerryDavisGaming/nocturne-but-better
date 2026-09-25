@@ -464,7 +464,8 @@ internal static class CustomBattles
         return (CardImages.Placeholder, null);
     }
 
-    private static class CardImages
+    /// <summary>Card images as textures and sprites; the battle creator shows its card preview with them too.</summary>
+    internal static class CardImages
     {
         // ImageConversion.LoadImage was stripped from the game's managed code, but Unity still
         // registers its native call, which is called directly here.
