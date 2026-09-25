@@ -496,13 +496,18 @@ internal sealed class BattlePackage
     internal ChartText Chart = new();
     /// <summary>The authored chart for each of the game's six difficulty slots, or null.</summary>
     internal ChartText.NoteBlock?[] Slots = new ChartText.NoteBlock?[6];
-    /// <summary>The .sm the game plays: six blocks in slot order.</summary>
+    /// <summary>The chart the game plays (six blocks in slot order) and how #OFFSET was baked into it.</summary>
+    internal ChartOffset.Result Baked = new() { Chart = new ChartText() };
+    /// <summary>The chart the game plays: six blocks in slot order, with #OFFSET baked in.</summary>
+    internal ChartText PlayableChart => Baked.Chart;
+    /// <summary>The .sm the game plays, <see cref="PlayableChart"/>'s text.</summary>
     internal string PlayableText = "";
-    /// <summary>The last note row over every difficulty, so each one runs as long as the song.</summary>
+    /// <summary>The last note row over every difficulty of the chart the game plays, so each one runs as long as the song.</summary>
     internal int LastNoteRow;
     /// <summary>
-    /// #OFFSET, as in StepMania: beat 0 is at audio file time -OFFSET. The game's chart reader
-    /// applies it; the audio itself always starts with the battle's clock.
+    /// #OFFSET, as in StepMania: beat 0 is at audio file time -OFFSET. The game itself ignores it,
+    /// so it is baked into the chart the game plays (<see cref="Baked"/>); the audio always starts
+    /// with the battle's clock.
     /// </summary>
     internal double Offset;
     /// <summary>Things that don't stop the song from playing, for the log.</summary>
@@ -565,14 +570,16 @@ internal sealed class BattlePackage
         song.Slots = song.Chart.SongSlots(song.Lanes, song.Problems);
         if (song.Slots.All(s => s == null))
             throw new InvalidDataException("the chart has no playable difficulty" + (song.Problems.Count > 0 ? ": " + string.Join("; ", song.Problems) : ""));
-        song.PlayableText = song.Chart.BuildPlayableSong(song.Slots);
-        song.LastNoteRow = song.Slots.Where(s => s != null).Max(s => ChartText.LastNoteRow(s!));
         song.Offset = double.TryParse(song.Chart.GetTag("OFFSET"), NumberStyles.Float, CultureInfo.InvariantCulture, out double offset) ? offset : 0;
         if (Math.Abs(song.Offset) > LeadIn.MaxOffset)
             throw new InvalidDataException($"#OFFSET is {song.Offset:0.###} s; it can be at most {LeadIn.MaxOffset:0} s either way");
         // The battle's clock starts with the audio, so a chart that starts before it loses its start.
         if (song.Offset > 0.001 && BattleChartFile.NoteBeforeSongStart(song.Chart, song.Slots, song.Lanes))
             song.Problems.Add($"#OFFSET is {song.Offset.ToString("0.###", CultureInfo.InvariantCulture)} s, so beat 0 comes before the audio starts; notes in the chart's first {song.Offset.ToString("0.###", CultureInfo.InvariantCulture)} s can't be played");
+        // The game ignores #OFFSET, so the chart it plays has it baked in.
+        song.Baked = ChartOffset.Bake(song.Chart.PlayableSong(song.Slots));
+        song.PlayableText = song.PlayableChart.Write();
+        song.LastNoteRow = song.PlayableChart.Blocks.Max(ChartText.LastNoteRow);
 
         // The audio: battle.json's, else the chart's #MUSIC.
         string audioName = audio ?? manifest.audio ?? song.Chart.GetTag("MUSIC") ?? "";
@@ -830,8 +837,8 @@ internal sealed class BattlePackage
 /// Where a song file sits on the battle's clock. The battle starts the music at clock time -0.1 s
 /// or a moment later, and the player starts a little before that, so it must be able to play
 /// from there: it plays silence before the file's first sample when that comes later. The clock
-/// is the song file's own time (the game applies the chart's #OFFSET to the notes itself), so a
-/// song's first sample is at 0.
+/// is the song file's own time (the chart's #OFFSET is baked into the chart the game plays, see
+/// <see cref="ChartOffset"/>), so a song's first sample is at 0.
 /// </summary>
 internal static class LeadIn
 {

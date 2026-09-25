@@ -267,13 +267,19 @@ internal static class ChartSwap
                 if (maps != null && index < maps.Length && maps[index]) events = ChartText.Parse(maps[index].text);
             }
             chart.Chart.Validate(chart.BlockIndex);
-            var built = NotesLoaderSM.Instance.LoadFromText(chart.Chart.BuildPlayable(chart.BlockIndex, events));
+            var playable = chart.Chart.Playable(chart.BlockIndex, events);
+            // With its own song file the clock is the file's time, so #OFFSET is baked in as a
+            // custom battle's is. On the game's music the game ignores it, as for its own charts.
+            var source = CustomMusic.SourceFor(chart);
+            var baked = source != null ? ChartOffset.Bake(playable) : null;
+            if (baked != null) playable = baked.Chart;
+            var built = NotesLoaderSM.Instance.LoadFromText(playable.Write());
             if (built == null || built.steps == null || built.steps.Count == 0 || built.timingData == null)
                 throw new InvalidDataException("the game's reader found no playable chart in it");
             __result = built;
-            ScrollSpeedHooks.Prepare(chart.Chart);
-            CustomMusic.Prepare(CustomMusic.SourceFor(chart), __instance, customBattle: false);
-            ModLog.Info($"Playing custom chart {chart.DisplayName} for {song.name}.");
+            ScrollSpeedHooks.Prepare(playable);
+            CustomMusic.Prepare(source, __instance, customBattle: false);
+            ModLog.Info($"Playing custom chart {chart.DisplayName} for {song.name}{(baked is { Changed: true } ? $" ({baked.Describe()})" : "")}.");
             return false;
         }
         catch (Exception ex)
@@ -286,7 +292,10 @@ internal static class ChartSwap
         }
     }
 
-    /// <summary>A custom battle's chart: its six difficulty slots, read by the game's own reader.</summary>
+    /// <summary>
+    /// A custom battle's chart: its six difficulty slots, with #OFFSET baked in (see
+    /// <see cref="ChartOffset"/>), read by the game's own reader.
+    /// </summary>
     private static bool CreateBattleBeatmap(WwiseConductor conductor, CustomBattles.Battle custom, ref SmSongData __result)
     {
         CustomMusic.Prepare(custom.Music, conductor, customBattle: true);
@@ -296,13 +305,14 @@ internal static class ChartSwap
             if (built == null || built.steps == null || built.steps.Count == 0 || built.timingData == null)
                 throw new InvalidDataException("the game's reader found no playable chart in it");
             __result = built;
-            ScrollSpeedHooks.Prepare(custom.Chart);
-            ModLog.Info($"Playing custom battle {custom.Title} ({custom.Lanes} lanes).");
+            ScrollSpeedHooks.Prepare(custom.PlayableChart);
+            var baked = custom.Package.Baked;
+            ModLog.Info($"Playing custom battle {custom.Title} ({custom.Lanes} lanes{(baked.Changed ? "; " + baked.Describe() : "")}).");
             return false;
         }
         catch (Exception ex)
         {
-            // The song's beatmap holds the same chart, so the game's own read of it is the fallback.
+            // The song's beatmap holds the same chart (baked the same way), so the game's own read of it is the fallback.
             ModLog.Error($"Custom battle {custom.Title} could not be built, so the game reads its chart: {ex}");
             return true;
         }

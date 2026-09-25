@@ -122,13 +122,6 @@ internal static partial class ChartEditor
             Radar = "0,0,0,0,0",
             Notes = new EditorChart(ch.Lanes) { Notes = kept }.WriteNotes(),
         });
-        string? problem = ReaderProblem(text, out string playable);
-        if (problem != null)
-        {
-            ModLog.Error($"Test play: the game can't read the test chart for {label}: {problem}");
-            Say("The game can't read this chart: " + problem, 8f);
-            return null;
-        }
 
         // Partway in, only the editor's song can follow; from the start, the game's own music
         // plays (or the chart's #MUSIC file), exactly as in the arcade.
@@ -146,6 +139,15 @@ internal static partial class ChartEditor
             fallsBack = source != null;
             musicName = source != null ? "the chart's #MUSIC file" : "the game's (Wwise)";
         }
+        // The #MUSIC file's clock is its own time, so #OFFSET is baked in as the arcade does; the
+        // game's music and the editor's (on the chart's clock) keep ignoring it.
+        string? problem = ReaderProblem(text, fallsBack, out string playable, out var played);
+        if (problem != null)
+        {
+            ModLog.Error($"Test play: the game can't read the test chart for {label}: {problem}");
+            Say("The game can't read this chart: " + problem, 8f);
+            return null;
+        }
         return new TestPlay.Run
         {
             Kind = TestPlay.Kind.GameSong,
@@ -154,7 +156,8 @@ internal static partial class ChartEditor
             Difficulty = TestPlay.PlayerDifficulty(),
             T0 = t0,
             PlayableText = playable,
-            Chart = text,
+            Chart = played.Chart,
+            ChartShift = played.Shift,
             Music = source,
             MusicFallsBackToWwise = fallsBack,
             MusicName = musicName,
@@ -231,6 +234,7 @@ internal static partial class ChartEditor
             MusicName = source != null ? "the editor's music" : "the battle's file",
             Label = label,
             FirstRow = firstRow,
+            ChartShift = package.Baked.Shift,
             Notes = kept.Count,
             Events = tested.Count,
             Carried = carried,
@@ -269,13 +273,19 @@ internal static partial class ChartEditor
             .Select(e => new ChartEvent { Time = e.Time, Length = e.Length, Mods = e.Mods })
             .ToList();
 
-    /// <summary>Checks a test chart with the game's own reader; the reason it can't be played, or null.</summary>
-    private static string? ReaderProblem(ChartText text, out string playable)
+    /// <summary>
+    /// Builds a test chart the game plays, with #OFFSET baked in when <paramref name="bakeOffset"/>,
+    /// and checks it with the game's own reader; the reason it can't be played, or null.
+    /// </summary>
+    private static string? ReaderProblem(ChartText text, bool bakeOffset, out string playable, out ChartOffset.Result played)
     {
         playable = "";
+        played = new ChartOffset.Result { Chart = text };
         try { text.Validate(0); }
         catch (InvalidDataException ex) { return ex.Message; }
-        playable = text.BuildPlayable(0, null);
+        var chart = text.Playable(0, null);
+        played = bakeOffset ? ChartOffset.Bake(chart) : new ChartOffset.Result { Chart = chart };
+        playable = played.Chart.Write();
         try
         {
             var built = NotesLoaderSM.Instance.LoadFromText(playable);

@@ -14,8 +14,9 @@ namespace NocturneFlatScroll;
 /// from Wwise's position, so the notes follow the file. No Wwise cue is involved: the battle ends a beat after the
 /// chart's last note, and the song fades when the game's victory, pre-end or leave-combat music
 /// would start. The conductor's clock is the song file's own time, as it is the Wwise track's
-/// time for the game's songs. The game's chart reader applies #OFFSET itself (beat 0 comes at
-/// clock time -OFFSET, as in StepMania), so the file is never shifted by it here.
+/// time for the game's songs, so the file is never shifted here. The game ignores the chart's
+/// #OFFSET, so for these battles it is baked into the chart the game reads (ChartOffset: beat 0 at
+/// clock time -OFFSET, as in StepMania).
 /// </summary>
 internal static class CustomMusic
 {
@@ -241,7 +242,7 @@ internal static class CustomMusic
         }
         byte[] bytes = source.Read();
         var (stereo, rate) = AudioFile.Decode(bytes, source.Name);
-        // The file's first sample is at clock time 0; the chart's #OFFSET is the game's to apply.
+        // The file's first sample is at clock time 0; the chart's #OFFSET is baked into its notes.
         return new Song { Stereo = stereo, Rate = rate, Origin = 0 };
     }
 

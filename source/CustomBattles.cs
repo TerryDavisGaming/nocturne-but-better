@@ -49,6 +49,8 @@ internal static class CustomBattles
         internal int Lanes => Package.Lanes;
         internal int LastNoteRow => Package.LastNoteRow;
         internal string PlayableText => Package.PlayableText;
+        /// <summary>The chart the game plays (#OFFSET baked in); <see cref="Chart"/> is the one authored.</summary>
+        internal ChartText PlayableChart => Package.PlayableChart;
         internal ChartText Chart => Package.Chart;
     }
 
