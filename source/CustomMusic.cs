@@ -14,8 +14,11 @@ namespace NocturneFlatScroll;
 /// from Wwise's position, so the notes follow the file. No Wwise cue is involved: the battle ends a beat after the
 /// chart's last note, and the song fades when the game's victory, pre-end or leave-combat music
 /// would start. The conductor's clock is the song file's own time, as it is the Wwise track's
-/// time for the game's songs. The game's chart reader applies #OFFSET itself (beat 0 comes at
-/// clock time -OFFSET, as in StepMania), so the file is never shifted by it here.
+/// time for the game's songs, so the file is never shifted here. The game ignores the chart's
+/// #OFFSET, so for these battles it is baked into the chart the game reads (ChartOffset: beat 0 at
+/// clock time -OFFSET, as in StepMania). A battle whose first note comes early starts its clock
+/// before 0 (ChartSwap's lead-in): the music from before the battle fades as its notes start, and
+/// the song still starts at clock time -0.1 s.
 /// </summary>
 internal static class CustomMusic
 {
@@ -59,6 +62,7 @@ internal static class CustomMusic
         internal bool StartCue;            // whether the conductor was waiting for Wwise's start cue
         internal bool HeldCombat;          // the wait set waitForStartCue, so combat waits too
         internal bool Waited;
+        internal bool Silenced;            // the music from before the battle was faded as the notes started
     }
 
     // The conductor ignores positions for a playing id of 0, and real Wwise ids count up from 1.
@@ -241,7 +245,7 @@ internal static class CustomMusic
         }
         byte[] bytes = source.Read();
         var (stereo, rate) = AudioFile.Decode(bytes, source.Name);
-        // The file's first sample is at clock time 0; the chart's #OFFSET is the game's to apply.
+        // The file's first sample is at clock time 0; the chart's #OFFSET is baked into its notes.
         return new Song { Stereo = stereo, Rate = rate, Origin = 0 };
     }
 
@@ -312,10 +316,12 @@ internal static class CustomMusic
             if (!custom)
             {
                 ModLog.Error($"The custom music {p.Source.Name} couldn't play, so the game's music plays: {reason}");
+                // The silence from the notes' start would keep the game's music quiet.
+                if (p.Silenced) TakeBackSilence();
                 return true;
             }
             ModLog.Error($"The custom music {p.Source.Name} couldn't play, so the battle has no music: {reason}");
-            try { StartWithoutMusic(__instance, p.StartCue); }
+            try { StartWithoutMusic(__instance, p.StartCue, p.Silenced); }
             catch (Exception inner) { Report(inner); }
             return false;
         }
@@ -355,7 +361,7 @@ internal static class CustomMusic
         c.activePlayingDuration = NoSegmentEnd;
         c.currentWwiseTrackTime = SegmentTime(player);
         c.playingWwiseTrack = true;
-        PostSilence();
+        if (!p.Silenced) PostSilence();
         if (p.StartCue) InvokeStartCue(c);
         ModLog.Info($"Custom music {playingName} started at song time {now:0.000} ({player.Length:0.0}s).");
     }
@@ -368,12 +374,12 @@ internal static class CustomMusic
     }
 
     /// <summary>A custom battle whose file failed still plays its chart, on the game's own clock.</summary>
-    private static void StartWithoutMusic(WwiseConductor c, bool startCue)
+    private static void StartWithoutMusic(WwiseConductor c, bool startCue, bool silenced)
     {
         c.waitForStartCue = false;
         c.waitForEndCue = false;
         c.playingWwiseTrack = true;
-        PostSilence();
+        if (!silenced) PostSilence();
         if (startCue) InvokeStartCue(c);
     }
 
@@ -391,10 +397,15 @@ internal static class CustomMusic
     // move: the same checks, the same drift for the notes to catch up, the same large-drift event.
     // (Not a patch on AudioController.TryGetSongPosition: MelonLoader's Il2CppInterop can't call a
     // patched method with an out double from native code, so any patch there breaks every battle.)
+    // Before the song starts, SongUpdate calls it too, to move the notes of a lead-in (BeforeSong).
     private static void BeatmapPrefix(WwiseConductor __instance, double deltaTime)
     {
         var p = player;
-        if (p == null) return;
+        if (p == null)
+        {
+            BeforeSong(__instance);
+            return;
+        }
         try
         {
             var c = conductor;
@@ -421,6 +432,23 @@ internal static class CustomMusic
                 loggedFollow = true;
                 ModLog.Info($"Custom music {playingName}: the chart follows the song file (clock {position:0.000}, drift {drift:0.0000}).");
             }
+        }
+        catch (Exception ex) { Report(ex); }
+    }
+
+    // A battle whose clock starts before its song (ChartSwap's lead-in) moves its notes before the
+    // conductor starts the music: SongUpdate calls UpdateBeatmapPosition while the clock is before
+    // -0.1 s. The music from before the battle fades as those notes start, as it does when the song
+    // starts with the clock, rather than playing on under them until the song starts.
+    private static void BeforeSong(WwiseConductor c)
+    {
+        var p = pending;
+        if (p == null || p.Silenced) return;
+        try
+        {
+            if (!c || c.Pointer != p.Conductor) return;
+            p.Silenced = true;
+            PostSilence();
         }
         catch (Exception ex) { Report(ex); }
     }
@@ -545,7 +573,11 @@ internal static class CustomMusic
     private static void ExitPostfix()
     {
         Stop();
-        if (!silencePosted) return;
+        if (silencePosted) TakeBackSilence();
+    }
+
+    private static void TakeBackSilence()
+    {
         silencePosted = false;
         try { AkSoundEngine.SetState("Global_Silence", "None"); }
         catch (Exception ex) { Report(ex); }

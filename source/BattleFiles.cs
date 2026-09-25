@@ -618,9 +618,11 @@ internal static class BattleFiles
         string look = package.EnemyPlaceholder;
         var noIdle = new[] { $"the enemy is set to custom art but has no \"art\", so it looks like {look}", $"the enemy art has no idle, so it looks like {look}" };
         // A positive #OFFSET: the creator's own chart editor makes one when beats are moved earlier
-        // from 0 (the Timing tab's "-10 ms"). This is BattlePackage.Load's message for it.
+        // from 0 (the Timing tab's "-10 ms"). This is BattlePackage.Load's message for the notes it
+        // leaves out before the song starts.
         string offset = package.Offset.ToString("0.###", CultureInfo.InvariantCulture);
-        string loaderOffset = $"#OFFSET is {offset} s, so beat 0 comes before the audio starts; notes in the chart's first {offset} s can't be played";
+        int dropped = package.Baked.Dropped;
+        string loaderOffset = BattlePackage.EarlyNotesProblem(package.Offset, dropped);
         var dialogue = new Dictionary<string, string>();
         foreach (var p in package.Dialogue.Problems) dialogue.TryAdd(p.Text, p.Plain);
 
@@ -637,8 +639,8 @@ internal static class BattleFiles
             {
                 if (EnemyChoices.Problem(requested, enemy.advanced) is { } plain) words.Add(plain.TrimEnd('.'));
             }
-            else if (package.Offset > 0.001 && problem == loaderOffset)
-                words.Add($"beat 0 is {offset} s before the song starts, so notes before 0:00 can't be played (the chart editor's Timing page moves it)");
+            else if (dropped > 0 && package.Offset > 0 && problem == loaderOffset)
+                words.Add($"beat 0 is {offset} s before the song starts, so {(dropped == 1 ? "a note" : $"{dropped} notes")} before 0:00 can't be played (the chart editor's Timing page moves it)");
             else if (package.CustomArt && noIdle.Contains(problem))
                 words.Add($"custom art needs an idle; until it has one, the enemy looks like {EnemyChoices.NameOf(look)}");
             else if (problem == scriptedBoss)

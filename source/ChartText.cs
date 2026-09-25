@@ -184,14 +184,17 @@ internal sealed class ChartText
     /// When <paramref name="songEvents"/> is given, its #ATTACKS replace this chart's, which keeps
     /// the song's own enemy events.
     /// </summary>
-    internal string BuildPlayable(int blockIndex, ChartText? songEvents)
+    internal string BuildPlayable(int blockIndex, ChartText? songEvents) => Playable(blockIndex, songEvents).Write();
+
+    /// <summary>The chart <see cref="BuildPlayable"/> writes.</summary>
+    internal ChartText Playable(int blockIndex, ChartText? songEvents)
     {
         var playable = new ChartText();
         playable.Tags.AddRange(Tags);
         if (songEvents != null) playable.SetTag("ATTACKS", songEvents.GetTag("ATTACKS") ?? "");
         var block = Blocks[blockIndex];
         foreach (var name in GameDifficultyNames) playable.Blocks.Add(block.CloneAs(name));
-        return playable.Write();
+        return playable;
     }
 
     // ---- custom battles ---------------------------------------------------------------------------
@@ -313,7 +316,10 @@ internal sealed class ChartText
     /// six blocks, one per difficulty slot in the game's order. A slot without a chart of its own
     /// plays the nearest one, so every difficulty tab works; other blocks in the file are left out.
     /// </summary>
-    internal string BuildPlayableSong(NoteBlock?[] slots)
+    internal string BuildPlayableSong(NoteBlock?[] slots) => PlayableSong(slots).Write();
+
+    /// <summary>The chart <see cref="BuildPlayableSong"/> writes.</summary>
+    internal ChartText PlayableSong(NoteBlock?[] slots)
     {
         if (slots.Length != GameDifficultyNames.Length) throw new ArgumentException("a song has six difficulty slots", nameof(slots));
         var playable = new ChartText();
@@ -323,6 +329,6 @@ internal sealed class ChartText
             var block = NearestSlot(slots, s) ?? throw new InvalidDataException("the song has no playable difficulty");
             playable.Blocks.Add(block.CloneAs(GameDifficultyNames[s]));
         }
-        return playable.Write();
+        return playable;
     }
 }

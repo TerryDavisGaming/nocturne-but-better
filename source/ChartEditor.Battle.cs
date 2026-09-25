@@ -12,9 +12,10 @@ namespace NocturneFlatScroll;
 
 // Custom battles: the editor opened on a battle's own chart (one .sm with every difficulty) and
 // its own song file. The six difficulty tabs each edit one note block; the timing, events and
-// scroll speeds in the file's header are shared by all of them. #OFFSET works as in the game
-// (beat 0 at song time -#OFFSET), and the Timing tab can set it along with the tempo. Saving
-// writes the whole file; exporting is the battle creator's job.
+// scroll speeds in the file's header are shared by all of them. #OFFSET works as in StepMania
+// (beat 0 at song time -#OFFSET), as the battle plays it: the game itself ignores #OFFSET, so the
+// battle bakes it into the chart the game reads (ChartOffset). The Timing tab can set it along with
+// the tempo. Saving writes the whole file; exporting is the battle creator's job.
 internal static partial class ChartEditor
 {
     private static BattleChartTarget? battle;
@@ -112,7 +113,7 @@ internal static partial class ChartEditor
         header = source;
         editing = null;
         chart = new EditorChart(lanes);
-        // Unlike a game song's, a battle's #OFFSET counts: the game puts beat 0 at song time -#OFFSET.
+        // Unlike a game song's, a battle's #OFFSET counts: the battle puts beat 0 at song time -#OFFSET.
         chart.ReadTiming(source);
         claimed = BattleChartFile.ClaimBlocks(source, lanes);
         for (int s = 0; s < BattleChartFile.SlotCount; s++)
@@ -445,15 +446,15 @@ internal static partial class ChartEditor
     }
 
     /// <summary>
-    /// The arcade only lists a battle whose playable chart the game's own reader takes
-    /// (CustomBattles.CheckChart), so the same reader checks it here. If the reader itself fails,
+    /// The arcade only lists a battle whose playable chart (#OFFSET baked in) the game's own reader
+    /// takes (CustomBattles.CheckChart), so the same reader checks it here. If the reader itself fails,
     /// the save goes ahead and the arcade reports it. The battle creator asks it about a battle made
     /// from an osu!mania beatmap only when its own check (BattleCreator.GameCheck) didn't reach it.
     /// </summary>
     internal static string? GameReaderProblem(string text, int lanes)
     {
         var parsed = ChartText.Parse(text);
-        string playable = parsed.BuildPlayableSong(parsed.SongSlots(lanes, new List<string>()));
+        string playable = ChartOffset.Bake(parsed.PlayableSong(parsed.SongSlots(lanes, new List<string>()))).Chart.Write();
         try
         {
             var built = NotesLoaderSM.Instance.LoadFromText(playable);
@@ -567,7 +568,7 @@ internal static partial class ChartEditor
         sb.Append("<color=#EAE6F5>Tempo</color> ");
         sb.Append(bpms.Count == 1 ? $"{bpms[0].Bpm:0.##} BPM" : string.Join(", ", bpms.Take(3).Select(b => $"beat {b.Beat:0.##}: {b.Bpm:0.##}")) + (bpms.Count > 3 ? $", and {bpms.Count - 3} more" : ""));
         sb.Append($"\n<color=#EAE6F5>Beat 0</color> at {FormatTime(-chart.Offset)} in the song (#OFFSET {chart.Offset.ToString("0.####", CultureInfo.InvariantCulture)})\n");
-        if (chart.Offset > 0.001) sb.Append("<color=#F2B02E>Beat 0 is before the song starts, so notes before 0:00 can't be played.</color>\n");
+        if (chart.Offset > ChartOffset.EarlyTolerance) sb.Append("<color=#F2B02E>Beat 0 is before the song starts, so notes before 0:00 can't be played.</color>\n");
         sb.Append("<color=#EAE6F5>Tap tempo</color> ");
         string tapKey = ShortKey(EditorAction.NoteTicks);
         sb.Append(taps.Bpm is double tapped

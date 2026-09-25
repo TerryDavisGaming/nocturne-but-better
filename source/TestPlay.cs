@@ -28,15 +28,16 @@ internal static class TestPlay
         internal int Melody;                       // 0-based, for the whole battle
         internal int Difficulty;                   // the arcade difficulty the battle plays
         internal double T0;                        // clock start in seconds; 0 is the usual start
-        internal string? PlayableText;             // Kind.GameSong: the test chart in all six slots
-        internal ChartText? Chart;                 // Kind.GameSong: its scroll speeds
+        internal string? PlayableText;             // Kind.GameSong: the test chart in all six slots (#OFFSET baked in with a #MUSIC file)
+        internal ChartText? Chart;                 // Kind.GameSong: PlayableText's chart, for its scroll speeds and first note
         internal CustomMusic.Source? Music;        // Kind.GameSong: null plays the game's own music
         internal bool MusicFallsBackToWwise;       // Kind.GameSong from the start with a #MUSIC file
         internal string MusicName = "";
         internal string Label = "";
         internal bool SkipReady;                   // QA hook only: no Ready prompt
         internal bool DialogueOn;                  // Kind.Battle: the chart editor's "Dialogue in tests"
-        internal int FirstRow, Notes, Events, Carried;   // for the log
+        internal int FirstRow, Notes, Events, Carried;   // for the log; FirstRow is the editor's row
+        internal int ChartShift;                   // for the log: how far #OFFSET moved the rows in the chart the game plays
         internal IntPtr Conductor;                 // the battle's conductor, once it takes the test
 
         /// <summary>
@@ -261,7 +262,8 @@ internal static class TestPlay
             outcome = null;
             returnedAt = -1f;
             loggedClaim = loggedFadeIn = loggedSaveBlock = false;
-            ModLog.Info($"Test play: starting {next.Kind} \"{next.Label}\" from {next.T0:0.000} s (first note row {next.FirstRow}, " +
+            string played = next.ChartShift != 0 ? $", row {next.FirstRow + next.ChartShift} in the chart the game plays" : "";
+            ModLog.Info($"Test play: starting {next.Kind} \"{next.Label}\" from {next.T0:0.000} s (first note row {next.FirstRow}{played}, " +
                         $"{next.Notes} notes, {next.Events} events, {next.Carried} carried), music: {next.MusicName}" +
                         $"{(next.Kind == Kind.Battle ? $", dialogue {(next.DialogueOn ? "on" : "off")}" : "")}.");
             // The game's own start (private in the game): the sting, the fade to black, then the battle.
