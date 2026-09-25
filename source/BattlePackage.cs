@@ -133,6 +133,8 @@ internal sealed class BattleManifest
     public JsonElement enemy { get; set; }
     // Reserved for boss-style dialogue.
     public string? dialogue { get; set; }
+    // The player's gear in this battle; missing means the player's own.
+    public JsonElement gear { get; set; }
 }
 
 /// <summary>
@@ -168,6 +170,56 @@ internal sealed class EnemyInfoBox
 {
     public string? title { get; set; }
     public string? description { get; set; }
+}
+
+/// <summary>The equipment slots a custom battle can set, named as battle.json names them.</summary>
+internal enum GearSlot { MainHand, Body, Head, OffHand, Amulet, Consumable }
+
+/// <summary>
+/// battle.json's "gear". Mode "player" (the default) fights with the player's own gear. Mode "set"
+/// gives the player exactly these items for this battle only; the player's own gear is back as it
+/// was afterwards. Slots hold the game's item ids (like "DBA1"); a missing or null slot is empty.
+/// The game allows one consumable use per battle.
+/// </summary>
+internal sealed class GearDefinition
+{
+    internal const int MaxCount = 99;
+
+    public string? mode { get; set; }
+    public string? mainHand { get; set; }
+    public string? body { get; set; }
+    public string? head { get; set; }
+    public string? offHand { get; set; }
+    public string? amulet { get; set; }
+    public GearConsumable? consumable { get; set; }
+    // Health upgrades (the game's Item_ExtraHealth count); null keeps the player's own.
+    public int? extraHealth { get; set; }
+
+    internal bool IsSet => "set".Equals(mode?.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The item id in a slot, or null when the slot is empty.</summary>
+    internal string? ItemFor(GearSlot slot)
+    {
+        string? id = slot switch
+        {
+            GearSlot.MainHand => mainHand,
+            GearSlot.Body => body,
+            GearSlot.Head => head,
+            GearSlot.OffHand => offHand,
+            GearSlot.Amulet => amulet,
+            _ => consumable?.item
+        };
+        return string.IsNullOrWhiteSpace(id) ? null : id!.Trim();
+    }
+
+    /// <summary>How many of the consumable the battle starts with (0 when there is none).</summary>
+    internal int ConsumableCount => ItemFor(GearSlot.Consumable) == null ? 0 : Math.Clamp(consumable?.count ?? 1, 1, MaxCount);
+}
+
+internal sealed class GearConsumable
+{
+    public string? item { get; set; }
+    public int? count { get; set; }
 }
 
 /// <summary>Which game enemies can stand in for a custom battle's enemy.</summary>
@@ -250,6 +302,8 @@ internal sealed class BattlePackage
     internal string ChartPath = DefaultChart;
     internal string? DialoguePath;
     internal EnemyDefinition Enemy = new();
+    /// <summary>The player's gear in this battle ("player" mode unless battle.json sets it).</summary>
+    internal GearDefinition Gear = new();
     /// <summary>The EnemyData asset to clone, after the checks.</summary>
     internal string EnemyPlaceholder = EnemyPlaceholders.Default;
 
@@ -358,8 +412,33 @@ internal sealed class BattlePackage
         if (song.Enemy.info != null && song.Enemy.info.Count > EnemyPlaceholders.MaxInfoBoxes)
             song.Problems.Add($"the enemy has {song.Enemy.info.Count} info boxes; the first {EnemyPlaceholders.MaxInfoBoxes} show");
 
+        song.Gear = ReadGear(manifest.gear, song.Problems);
+
         song.Fingerprint = string.Join("|", stamps);
         return song;
+    }
+
+    // The items themselves are checked against the game's database when the battle starts.
+    private static GearDefinition ReadGear(JsonElement gear, List<string> problems)
+    {
+        try
+        {
+            if (gear.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null) return new GearDefinition();
+            if (gear.ValueKind != JsonValueKind.Object) throw new InvalidDataException("\"gear\" must be an object");
+            var read = gear.Deserialize<GearDefinition>(JsonOptions) ?? new GearDefinition();
+            string mode = read.mode?.Trim() ?? "";
+            if (mode.Length > 0 && !mode.Equals("player", StringComparison.OrdinalIgnoreCase) && !read.IsSet)
+                throw new InvalidDataException($"\"mode\" must be \"player\" or \"set\", not \"{mode}\"");
+            if (read.extraHealth < 0) throw new InvalidDataException("\"extraHealth\" can't be below 0");
+            if (read.consumable?.count is int count && (count < 1 || count > GearDefinition.MaxCount))
+                problems.Add($"the consumable's count is {count}; it is kept between 1 and {GearDefinition.MaxCount}");
+            return read;
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidDataException)
+        {
+            problems.Add($"the gear couldn't be read ({ex.Message}); the player uses their own gear");
+            return new GearDefinition();
+        }
     }
 
     private static string Clean(string? text) => (text ?? "").Replace('\r', ' ').Replace('\n', ' ').Trim();
