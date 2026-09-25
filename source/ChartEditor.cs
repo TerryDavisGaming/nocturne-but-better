@@ -94,6 +94,8 @@ internal static partial class ChartEditor
     {
         // Unlocks the menus after a close, and keeps the cursor free while an editor is open.
         EditorOverlay.Update();
+        // QA only (NFS_QA_BATTLECHART): remove with BattleChartQa.cs once the battle creator opens battles.
+        BattleChartQa.Update();
         if (ui == null) return;
         try
         {
