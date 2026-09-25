@@ -221,6 +221,21 @@ internal sealed class BattleDraft
         return clean.Trim().TrimStart('#').Trim();
     }
 
+    /// <summary>
+    /// Notes what the battle was made from, like an osu!mania beatmap, in battle.json's "source"
+    /// (kept for reference; the loader doesn't read it). <paramref name="version"/> is the
+    /// importer's own, so battles from an older importer can be told apart.
+    /// </summary>
+    internal void SetSource(string kind, string file, long setId, string mapper, int version)
+    {
+        var source = new JsonObject(NodeOptions) { ["kind"] = CleanLine(kind), ["file"] = CleanLine(file) };
+        if (setId > 0) source["beatmapSetId"] = setId;
+        source["mapper"] = CleanLine(mapper);
+        source["version"] = version;
+        root["source"] = source;
+        changes++;
+    }
+
     /// <summary>Gives the battle a new id, for a copy that would otherwise share its scores with the original.</summary>
     internal void NewId() => SetString(root, "id", Guid.NewGuid().ToString("D"));
 

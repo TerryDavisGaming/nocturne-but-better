@@ -31,6 +31,9 @@ internal static class AudioFile
         catch (Exception ex) { throw new InvalidDataException($"{file} couldn't be decoded ({ex.GetType().Name}: {ex.Message})", ex); }
     }
 
+    /// <summary>Whether <see cref="Decode"/> reads these bytes as an MP3 (the first bytes decide, as there).</summary>
+    internal static bool IsMp3(byte[] bytes) => Detect(bytes) == Kind.Mp3;
+
     private static Kind Detect(byte[] b)
     {
         bool At(int p, string s)
