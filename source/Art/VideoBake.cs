@@ -184,7 +184,8 @@ internal static class VideoBake
     /// hit on the frame nearest <paramref name="hitSeconds"/> (battle seconds; null leaves it
     /// automatic); and from the video's own settings (<paramref name="video"/>), its move, mirror,
     /// loop, see-through colour and anything the loader doesn't know as they were, with its feet
-    /// and size moved to the sheet's frames, so it stands and shows as the video did.
+    /// and size moved to the sheet's frames, so it stands and shows as the video did (a video
+    /// moved by hand keeps standing on its frame's bottom edge).
     /// </summary>
     internal static List<(string Key, JsonNode Value)> Settings(Plan plan, string anim, JsonObject? video, double? hitSeconds)
     {
@@ -215,6 +216,12 @@ internal static class VideoBake
         }
         if (anim != "idle" && plan.Shrink < 0.9995 && !set.Any(s => s.Item1.Equals("scale", StringComparison.OrdinalIgnoreCase)))
             set.Add(("scale", Number(Math.Clamp(Math.Round(1 / plan.Shrink, 3), 0.05, 20))));
+        // A video stands on its frame's bottom edge, and its own move was set for that; once a
+        // see-through colour finds the character's feet, the move would count twice. So it keeps
+        // standing where it did.
+        bool feetSet = set.Any(s => s.Item1.Equals("feet", StringComparison.OrdinalIgnoreCase));
+        if (!feetSet && video.Any(p => p.Key.Equals("offset", StringComparison.OrdinalIgnoreCase)))
+            set.Add(("feet", new JsonArray(Number(plan.CellW / 2.0), Number(plan.CellH))));
         return set;
     }
 
