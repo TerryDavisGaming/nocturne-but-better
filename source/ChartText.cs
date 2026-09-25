@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace NocturneFlatScroll;
 
@@ -92,12 +91,7 @@ internal sealed class ChartText
             if (start < 0) break;
             int colon = s.IndexOf(':', start);
             if (colon < 0) break;
-            // Like StepMania, a value ends at ';' or where a new line starts another tag, so one
-            // missing ';' doesn't swallow the next tag.
-            int end = s.IndexOf(';', colon);
-            if (end < 0) end = s.Length;
-            var next = NextTag.Match(s, colon);
-            if (next.Success && next.Index < end) end = next.Index;
+            int end = ValueEnd(s, colon + 1);
             string key = s.Substring(start + 1, colon - start - 1).Trim();
             string value = s.Substring(colon + 1, end - colon - 1);
             i = end < s.Length && s[end] == ';' ? end + 1 : end;
@@ -120,7 +114,25 @@ internal sealed class ChartText
         return chart;
     }
 
-    private static readonly Regex NextTag = new(@"\n[ \t]*#", RegexOptions.Compiled);
+    /// <summary>
+    /// Where a tag's value that starts at <paramref name="from"/> ends. Like StepMania, a value ends
+    /// at ';' or at the line break before a line that starts another tag ('#' after spaces or
+    /// tabs), so one missing ';' doesn't swallow the next tag. It only looks as far as that end, so
+    /// reading a file takes one pass however it's laid out.
+    /// </summary>
+    private static int ValueEnd(string s, int from)
+    {
+        for (int k = from; k < s.Length; k++)
+        {
+            char c = s[k];
+            if (c == ';') return k;
+            if (c != '\n') continue;
+            int j = k + 1;
+            while (j < s.Length && (s[j] == ' ' || s[j] == '\t')) j++;
+            if (j < s.Length && s[j] == '#') return k;
+        }
+        return s.Length;
+    }
 
     /// <summary>Throws with a readable reason when a block can't be played.</summary>
     internal void Validate(int blockIndex)
