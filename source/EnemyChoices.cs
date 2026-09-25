@@ -139,11 +139,17 @@ internal static class EnemyChoices
         return EnemyPlaceholders.Resolve(name, true, new List<string>()) != name;
     }
 
-    /// <summary>What the loader says about the placeholder, or null when it plays as picked.</summary>
+    /// <summary>
+    /// Why the enemy won't play as the placeholder picked, in the creator's plain words (the same
+    /// rules as the loader's), or null when it plays as picked.
+    /// </summary>
     internal static string? Problem(string? asset, bool advanced)
     {
-        var problems = new List<string>();
-        EnemyPlaceholders.Resolve(asset, advanced, problems);
-        return problems.Count > 0 ? problems[0] : null;
+        string name = Normalize(asset);
+        string plain = NameOf(name), stand = NameOf(EnemyPlaceholders.Default);
+        if (IsBroken(name)) return $"{plain} can't be used (the game has no art for it). {stand} stands in.";
+        if (IsAdvanced(name) && !advanced) return $"{plain} needs Advanced bosses on. Until then, {stand} stands in.";
+        if (Find(name) == null) return $"\"{plain}\" isn't one of the game's enemies listed here. If the game has no enemy by that name, {stand} stands in.";
+        return null;
     }
 }

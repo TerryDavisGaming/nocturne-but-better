@@ -9,8 +9,8 @@ namespace NocturneFlatScroll;
 /// <summary>
 /// The battle creator's file work: making a new battle folder, copying songs and images into it,
 /// listing the battles, importing a .nbbbattle zip (safely: nothing lands outside the new folder,
-/// with size limits like the loader's), exporting one, and moving things to the Recycle Bin.
-/// This file has no Unity or game dependencies.
+/// with size limits like the loader's), exporting one, and moving things to the Recycle Bin
+/// (never deleting them for good). This file has no Unity or game dependencies.
 /// </summary>
 internal static class BattleFiles
 {
@@ -210,23 +210,59 @@ internal static class BattleFiles
 
     /// <summary>
     /// Of <paramref name="candidates"/> (paths inside the battle), the song and image files that
-    /// the saved battle.json no longer names. Only files in audio/ and images/ are ever listed.
+    /// the saved battle no longer names anywhere: not in battle.json, the enemy's file, a JSON file
+    /// they name (like the dialogue), or the chart's #MUSIC. Paths are compared as the files they
+    /// point at, so "audio/./a.ogg" and "audio/a.ogg" are the same file. Only files in audio/ and
+    /// images/ are ever listed, and nothing is when a file that could name them can't be read.
     /// </summary>
     internal static List<string> Unreferenced(string folder, IEnumerable<string> candidates)
     {
-        var draft = BattleDraft.Load(folder);
-        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { draft.Audio.Replace('\\', '/') };
-        if (draft.Card != null) used.Add(draft.Card.Replace('\\', '/'));
         var unused = new List<string>();
-        foreach (var candidate in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+        var names = BattleDraft.Load(folder).NamedFiles();
+        if (names == null) return unused;
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in names)
         {
-            string? name = PackageFiles.SafeName(candidate);
-            if (name == null || used.Contains(name)) continue;
-            if (!name.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) && !name.StartsWith("images/", StringComparison.OrdinalIgnoreCase)) continue;
-            string path = Path.Combine(folder, name.Replace('/', Path.DirectorySeparatorChar));
-            if (File.Exists(path) && IsInside(path, folder)) unused.Add(path);
+            string? full = FileIn(folder, name);
+            if (full == null || !used.Add(full)) continue;
+            // A JSON file the battle names (the enemy's, the dialogue) may name files too.
+            if (!full.EndsWith(".json", StringComparison.OrdinalIgnoreCase) || !File.Exists(full)) continue;
+            try
+            {
+                foreach (var inner in BattleDraft.Texts(BattleDraft.ParseAny(BattleDraft.ReadText(full, BattlePackage.MaxJsonBytes))))
+                    if (FileIn(folder, inner) is { } innerFull) used.Add(innerFull);
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or UnauthorizedAccessException or ArgumentException)
+            {
+                // What it names isn't known: keep every file.
+                return unused;
+            }
+        }
+        foreach (var candidate in candidates)
+        {
+            string? full = FileIn(folder, candidate);
+            if (full == null || used.Contains(full) || unused.Contains(full, StringComparer.OrdinalIgnoreCase)) continue;
+            string inside = Path.GetRelativePath(folder, full).Replace('\\', '/');
+            if (!inside.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) && !inside.StartsWith("images/", StringComparison.OrdinalIgnoreCase)) continue;
+            if (File.Exists(full)) unused.Add(full);
         }
         return unused;
+    }
+
+    /// <summary>The full path of a name inside the battle, or null when it isn't a path to something inside it.</summary>
+    private static string? FileIn(string folder, string name)
+    {
+        string? safe = PackageFiles.SafeName(name);
+        if (safe == null) return null;
+        try
+        {
+            string full = Path.GetFullPath(Path.Combine(folder, safe.Replace('/', Path.DirectorySeparatorChar))).TrimEnd('\\', '/');
+            return IsInside(full, folder) ? full : null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
     }
 
     // ---- the list of battles ----------------------------------------------------------------------
@@ -245,6 +281,8 @@ internal static class BattleFiles
         internal readonly List<string> Problems = new();
         /// <summary>battle.json couldn't be read, so the battle can't be opened.</summary>
         internal bool Broken;
+        /// <summary>The loader takes it (it has a chart and everything it needs), so the arcade lists it unless an earlier battle has its id.</summary>
+        internal bool Loads;
     }
 
     /// <summary>
@@ -259,9 +297,9 @@ internal static class BattleFiles
         foreach (var path in Candidates(root, 0))
         {
             var entry = File.Exists(path) ? ReadZip(path) : ReadFolder(path);
-            if (entry.Id.Length > 0)
+            // Like the arcade's scan: of the battles that load, the first with an id is used.
+            if (entry.Loads && entry.Id.Length > 0)
             {
-                // The arcade uses the first of two battles with one id.
                 if (ids.TryGetValue(entry.Id, out var first)) entry.Problems.Add($"it has the same id as {System.IO.Path.GetFileName(first)}, so the arcade skips it");
                 else ids[entry.Id] = path;
             }
@@ -269,6 +307,10 @@ internal static class BattleFiles
         }
         return entries;
     }
+
+    /// <summary>Whether the arcade's scan looks at this file or folder (so it is one of the battles in <paramref name="root"/>).</summary>
+    internal static bool IsScanned(string root, string path) =>
+        Directory.Exists(root) && Candidates(root, 0).Any(c => SamePath(c, path));
 
     // The same folders and files BattlePackage.Scan looks at, in the same order.
     private static IEnumerable<string> Candidates(string folder, int depth)
@@ -307,6 +349,7 @@ internal static class BattleFiles
             for (int s = 0; s < package.Slots.Length; s++)
                 if (package.Slots[s] != null) entry.Charted.Add(ChartText.GameDifficultyLabels[s]);
             entry.Problems.AddRange(package.Problems);
+            entry.Loads = true;
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or UnauthorizedAccessException)
         {
@@ -326,7 +369,7 @@ internal static class BattleFiles
             entry.Problems.Add(ex.Message);
             return entry;
         }
-        entry.Id = draft.Id;
+        entry.Id = BattleDraft.NormalizeId(draft.Id);
         if (draft.Title.Trim().Length > 0) entry.Title = draft.Title.Trim();
         entry.Artist = draft.Artist.Trim();
         entry.Lanes = draft.Lanes;
@@ -336,7 +379,11 @@ internal static class BattleFiles
         if (entry.Charted.Count > 0)
         {
             // The loader's own checks, as the arcade will see the battle.
-            try { entry.Problems.AddRange(BattlePackage.Load(path).Problems); }
+            try
+            {
+                entry.Problems.AddRange(BattlePackage.Load(path).Problems);
+                entry.Loads = true;
+            }
             catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or UnauthorizedAccessException)
             {
                 entry.Problems.Add(ex.Message);
@@ -346,7 +393,7 @@ internal static class BattleFiles
         {
             // Not charted yet: the loader would only say that; the chart's own problems explain why.
             entry.Problems.AddRange(summary.Problems);
-            string? audio = PackageFiles.SafeName(draft.Audio);
+            string? audio = PackageFiles.SafeName(draft.EffectiveAudio);
             if (audio == null) entry.Problems.Add("the battle names no audio file");
             else if (!File.Exists(Path.Combine(path, audio.Replace('/', Path.DirectorySeparatorChar)))) entry.Problems.Add($"the audio file {audio} is missing");
         }
@@ -611,55 +658,218 @@ internal static class BattleFiles
     }
 
     // ---- the Recycle Bin ------------------------------------------------------------------------
+    //
+    // Through the shell's IFileOperation, called through its vtable like the file dialogs (no COM
+    // interface declarations). A progress sink of our own sees each delete just before it happens,
+    // with the shell's flags: TSF_DELETE_RECYCLE_IF_POSSIBLE marks the ones going to the Recycle
+    // Bin. Any other one (a drive without a Recycle Bin, a Recycle Bin that is turned off or too
+    // small) would be deleted for good, so the sink stops it there and nothing is deleted.
+    // IFileOperation slots: IUnknown 0-2, Advise 3, Unadvise 4, SetOperationFlags 5,
+    // SetOwnerWindow 9, DeleteItem 18, PerformOperations 21, GetAnyOperationsAborted 22.
+    // IFileOperationProgressSink: IUnknown 0-2, then its 16 methods in slots 3-18 (PreDeleteItem 11).
 
-    private const uint FoDelete = 3;
-    private const ushort FofSilent = 0x4, FofNoConfirmation = 0x10, FofAllowUndo = 0x40, FofNoErrorUi = 0x400, FofWantNukeWarning = 0x4000;
+    private static readonly Guid ClsidFileOperation = new("3ad05575-8857-4850-9277-11b85bdb8e09");
+    private static readonly Guid IidFileOperation = new("947aab5f-0a5c-4c13-b4d6-4bf7836fc9f8");
+    private static readonly Guid IidShellItem = new("43826d1e-e718-42ee-bc55-a1e261c37bfe");
+    private static readonly Guid IidUnknown = new("00000000-0000-0000-c000-000000000046");
+    private static readonly Guid IidProgressSink = new("04b0f1a7-9490-44bc-96e1-4296a31252e2");
+    private const uint FofSilent = 0x4, FofNoConfirmation = 0x10, FofAllowUndo = 0x40, FofNoErrorUi = 0x400, FofWantNukeWarning = 0x4000,
+        FofxRecycleOnDelete = 0x80000;
+    private const uint TsfDeleteRecycleIfPossible = 0x80;
+    private const int SOk = 0, EAbort = unchecked((int)0x80004004), ENoInterface = unchecked((int)0x80004002);
+    private const uint ClsctxInprocServer = 1, CoinitApartmentThreaded = 2, CoinitDisableOle1Dde = 4;
 
-    /// <summary>SHFILEOPSTRUCTW with the 64-bit layout (shellapi.h packs it tightly only for 32-bit Windows).</summary>
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    internal struct ShFileOp
-    {
-        public IntPtr hwnd;
-        public uint wFunc;
-        [MarshalAs(UnmanagedType.LPWStr)] public string pFrom;
-        [MarshalAs(UnmanagedType.LPWStr)] public string? pTo;
-        public ushort fFlags;
-        [MarshalAs(UnmanagedType.Bool)] public bool fAnyOperationsAborted;
-        public IntPtr hNameMappings;
-        [MarshalAs(UnmanagedType.LPWStr)] public string? lpszProgressTitle;
-    }
+    [DllImport("ole32.dll")]
+    private static extern int CoInitializeEx(IntPtr reserved, uint coInit);
+
+    [DllImport("ole32.dll")]
+    private static extern void CoUninitialize();
+
+    [DllImport("ole32.dll")]
+    private static extern int CoCreateInstance(ref Guid clsid, IntPtr outer, uint context, ref Guid iid, out IntPtr instance);
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-    private static extern int SHFileOperationW(ref ShFileOp op);
+    private static extern int SHCreateItemFromParsingName(string path, IntPtr bindContext, ref Guid iid, out IntPtr item);
+
+    // IFileOperation's methods.
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate uint RefFn(IntPtr self);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int AdviseFn(IntPtr self, IntPtr sink, out uint cookie);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int CookieFn(IntPtr self, uint cookie);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int FlagsFn(IntPtr self, uint flags);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int WindowFn(IntPtr self, IntPtr window);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int DeleteItemFn(IntPtr self, IntPtr item, IntPtr sink);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int NoArgsFn(IntPtr self);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int GetBoolFn(IntPtr self, out int value);
+    // The sink's methods, with the shell's exact parameter lists.
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int QueryInterfaceFn(IntPtr self, ref Guid iid, out IntPtr obj);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int ResultFn(IntPtr self, int result);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int PreItemFn(IntPtr self, uint flags, IntPtr item, IntPtr name);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int PostRenameFn(IntPtr self, uint flags, IntPtr item, IntPtr name, int result, IntPtr made);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int PreMoveFn(IntPtr self, uint flags, IntPtr item, IntPtr folder, IntPtr name);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int PostMoveFn(IntPtr self, uint flags, IntPtr item, IntPtr folder, IntPtr name, int result, IntPtr made);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int PreDeleteFn(IntPtr self, uint flags, IntPtr item);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int PostDeleteFn(IntPtr self, uint flags, IntPtr item, int result, IntPtr made);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int PostNewFn(IntPtr self, uint flags, IntPtr folder, IntPtr name, IntPtr template, uint attributes, int result, IntPtr made);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int ProgressFn(IntPtr self, uint total, uint done);
+
+    private static T Slot<T>(IntPtr instance, int slot) where T : Delegate =>
+        Marshal.GetDelegateForFunctionPointer<T>(Marshal.ReadIntPtr(Marshal.ReadIntPtr(instance), slot * IntPtr.Size));
+
+    private static void Release(IntPtr instance)
+    {
+        if (instance != IntPtr.Zero) Slot<RefFn>(instance, 2)(instance);
+    }
+
+    // One Recycle Bin move at a time: the sink's state below belongs to it.
+    private static readonly object RecycleLock = new();
+    private static bool sinkStopAll, sinkStoppedForGood;
+    private static readonly List<uint> sinkDeleteFlags = new();
+    // The sink is made once and kept: the shell may hold it for a moment after the move, and its
+    // methods must stay alive as long as the shell has pointers to them.
+    private static IntPtr sinkObject;
+    private static readonly List<Delegate> sinkMethods = new();
+
+    private static IntPtr Sink()
+    {
+        if (sinkObject != IntPtr.Zero) return sinkObject;
+        var methods = new Delegate[]
+        {
+            new QueryInterfaceFn(SinkQueryInterface), new RefFn(_ => 1), new RefFn(_ => 1),
+            new NoArgsFn(_ => SOk),                                    // StartOperations
+            new ResultFn((_, _) => SOk),                               // FinishOperations
+            new PreItemFn((_, _, _, _) => SOk),                        // PreRenameItem
+            new PostRenameFn((_, _, _, _, _, _) => SOk),               // PostRenameItem
+            new PreMoveFn((_, _, _, _, _) => SOk),                     // PreMoveItem
+            new PostMoveFn((_, _, _, _, _, _, _) => SOk),              // PostMoveItem
+            new PreMoveFn((_, _, _, _, _) => SOk),                     // PreCopyItem
+            new PostMoveFn((_, _, _, _, _, _, _) => SOk),              // PostCopyItem
+            new PreDeleteFn(SinkPreDeleteItem),                        // PreDeleteItem
+            new PostDeleteFn((_, _, _, _, _) => SOk),                  // PostDeleteItem
+            new PreItemFn((_, _, _, _) => SOk),                        // PreNewItem
+            new PostNewFn((_, _, _, _, _, _, _, _) => SOk),            // PostNewItem
+            new ProgressFn((_, _, _) => SOk),                          // UpdateProgress
+            new NoArgsFn(_ => SOk), new NoArgsFn(_ => SOk), new NoArgsFn(_ => SOk),   // ResetTimer, PauseTimer, ResumeTimer
+        };
+        IntPtr vtable = Marshal.AllocHGlobal(IntPtr.Size * methods.Length);
+        for (int i = 0; i < methods.Length; i++) Marshal.WriteIntPtr(vtable, i * IntPtr.Size, Marshal.GetFunctionPointerForDelegate(methods[i]));
+        IntPtr sink = Marshal.AllocHGlobal(IntPtr.Size);
+        Marshal.WriteIntPtr(sink, vtable);
+        sinkMethods.AddRange(methods);
+        return sinkObject = sink;
+    }
+
+    private static int SinkQueryInterface(IntPtr self, ref Guid iid, out IntPtr obj)
+    {
+        if (iid == IidUnknown || iid == IidProgressSink)
+        {
+            obj = self;
+            return SOk;
+        }
+        obj = IntPtr.Zero;
+        return ENoInterface;
+    }
+
+    // Runs inside the shell's work; nothing here may throw back into it.
+    private static int SinkPreDeleteItem(IntPtr self, uint flags, IntPtr item)
+    {
+        try
+        {
+            sinkDeleteFlags.Add(flags);
+            if (sinkStopAll) return EAbort;
+            if ((flags & TsfDeleteRecycleIfPossible) != 0) return SOk;
+            sinkStoppedForGood = true;
+            return EAbort;
+        }
+        catch
+        {
+            return EAbort;
+        }
+    }
+
+    /// <summary>What a Recycle Bin move did.</summary>
+    internal sealed class RecycleOutcome
+    {
+        /// <summary>PerformOperations' result (negative on failure).</summary>
+        internal int Result;
+        /// <summary>The shell says a part of it was stopped.</summary>
+        internal bool Aborted;
+        /// <summary>It can't go to the Recycle Bin (it would have been deleted for good), so it was stopped.</summary>
+        internal bool NotRecyclable;
+        /// <summary>The shell's flags for each item it was about to delete, for checks.</summary>
+        internal readonly List<uint> DeleteFlags = new();
+    }
 
     /// <summary>
-    /// Moves a file or folder to the Recycle Bin, never deleting it for good without asking:
-    /// when Windows can't recycle it, Windows asks first. Refuses anything that isn't inside
-    /// <paramref name="mustBeInside"/>.
+    /// Moves a file or folder to the Recycle Bin, and never deletes it for good: when Windows
+    /// can't put it in the Recycle Bin, it is left where it is and this throws. Refuses anything
+    /// that isn't inside <paramref name="mustBeInside"/>.
     /// </summary>
     internal static void Recycle(string path, string mustBeInside, IntPtr owner)
     {
         if (!IsInside(path, mustBeInside)) throw new InvalidOperationException($"{path} isn't inside {mustBeInside}");
         string full = Path.GetFullPath(path).TrimEnd('\\', '/');
         if (!File.Exists(full) && !Directory.Exists(full)) return;
-        int result = ShellDelete(full, owner, out bool aborted);
-        if (result != 0) throw new IOException($"Windows couldn't move {Path.GetFileName(full)} to the Recycle Bin (error 0x{result:X})");
-        if (aborted) throw new IOException($"moving {Path.GetFileName(full)} to the Recycle Bin was cancelled");
+        var outcome = ShellRecycle(full, owner);
+        string name = Path.GetFileName(full);
+        if (outcome.NotRecyclable) throw new IOException($"Windows can't put {name} in the Recycle Bin (it would be deleted for good), so it was left where it is");
+        if (File.Exists(full) || Directory.Exists(full))
+            throw new IOException(outcome.Result < 0 && outcome.Result != EAbort
+                ? $"Windows couldn't move {name} to the Recycle Bin (error 0x{outcome.Result:X8})"
+                : $"moving {name} to the Recycle Bin was stopped");
     }
 
-    /// <summary>The shell's delete with undo (the Recycle Bin); the result is the shell's error code, 0 when it worked.</summary>
-    internal static int ShellDelete(string fullPath, IntPtr owner, out bool aborted)
+    /// <summary>
+    /// The shell's move to the Recycle Bin, with the sink above watching it. Run it on a thread in
+    /// a single-threaded apartment. <paramref name="stopBeforeDeleting"/> stops every item just
+    /// before it would go (nothing moves), and <paramref name="nukeWarning"/> off leaves out the
+    /// shell's own "delete for good?" question; both are only for checks.
+    /// </summary>
+    internal static RecycleOutcome ShellRecycle(string fullPath, IntPtr owner, bool stopBeforeDeleting = false, bool nukeWarning = true)
     {
-        var op = new ShFileOp
+        lock (RecycleLock)
         {
-            hwnd = owner,
-            wFunc = FoDelete,
-            // A list of paths, each ending in a null, with one more null at the end.
-            pFrom = fullPath + "\0\0",
-            fFlags = (ushort)(FofAllowUndo | FofNoConfirmation | FofSilent | FofNoErrorUi | FofWantNukeWarning)
-        };
-        int result = SHFileOperationW(ref op);
-        aborted = op.fAnyOperationsAborted;
-        return result;
+            var outcome = new RecycleOutcome();
+            sinkStopAll = stopBeforeDeleting;
+            sinkStoppedForGood = false;
+            sinkDeleteFlags.Clear();
+            int init = CoInitializeEx(IntPtr.Zero, CoinitApartmentThreaded | CoinitDisableOle1Dde);
+            IntPtr operation = IntPtr.Zero, item = IntPtr.Zero;
+            uint cookie = 0;
+            bool advised = false;
+            try
+            {
+                var clsid = ClsidFileOperation;
+                var iid = IidFileOperation;
+                ShellCheck(CoCreateInstance(ref clsid, IntPtr.Zero, ClsctxInprocServer, ref iid, out operation), "to start");
+                // The shell's "delete for good?" question stays on as a second guard: the sink stops such a delete anyway.
+                uint flags = FofAllowUndo | FofxRecycleOnDelete | FofNoConfirmation | FofSilent | FofNoErrorUi | (nukeWarning ? FofWantNukeWarning : 0);
+                ShellCheck(Slot<FlagsFn>(operation, 5)(operation, flags), "setting its options");
+                if (owner != IntPtr.Zero) Slot<WindowFn>(operation, 9)(operation, owner);
+                // Without the sink watching, nothing is deleted.
+                ShellCheck(Slot<AdviseFn>(operation, 3)(operation, Sink(), out cookie), "watching it");
+                advised = true;
+                var shellItem = IidShellItem;
+                ShellCheck(SHCreateItemFromParsingName(fullPath, IntPtr.Zero, ref shellItem, out item), "finding the file");
+                ShellCheck(Slot<DeleteItemFn>(operation, 18)(operation, item, IntPtr.Zero), "adding the file");
+                outcome.Result = Slot<NoArgsFn>(operation, 21)(operation);
+                if (Slot<GetBoolFn>(operation, 22)(operation, out int aborted) >= 0) outcome.Aborted = aborted != 0;
+            }
+            finally
+            {
+                if (advised) Slot<CookieFn>(operation, 4)(operation, cookie);
+                Release(item);
+                Release(operation);
+                if (init >= 0) CoUninitialize();
+                outcome.NotRecyclable = sinkStoppedForGood;
+                outcome.DeleteFlags.AddRange(sinkDeleteFlags);
+                sinkStopAll = false;
+            }
+            return outcome;
+        }
+    }
+
+    private static void ShellCheck(int hr, string what)
+    {
+        if (hr < 0) throw new IOException($"the Recycle Bin move failed {what} (0x{hr:X8})");
     }
 }

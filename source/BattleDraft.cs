@@ -41,6 +41,8 @@ internal sealed class BattleDraft
     private bool enemyAttached, enemyChanged;
     private GearDefinition gear;
     private GearDefinition? lastSetGear;
+    // The battle's own info boxes while they are switched off, so switching them on again brings them back.
+    private JsonArray? lastInfo;
     private string audioAtLoad;
     private int changes, savedChanges;
 
@@ -50,16 +52,23 @@ internal sealed class BattleDraft
     /// <summary>Things found while loading that the creator should show, like an enemy file that couldn't be read.</summary>
     internal List<string> Problems { get; } = new();
 
+    /// <summary>
+    /// Why the enemy can't be changed, or null when it can: its own file is there but can't be
+    /// read, and saving over it would lose what it holds.
+    /// </summary>
+    internal string? EnemyLocked { get; }
+
     /// <summary>Whether anything changed since the last load or save.</summary>
     internal bool Dirty => changes != savedChanges;
 
-    private BattleDraft(string folder, JsonObject root, JsonObject enemy, string? enemyFile, bool enemyAttached)
+    private BattleDraft(string folder, JsonObject root, JsonObject enemy, string? enemyFile, bool enemyAttached, string? enemyLocked = null)
     {
         Folder = folder;
         this.root = root;
         this.enemy = enemy;
         this.enemyFile = enemyFile;
         this.enemyAttached = enemyAttached;
+        EnemyLocked = enemyLocked;
         gear = ReadGear(root["gear"], Problems);
         audioAtLoad = Audio;
     }
@@ -76,7 +85,7 @@ internal sealed class BattleDraft
         CheckManifest(root);
         var problems = new List<string>();
         JsonObject enemy;
-        string? enemyFile = null;
+        string? enemyFile = null, locked = null;
         bool attached = true;
         switch (root["enemy"])
         {
@@ -94,9 +103,16 @@ internal sealed class BattleDraft
                     break;
                 }
                 try { enemy = ParseObject(ReadText(Path.Combine(folder, enemyFile.Replace('/', Path.DirectorySeparatorChar)), BattlePackage.MaxJsonBytes), enemyFile); }
+                catch (FileNotFoundException)
+                {
+                    problems.Add($"{enemyFile} is missing; saving an enemy change writes a new one");
+                    enemy = new JsonObject(NodeOptions);
+                }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or UnauthorizedAccessException)
                 {
-                    problems.Add($"{enemyFile} couldn't be read ({ex.Message}); saving an enemy change writes a new one");
+                    // The file is there: it is never saved over, so nothing in it is lost.
+                    locked = $"{enemyFile} can't be read ({ex.Message}). Fix it by hand, then open the battle again. Until then the enemy can't be changed here.";
+                    problems.Add(locked);
                     enemy = new JsonObject(NodeOptions);
                 }
                 break;
@@ -106,7 +122,7 @@ internal sealed class BattleDraft
                 attached = false;
                 break;
         }
-        var draft = new BattleDraft(folder, root, enemy, enemyFile, attached);
+        var draft = new BattleDraft(folder, root, enemy, enemyFile, attached, locked);
         draft.Problems.InsertRange(0, problems);
         return draft;
     }
@@ -147,11 +163,15 @@ internal sealed class BattleDraft
     {
         PruneInfoBoxes();
         Directory.CreateDirectory(Folder);
-        if (enemyFile != null && enemyChanged)
+        if (enemyFile != null && enemyChanged && EnemyLocked == null)
             WriteAtomic(Path.Combine(Folder, enemyFile.Replace('/', Path.DirectorySeparatorChar)), enemy.ToJsonString(WriteOptions) + "\n");
         WriteAtomic(ManifestPath, root.ToJsonString(WriteOptions) + "\n");
         string audio = Audio;
-        if (!audio.Equals(audioAtLoad, StringComparison.Ordinal)) UpdateChartMusic(audio);
+        if (!audio.Equals(audioAtLoad, StringComparison.Ordinal))
+        {
+            UpdateChartMusic(audio);
+            ChartChanged();
+        }
         audioAtLoad = audio;
         enemyChanged = false;
         savedChanges = changes;
@@ -199,6 +219,13 @@ internal sealed class BattleDraft
     /// <summary>Gives the battle a new id, for a copy that would otherwise share its scores with the original.</summary>
     internal void NewId() => SetString(root, "id", Guid.NewGuid().ToString("D"));
 
+    /// <summary>An id the way the loader compares ids: a GUID in its plain form ("{...}" and capitals don't count).</summary>
+    internal static string NormalizeId(string? id)
+    {
+        string text = (id ?? "").Trim();
+        return Guid.TryParse(text, out var guid) ? guid.ToString("D") : text;
+    }
+
     // ---- the battle ---------------------------------------------------------------------------------
 
     internal string Id => GetString(root, "id");
@@ -213,7 +240,7 @@ internal sealed class BattleDraft
     internal string Lore
     {
         get => GetString(root, "lore");
-        set => SetString(root, "lore", value.Replace("\r\n", "\n").Replace('\r', '\n').Trim());
+        set => SetString(root, "lore", CleanText(value));
     }
 
     /// <summary>The card image, as a path inside the battle, or null for none.</summary>
@@ -231,8 +258,41 @@ internal sealed class BattleDraft
         }
     }
 
-    /// <summary>The song file, as a path inside the battle.</summary>
+    /// <summary>The song file battle.json names, as a path inside the battle; empty when it names none.</summary>
     internal string Audio { get => GetString(root, "audio").Trim(); set => SetString(root, "audio", value.Trim()); }
+
+    /// <summary>
+    /// The song file the battle plays: battle.json's "audio", or the chart's #MUSIC when battle.json
+    /// has no "audio" (as the loader reads it). Setting <see cref="Audio"/> writes "audio".
+    /// </summary>
+    internal string EffectiveAudio => AudioFromChart ? ChartMusic() : Audio;
+
+    /// <summary>Whether the song comes from the chart's #MUSIC, because battle.json has no "audio".</summary>
+    internal bool AudioFromChart => root["audio"] is not JsonValue;
+
+    private string? chartMusic;
+
+    // Read once; ChartChanged reads it again.
+    private string ChartMusic()
+    {
+        if (chartMusic != null) return chartMusic;
+        chartMusic = "";
+        try
+        {
+            string? chart = PackageFiles.SafeName(ChartPath);
+            if (chart != null)
+                chartMusic = (ChartText.Parse(ReadText(Path.Combine(Folder, chart.Replace('/', Path.DirectorySeparatorChar)), BattlePackage.MaxChartBytes)).GetTag("MUSIC") ?? "").Trim();
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException) { }
+        return chartMusic;
+    }
+
+    /// <summary>The chart file changed (the chart editor saved it): what is read from it is read again.</summary>
+    internal void ChartChanged()
+    {
+        chartMusic = null;
+        inferredLanes = null;
+    }
 
     /// <summary>Where the arcade's preview of the song starts, in seconds.</summary>
     internal double PreviewStart
@@ -255,7 +315,7 @@ internal sealed class BattleDraft
 
     /// <summary>
     /// 4 or 5, fixed when the battle is made. Read from the chart when battle.json doesn't say (as
-    /// the loader does); that is read once, since nothing here changes the lanes.
+    /// the loader does); that is read once, until <see cref="ChartChanged"/>.
     /// </summary>
     internal int Lanes
     {
@@ -290,6 +350,8 @@ internal sealed class BattleDraft
         set
         {
             string name = CleanLine(value);
+            if (name == EnemyName) return;
+            CheckEnemy();
             if (name.Length == 0) EnemyRemove("name");
             else EnemySet("name", name);
         }
@@ -304,6 +366,7 @@ internal sealed class BattleDraft
         set
         {
             if (Placeholder == value && EnemyMode.Equals("placeholder", StringComparison.OrdinalIgnoreCase)) return;
+            CheckEnemy();
             EnemySet("mode", "placeholder");
             EnemySet("placeholder", value.Trim());
         }
@@ -315,6 +378,8 @@ internal sealed class BattleDraft
         get => enemy["advanced"] is JsonValue v && v.TryGetValue(out bool on) && on;
         set
         {
+            if (value == Advanced) return;
+            CheckEnemy();
             if (value) EnemySet("advanced", true);
             else EnemyRemove("advanced");
         }
@@ -326,6 +391,7 @@ internal sealed class BattleDraft
     internal void SetStat(string key, double? value)
     {
         if (Stat(key) == value) return;
+        CheckEnemy();
         var stats = enemy["stats"] as JsonObject;
         if (value == null)
         {
@@ -344,11 +410,25 @@ internal sealed class BattleDraft
     /// <summary>Whether the battle has its own info boxes (true) or shows the placeholder's (false).</summary>
     internal bool OwnInfo => enemy["info"] is JsonArray;
 
+    /// <summary>
+    /// Switches between the battle's own info boxes and the placeholder's. The battle's own boxes
+    /// are kept while they are off, and come back when they're switched on again before the creator
+    /// closes (saving while they are off leaves them out of the file).
+    /// </summary>
     internal void SetOwnInfo(bool own)
     {
         if (own == OwnInfo) return;
-        if (own) enemy["info"] = new JsonArray();
-        else enemy.Remove("info");
+        CheckEnemy();
+        if (own)
+        {
+            enemy["info"] = lastInfo ?? new JsonArray();
+            lastInfo = null;
+        }
+        else
+        {
+            lastInfo = enemy["info"] as JsonArray;
+            enemy.Remove("info");
+        }
         EnemyTouched();
     }
 
@@ -363,13 +443,17 @@ internal sealed class BattleDraft
     internal void SetInfoBox(int index, string? title, string? description)
     {
         if (index < 0 || index >= EnemyPlaceholders.MaxInfoBoxes) throw new ArgumentOutOfRangeException(nameof(index));
+        if (!OwnInfo) SetOwnInfo(true);
+        string? newTitle = title == null ? null : CleanLine(title);
+        string? newDescription = description == null ? null : CleanText(description);
         var (oldTitle, oldDescription) = InfoBox(index);
-        if (OwnInfo && (title == null || CleanLine(title) == oldTitle) && (description == null || description.Trim() == oldDescription)) return;
-        if (enemy["info"] is not JsonArray boxes) enemy["info"] = boxes = new JsonArray();
+        if ((newTitle == null || newTitle == oldTitle) && (newDescription == null || newDescription == oldDescription)) return;
+        CheckEnemy();
+        var boxes = (JsonArray)enemy["info"]!;
         while (boxes.Count <= index) boxes.Add(new JsonObject(NodeOptions));
         if (boxes[index] is not JsonObject box) boxes[index] = box = new JsonObject(NodeOptions);
-        if (title != null) box["title"] = CleanLine(title);
-        if (description != null) box["description"] = description.Replace("\r\n", "\n").Replace('\r', '\n').Trim();
+        if (newTitle != null) box["title"] = newTitle;
+        if (newDescription != null) box["description"] = newDescription;
         EnemyTouched();
     }
 
@@ -389,6 +473,12 @@ internal sealed class BattleDraft
             }
         }
         if (pruned) enemyChanged = true;
+    }
+
+    // Called before any change to the enemy.
+    private void CheckEnemy()
+    {
+        if (EnemyLocked != null) throw new InvalidDataException(EnemyLocked);
     }
 
     private void EnemySet(string key, JsonNode? value)
@@ -518,25 +608,91 @@ internal sealed class BattleDraft
             throw new InvalidDataException($"{BattlePackage.ManifestName} needs an \"id\" that is a GUID");
     }
 
-    /// <summary>Parses battle.json text and checks it's a battle (format, kind and id), for imports.</summary>
+    /// <summary>Parses battle.json text and checks it's a battle (format, kind and id), for imports. The id comes back in its plain form.</summary>
     internal static (string Id, string Title) Check(string json)
     {
         var root = ParseObject(json, BattlePackage.ManifestName);
         CheckManifest(root);
-        return (GetString(root, "id").Trim(), CleanLine(GetString(root, "title")));
+        return (NormalizeId(GetString(root, "id")), CleanLine(GetString(root, "title")));
+    }
+
+    /// <summary>
+    /// Every text in battle.json and in the enemy's own file, and the chart's #MUSIC: anything
+    /// that may name one of the battle's files. Null when the enemy's file can't be read, since
+    /// what it names isn't known then.
+    /// </summary>
+    internal List<string>? NamedFiles()
+    {
+        if (EnemyLocked != null) return null;
+        var names = Texts(root);
+        if (enemyFile != null) names.AddRange(Texts(enemy));
+        string music = ChartMusic();
+        if (music.Length > 0) names.Add(music);
+        return names;
+    }
+
+    /// <summary>Every text value in a JSON tree, however deep.</summary>
+    internal static List<string> Texts(JsonNode? node)
+    {
+        var texts = new List<string>();
+        AddTexts(node, texts);
+        return texts;
+    }
+
+    private static void AddTexts(JsonNode? node, List<string> texts)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                foreach (var pair in obj) AddTexts(pair.Value, texts);
+                break;
+            case JsonArray array:
+                foreach (var item in array) AddTexts(item, texts);
+                break;
+            case JsonValue value when value.TryGetValue(out string? text) && text != null:
+                texts.Add(text);
+                break;
+        }
+    }
+
+    /// <summary>Parses a JSON file's text the way battle.json is read (comments and trailing commas allowed).</summary>
+    internal static JsonNode? ParseAny(string text)
+    {
+        var node = JsonNode.Parse(text, NodeOptions, DocumentOptions);
+        Settle(node);
+        return node;
+    }
+
+    // A JSON tree reads each object's keys only when it is first used, and a key given twice
+    // (in two letter cases) throws then. Reading them all at once finds that while parsing,
+    // not later in the middle of an edit or a save.
+    private static void Settle(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                foreach (var pair in obj) Settle(pair.Value);
+                break;
+            case JsonArray array:
+                foreach (var item in array) Settle(item);
+                break;
+        }
     }
 
     private static JsonObject ParseObject(string text, string name)
     {
         try
         {
-            return JsonNode.Parse(text, NodeOptions, DocumentOptions) as JsonObject
+            var node = JsonNode.Parse(text, NodeOptions, DocumentOptions) as JsonObject
                 ?? throw new InvalidDataException($"{name} isn't a JSON object");
+            Settle(node);
+            return node;
         }
         catch (ArgumentException ex)
         {
-            // Two keys that differ only in letter case.
-            throw new InvalidDataException($"{name} has a key twice ({ex.Message})");
+            // Two keys that differ only in letter case (the exception names the second one).
+            string key = string.IsNullOrEmpty(ex.ParamName) ? "a key" : $"\"{ex.ParamName}\"";
+            throw new InvalidDataException($"{name} has {key} twice (letter case doesn't make two keys different)");
         }
     }
 
@@ -615,4 +771,7 @@ internal sealed class BattleDraft
 
     /// <summary>One line of text: line breaks become spaces.</summary>
     internal static string CleanLine(string? text) => (text ?? "").Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ').Trim();
+
+    /// <summary>Text that may have several lines, each line break written as "\n".</summary>
+    internal static string CleanText(string? text) => (text ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Trim();
 }
