@@ -568,7 +568,7 @@ internal static partial class ChartEditor
         sb.Append("<color=#EAE6F5>Tempo</color> ");
         sb.Append(bpms.Count == 1 ? $"{bpms[0].Bpm:0.##} BPM" : string.Join(", ", bpms.Take(3).Select(b => $"beat {b.Beat:0.##}: {b.Bpm:0.##}")) + (bpms.Count > 3 ? $", and {bpms.Count - 3} more" : ""));
         sb.Append($"\n<color=#EAE6F5>Beat 0</color> at {FormatTime(-chart.Offset)} in the song (#OFFSET {chart.Offset.ToString("0.####", CultureInfo.InvariantCulture)})\n");
-        if (chart.Offset > 0.001) sb.Append("<color=#F2B02E>Beat 0 is before the song starts, so notes before 0:00 can't be played.</color>\n");
+        if (chart.Offset > ChartOffset.EarlyTolerance) sb.Append("<color=#F2B02E>Beat 0 is before the song starts, so notes before 0:00 can't be played.</color>\n");
         sb.Append("<color=#EAE6F5>Tap tempo</color> ");
         string tapKey = ShortKey(EditorAction.NoteTicks);
         sb.Append(taps.Bpm is double tapped

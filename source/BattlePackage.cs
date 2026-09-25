@@ -510,6 +510,11 @@ internal sealed class BattlePackage
     /// with the battle's clock.
     /// </summary>
     internal double Offset;
+
+    /// <summary>The loader's problem for the notes the bake leaves out because they come before the audio starts.</summary>
+    internal static string EarlyNotesProblem(double offset, int dropped) =>
+        $"#OFFSET is {offset.ToString("0.###", CultureInfo.InvariantCulture)} s: {ChartOffset.DroppedText(dropped)}";
+
     /// <summary>Things that don't stop the song from playing, for the log.</summary>
     internal readonly List<string> Problems = new();
 
@@ -573,11 +578,10 @@ internal sealed class BattlePackage
         song.Offset = double.TryParse(song.Chart.GetTag("OFFSET"), NumberStyles.Float, CultureInfo.InvariantCulture, out double offset) ? offset : 0;
         if (Math.Abs(song.Offset) > LeadIn.MaxOffset)
             throw new InvalidDataException($"#OFFSET is {song.Offset:0.###} s; it can be at most {LeadIn.MaxOffset:0} s either way");
-        // The battle's clock starts with the audio, so a chart that starts before it loses its start.
-        if (song.Offset > 0.001 && BattleChartFile.NoteBeforeSongStart(song.Chart, song.Slots, song.Lanes))
-            song.Problems.Add($"#OFFSET is {song.Offset.ToString("0.###", CultureInfo.InvariantCulture)} s, so beat 0 comes before the audio starts; notes in the chart's first {song.Offset.ToString("0.###", CultureInfo.InvariantCulture)} s can't be played");
         // The game ignores #OFFSET, so the chart it plays has it baked in.
         song.Baked = ChartOffset.Bake(song.Chart.PlayableSong(song.Slots));
+        // The battle's clock starts with the audio, so a chart that starts before it loses its start.
+        if (song.Baked.Dropped > 0) song.Problems.Add(EarlyNotesProblem(song.Offset, song.Baked.Dropped));
         song.PlayableText = song.PlayableChart.Write();
         song.LastNoteRow = song.PlayableChart.Blocks.Max(ChartText.LastNoteRow);
 

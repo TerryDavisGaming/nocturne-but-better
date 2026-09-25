@@ -12,9 +12,10 @@ namespace NocturneFlatScroll;
 /// would play #OFFSET seconds off. Baking moves every note and timing change so that beat 0 of
 /// the new chart is at the file's 0:00, and writes #OFFSET:0. The clock stays the file's time, so
 /// #ATTACKS times, dialogue times and a test's clock start stay as they are.
-/// A negative #OFFSET (beat 0 inside the song, the usual case) gets a lead-in section before the
-/// chart's first tempo, no faster than it, so Speed Mod's top tempo never rises. A positive one
-/// (beat 0 before the song starts) drops the notes before 0:00, which can't be played.
+/// The chart's first row at or after 0:00 becomes row 0. When 0:00 falls between two rows, row 0
+/// waits (a stop) for the time from 0:00 to that row, and the tempo stays the chart's own, so the
+/// notes scroll in at the chart's speed and Speed Mod's top tempo never rises. Notes before 0:00
+/// (a positive #OFFSET puts beat 0 before the song starts) can't be played and are left out.
 /// This file has no Unity or game dependencies.
 /// </summary>
 internal static class ChartOffset
@@ -27,11 +28,17 @@ internal static class ChartOffset
         internal double Offset;
         /// <summary>How many rows later every note is in <see cref="Chart"/> (earlier when negative).</summary>
         internal int Shift;
-        /// <summary>Rows at the start that play at <see cref="LeadBpm"/> before the chart's own tempo; 0 for none.</summary>
-        internal int LeadRows;
-        internal double LeadBpm;
-        /// <summary>What's left after 0:00 of a stop the song starts in, now at row 0; 0 for none.</summary>
+        /// <summary>
+        /// The stop at row 0 when the bake makes one: the time from 0:00 to the chart's first row
+        /// (with any stop that row has), or what's left after 0:00 of a stop the song starts in. 0 for none.
+        /// </summary>
         internal double StartStop;
+        /// <summary>
+        /// The most any note that plays is off the time StepMania gives it, in seconds: 0 but for a
+        /// note less than a row after 0:00 (it plays at 0:00, or every note plays as much later as
+        /// the row before is from 0:00, whichever is less) or less than <see cref="EarlyTolerance"/> before it.
+        /// </summary>
+        internal double Error;
         /// <summary>Notes left out because they come before the song starts (the most any one difficulty lost).</summary>
         internal int Dropped;
 
@@ -42,8 +49,8 @@ internal static class ChartOffset
         {
             if (!Changed) return "#OFFSET 0";
             var sb = new StringBuilder($"#OFFSET {Offset.ToString("0.####", CultureInfo.InvariantCulture)}: notes {Math.Abs(Shift)} rows {(Shift >= 0 ? "later" : "earlier")}");
-            if (LeadRows > 0) sb.Append($", {LeadRows} rows at {LeadBpm.ToString("0.###", CultureInfo.InvariantCulture)} BPM first");
-            if (StartStop > 0) sb.Append($", starting {StartStop.ToString("0.###", CultureInfo.InvariantCulture)} s before the end of a stop");
+            if (StartStop > 0) sb.Append($", a {(StartStop * 1000).ToString("0.###", CultureInfo.InvariantCulture)} ms stop at the start");
+            if (Error >= 5e-7) sb.Append($", within {(Error * 1000).ToString("0.###", CultureInfo.InvariantCulture)} ms");
             if (Dropped > 0) sb.Append($", {Dropped} notes before 0:00 left out");
             return sb.ToString();
         }
@@ -57,17 +64,27 @@ internal static class ChartOffset
     private const int RowsPerMeasure = EditorChart.RowsPerMeasure;
     private const double Tiny = 1e-6;
 
+    /// <summary>
+    /// A note this little before the song's start still plays, at 0:00, and nothing calls it early;
+    /// one further before it is left out.
+    /// </summary>
+    internal const double EarlyTolerance = 0.0005;
+
     /// <summary>The chart's #OFFSET, as the battle loader reads it (0 when it isn't a number).</summary>
     internal static double OffsetOf(ChartText chart) =>
         double.TryParse(chart.GetTag("OFFSET"), NumberStyles.Float, CultureInfo.InvariantCulture, out double v) && double.IsFinite(v) ? v : 0;
+
+    /// <summary>What the chart editor, the battle creator and the arcade say about <see cref="Result.Dropped"/>.</summary>
+    internal static string DroppedText(int dropped) => dropped == 1
+        ? "a note before the song starts (0:00) can't be played, so it's left out"
+        : $"{dropped} notes before the song starts (0:00) can't be played, so they're left out";
 
     /// <summary>
     /// The chart the game plays for a song file whose first sample is at clock 0: with #OFFSET
     /// baked in, or the chart itself when #OFFSET is 0 (or out of range, over
     /// <see cref="LeadIn.MaxOffset"/> either way, which the battle loader refuses). Note times,
-    /// with beat 0 at clock 0, are the times StepMania gives the chart, to within half a row in
-    /// the few cases a lead-in section can't be fitted (a note or a stop less than a row after the
-    /// song's start, with nothing between); exactly otherwise.
+    /// with beat 0 at clock 0, are the times StepMania gives the chart, exactly but for
+    /// <see cref="Result.Error"/>.
     /// </summary>
     internal static Result Bake(ChartText chart)
     {
@@ -78,19 +95,18 @@ internal static class ChartOffset
         timing.ReadTiming(chart);
         var result = new Result { Offset = offset };
 
-        // The first row at or after the song's start (in a stop there: the rows after it), and how
-        // far after the start it is.
-        double atStart = timing.SecondsToRow(0);
-        int c = (int)Math.Ceiling(atStart - Tiny);
-        while (timing.RowToSeconds(c) < -Tiny) c++;
-        double late = Math.Max(0, timing.RowToSeconds(c));
+        // c: the first row at the song's start or after it (or a hair before it), and how far after
+        // the start it is. In a stop there: the rows after the stop.
+        int c = (int)Math.Ceiling(timing.SecondsToRow(-EarlyTolerance) - Tiny);
+        while (timing.RowToSeconds(c) < -EarlyTolerance) c++;
+        while (timing.RowToSeconds(c - 1) >= -EarlyTolerance) c--;
+        double atC = timing.RowToSeconds(c), late = Math.Max(0, atC);
+        double before = timing.RowToSeconds(c - 1), stopBefore = StopOn(timing, c - 1);
 
         int zero = c;      // the authored row that becomes row 0
         int keepFrom = 0;  // rows before this one (in the new chart) are before the song
-        double before = timing.RowToSeconds(c - 1);
-        double stopBefore = timing.Stops.Where(s => Math.Abs(s.Beat * RowsPerBeat - (c - 1)) < Tiny).Sum(s => s.Seconds);
-        if (late <= Tiny) { }
-        else if (stopBefore > 0 && before < -Tiny && before + stopBefore > Tiny)
+        if (late <= Tiny) result.Error = Math.Max(0, -atC);
+        else if (stopBefore > 0 && before + stopBefore > Tiny)
         {
             // The song starts inside a stop on the row before: the chart starts on that row, in what's
             // left of the stop. The row's own notes come before the stop, so before the song.
@@ -98,28 +114,20 @@ internal static class ChartOffset
             keepFrom = 1;
             result.StartStop = before + stopBefore;
         }
+        else if (!HasNoteOn(chart, c) || late <= -before)
+        {
+            // Row c is `late` seconds after the start (less than a row): row 0 waits that long, as a
+            // stop, then the chart goes on at its own tempo. Exact, but for notes on row c itself:
+            // they play at 0:00, `late` early (the row before would put every note later than that).
+            result.StartStop = late + StopOn(timing, c);
+            if (HasNoteOn(chart, c)) result.Error = late;
+        }
         else
         {
-            // Row c is `late` seconds after the start. A lead-in section from row 0 to the next
-            // note, tempo change or stop (whichever is first) takes up that time, at a tempo just
-            // below the one there. With nothing in between, row 0 is c or the row before it,
-            // whichever is nearer in time.
-            double end = double.MaxValue;
-            foreach (var block in chart.Blocks)
-                foreach (int row in NoteRows(block, heads: false))
-                    if (row >= c) { end = Math.Min(end, row); break; }
-            foreach (var (beat, _) in timing.Bpms)
-                if (beat * RowsPerBeat > c + Tiny) { end = Math.Min(end, beat * RowsPerBeat); break; }
-            foreach (var (beat, _) in timing.Stops)
-                if (beat * RowsPerBeat >= c - Tiny) end = Math.Min(end, beat * RowsPerBeat);
-            if (end == double.MaxValue) end = c + RowsPerBeat;
-            int lead = (int)Math.Floor(end + Tiny) - c;
-            if (lead >= 1)
-            {
-                result.LeadRows = lead;
-                result.LeadBpm = 60.0 * lead / RowsPerBeat / timing.RowToSeconds(c + lead);
-            }
-            else if (-before < late) zero = c - 1;
+            // Row c has notes, and the row before is nearer to 0:00: that one is row 0, and every
+            // note plays that little late.
+            zero = c - 1;
+            result.Error = -before;
         }
         result.Shift = -zero;
 
@@ -130,7 +138,7 @@ internal static class ChartOffset
             string value = key switch
             {
                 "OFFSET" => "0",
-                "BPMS" => Bpms(timing, zero, result),
+                "BPMS" => Bpms(timing, zero),
                 "STOPS" => Stops(timing, zero, result.StartStop),
                 "SCROLLS" => Scrolls(tag.Value, zero),
                 _ => Array.IndexOf(BeatTags, key) >= 0 ? MovePairs(tag.Value, zero) : tag.Value
@@ -138,7 +146,9 @@ internal static class ChartOffset
             baked.Tags.Add(new KeyValuePair<string, string>(tag.Key, value));
         }
         // A chart without the tag had its tempo from the editor's default; the game needs one.
-        if (chart.GetTag("BPMS") == null) baked.Tags.Add(new KeyValuePair<string, string>("BPMS", Bpms(timing, zero, result)));
+        if (chart.GetTag("BPMS") == null) baked.Tags.Add(new KeyValuePair<string, string>("BPMS", Bpms(timing, zero)));
+        if (result.StartStop > 0 && chart.GetTag("STOPS") == null)
+            baked.Tags.Add(new KeyValuePair<string, string>("STOPS", Stops(timing, zero, result.StartStop)));
 
         // The six difficulty slots often share a block: each note text is moved once.
         var moved = new Dictionary<string, (string Notes, int Dropped)>();
@@ -161,23 +171,42 @@ internal static class ChartOffset
         return result;
     }
 
+    // The seconds of the stops on a row (0 for none).
+    private static double StopOn(EditorChart timing, int row) =>
+        timing.Stops.Where(s => Math.Abs(s.Beat * RowsPerBeat - row) < Tiny).Sum(s => s.Seconds);
+
+    // Whether any block has a note to hit on a row: not a mine, and not the end of a hold (a hold
+    // that ends on the song's first row started before the song, so it is left out).
+    private static bool HasNoteOn(ChartText chart, int row)
+    {
+        if (row < 0) return false;
+        foreach (var block in chart.Blocks)
+        {
+            var chunks = block.Notes.Split(',');
+            int measure = row / RowsPerMeasure;
+            if (measure >= chunks.Length) continue;
+            var lines = Lines(chunks[measure]);
+            for (int i = 0; i < lines.Count; i++)
+                if (RowOf(measure, i, lines.Count) == row && lines[i].Any(ch => ch != '0' && ch != '3' && ch != 'M')) return true;
+        }
+        return false;
+    }
+
     // ---- timing tags ------------------------------------------------------------------------------
 
-    // The tempo from row 0: the lead-in section, then the authored tempo from `zero` on.
-    private static string Bpms(EditorChart timing, int zero, Result result)
+    // The tempo from row 0: the authored tempo at `zero`, then the changes after it.
+    private static string Bpms(EditorChart timing, int zero)
     {
         var list = new List<(double Beat, double Bpm)>();
-        int from = zero + result.LeadRows;   // the authored row where the authored tempo takes over
-        if (result.LeadRows > 0) list.Add((0, result.LeadBpm));
-        if (!timing.Bpms.Any(b => Math.Abs(b.Beat * RowsPerBeat - from) < Tiny))
-            list.Add((result.LeadRows / (double)RowsPerBeat, timing.BpmAt(from / (double)RowsPerBeat)));
+        if (!timing.Bpms.Any(b => Math.Abs(b.Beat * RowsPerBeat - zero) < Tiny))
+            list.Add((0, timing.BpmAt(zero / (double)RowsPerBeat)));
         foreach (var (beat, bpm) in timing.Bpms)
-            if (beat * RowsPerBeat >= from - Tiny) list.Add((Moved(beat, zero), bpm));
+            if (beat * RowsPerBeat >= zero - Tiny && (list.Count == 0 || list[^1].Bpm != bpm)) list.Add((Moved(beat, zero), bpm));
         return string.Join(",", list.Select(b => $"{Number(b.Beat)}={Number(b.Bpm)}"));
     }
 
-    // Stops before row 0 are over before the song starts; their time is already in the shift. The
-    // song can start inside the one on row 0: what's left of it stays.
+    // Stops before row 0 are over before the song starts; their time is already in the shift. Row 0
+    // may wait (startStop): that replaces a stop the chart has there.
     private static string Stops(EditorChart timing, int zero, double startStop)
     {
         var list = new List<string>();
@@ -362,18 +391,29 @@ internal static class ChartOffset
     /// <summary>When the note speed can't be read: about when the game's own charts start.</summary>
     internal const double DefaultApproach = 2;
 
-    /// <summary>The first note that plays, where it is and how fast notes move there.</summary>
-    internal readonly record struct FirstNote(int Row, double Seconds, double Bpm, double Scroll);
+    /// <summary>The first note that plays: its row and its time on the battle's clock.</summary>
+    internal readonly record struct FirstNote(int Row, double Seconds);
 
     /// <summary>
-    /// The first note (not the end of a hold) of the blocks at or after the song's start, in
-    /// seconds on the song file's clock (StepMania's rule, beat 0 at -#OFFSET, which is the game's
-    /// for a baked chart), with the tempo and scroll ratio there. Null when there's none.
+    /// The timing of a chart as the game plays it in a battle: beat 0 at clock 0, whatever #OFFSET
+    /// says (a baked chart's is 0), and before beat 0 the clock runs at the first tempo.
     /// </summary>
-    internal static FirstNote? FirstNoteOf(ChartText chart, IEnumerable<ChartText.NoteBlock?> blocks)
+    private static EditorChart GameTiming(ChartText chart)
     {
         var timing = new EditorChart(4);
         timing.ReadTiming(chart);
+        timing.Offset = 0;
+        return timing;
+    }
+
+    /// <summary>
+    /// The first note (not the end of a hold) of the blocks, at or after the song's start, in
+    /// seconds on the battle's clock (the song file's time) for <paramref name="chart"/>, the chart
+    /// the game plays. Null when there's none.
+    /// </summary>
+    internal static FirstNote? FirstNoteOf(ChartText chart, IEnumerable<ChartText.NoteBlock?> blocks)
+    {
+        var timing = GameTiming(chart);
         int? first = null;
         foreach (var block in blocks.Distinct())
         {
@@ -381,16 +421,13 @@ internal static class ChartOffset
             foreach (int row in NoteRows(block, heads: true))
             {
                 if (first != null && row >= first) break;
-                if (timing.RowToSeconds(row) < -0.0005) continue;
+                if (timing.RowToSeconds(row) < -EarlyTolerance) continue;
                 first = row;
                 break;
             }
         }
         if (first is not int r) return null;
-        double beat = r / (double)RowsPerBeat, scroll = 1;
-        foreach (var (b, ratio) in ScrollSpeeds.Parse(chart.GetTag("SCROLLS")))
-            if (b <= beat + 1e-9) scroll = ratio;
-        return new FirstNote(r, Math.Max(0, timing.RowToSeconds(r)), timing.BpmAt(beat + 1e-9), scroll);
+        return new FirstNote(r, Math.Max(0, timing.RowToSeconds(r)));
     }
 
     /// <summary>The chart's top tempo, which Speed Mod divides by.</summary>
@@ -402,20 +439,99 @@ internal static class ChartOffset
     }
 
     /// <summary>
-    /// How long a note takes to cross the note field's spawn window (<paramref name="window"/>
-    /// units, the game's Size / 2 + Offset) at <paramref name="unitsPerBeat"/>, the tempo and the
-    /// scroll ratio: when it appears at the far end, how long before it's hit.
+    /// When the first note comes into view at the far end of the lane, on the battle's clock for
+    /// <paramref name="chart"/>, the chart the game plays (negative before the song): when the
+    /// notes have <paramref name="windowBeats"/> beats of scrolling left to it, with #SCROLLS
+    /// stretching the beats as the scroll speed hooks do, and the tempo and stops of the chart
+    /// between (before beat 0 the clock runs at the first tempo, as the game's does). A window that
+    /// isn't known (NaN) takes <see cref="DefaultApproach"/>.
     /// </summary>
-    internal static double Approach(double window, double unitsPerBeat, double bpm, double scroll)
+    internal static double EntersView(ChartText chart, FirstNote first, double windowBeats)
     {
-        double seconds = window / (unitsPerBeat * bpm / 60 * scroll);
-        return double.IsFinite(seconds) && seconds > 0 ? seconds : DefaultApproach;
+        if (!(windowBeats > 0) || double.IsInfinity(windowBeats)) return first.Seconds - DefaultApproach;
+        var scrolls = ScrollSpeeds.Parse(chart.GetTag("SCROLLS"));
+        double beat = first.Row / (double)RowsPerBeat;
+        double enters = ScrollSpeeds.Undisplayed(scrolls, ScrollSpeeds.Displayed(scrolls, beat) - windowBeats);
+        return GameTiming(chart).BeatToSeconds(enters);
     }
 
     /// <summary>
     /// How long before the song the battle's clock starts (the game's startDelay), so that the first
-    /// note scrolls in from the far end of the lane: none when it comes late enough.
+    /// note comes into view a moment after the notes start: none when it comes into view late enough.
     /// </summary>
-    internal static double StartDelay(double approach, double firstNoteSeconds) =>
-        Math.Clamp(approach + LeadInMargin - firstNoteSeconds, 0, MaxLeadIn);
+    internal static double StartDelay(double entersView) => Math.Clamp(LeadInMargin - entersView, 0, MaxLeadIn);
+
+    // ---- events -----------------------------------------------------------------------------------
+
+    /// <summary>
+    /// #ATTACKS for a battle whose clock starts <paramref name="leadIn"/> s before the song. The
+    /// game fires an event once the clock reaches its time, so events at 0:00 used to fire on the
+    /// battle's first frame; with a lead-in they would fire as the song starts, with the notes
+    /// already on their way. So the mods at 0:00 or before it that set how the battle looks (lane
+    /// layouts, the camera, props: <see cref="TestChart.StateKey"/>) move to the clock start, each as
+    /// an event of its own that ends when its event did. Other mods (attacks, text) keep their
+    /// times. The game's reader takes a negative TIME (float.TryParse with NumberStyles.Any). Null
+    /// when nothing moves; <paramref name="moved"/> counts the mods moved.
+    /// </summary>
+    internal static string? EventsBeforeSong(string? attacks, double leadIn, out int moved)
+    {
+        moved = 0;
+        if (!(leadIn > 0) || string.IsNullOrWhiteSpace(attacks)) return null;
+        // The clock start, in whole milliseconds and never after it.
+        double start = -Math.Ceiling(leadIn * 1000 - Tiny) / 1000;
+
+        // The events as the game reads them: ':' between values, each event from its TIME on.
+        var head = new List<string>();
+        var events = new List<List<string>>();
+        foreach (var part in attacks!.Split(':'))
+        {
+            if (Key(part) == "TIME") events.Add(new List<string> { part });
+            else if (events.Count > 0) events[^1].Add(part);
+            else head.Add(part);
+        }
+
+        var early = new List<string>();
+        var rest = new List<string>();
+        foreach (var e in events)
+        {
+            double time = Value(e[0]) ?? double.NaN;
+            int mods = e.FindIndex(p => Key(p) == "MODS");
+            if (!(time <= 0) || mods < 0 || e.Count(p => Key(p) == "MODS") > 1)
+            {
+                rest.AddRange(e);
+                continue;
+            }
+            double length = e.Where(p => Key(p) == "LEN").Select(Value).LastOrDefault() ?? 0;
+            string text = e[mods].Substring(e[mods].IndexOf('=') + 1);
+            var all = text.Split(',').Select(m => m.Trim()).Where(m => m.Length > 0).ToList();
+            var state = all.Where(m => TestChart.StateKey(m) != null).ToList();
+            if (state.Count == 0)
+            {
+                rest.AddRange(e);
+                continue;
+            }
+            double end = Math.Max(0, Math.Round(time + Math.Max(0, length) - start, 6));
+            foreach (var mod in state)
+                early.Add($"TIME={Number(start)}:LEN={Number(end)}:MODS={mod}");
+            moved += state.Count;
+            var others = all.Where(m => TestChart.StateKey(m) == null).ToList();
+            if (others.Count == 0) continue;
+            e[mods] = e[mods].Substring(0, e[mods].IndexOf('=') + 1) + string.Join(",", others);
+            rest.AddRange(e);
+        }
+        if (moved == 0) return null;
+        return string.Join(":", head.Concat(early).Concat(rest));
+
+        static string Key(string part)
+        {
+            int eq = part.IndexOf('=');
+            return eq < 0 ? "" : part.Substring(0, eq).Trim().ToUpperInvariant();
+        }
+
+        static double? Value(string part)
+        {
+            int eq = part.IndexOf('=');
+            return eq >= 0 && double.TryParse(part.Substring(eq + 1).Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double v) && double.IsFinite(v) ? v : null;
+        }
+    }
 }

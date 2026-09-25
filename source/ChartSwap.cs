@@ -78,6 +78,8 @@ internal static class ChartSwap
     private static void InitializePrefix(WwiseConductor __instance, SongData songData, ref Il2CppStructArray<int> melodies, ref float startDelay)
     {
         Playing = null;
+        leadIn = 0;
+        leadInConductor = IntPtr.Zero;
         RestoreScoreKey(__instance);
         ScrollSpeedHooks.Prepare(null);
         CustomMusic.Reset(__instance);
@@ -146,14 +148,19 @@ internal static class ChartSwap
         if (test.T0 > 0) startDelay = -(float)test.T0;
     }
 
+    // The lead-in InitializePrefix gave the battle it started (how far before the song its clock
+    // starts), for the chart that battle's CreateBeatmap builds next; 0 for none.
+    private static double leadIn;
+    private static IntPtr leadInConductor;
+
     /// <summary>
     /// A battle whose music is a song file starts its clock with the song, so a note in the song's
     /// first second or two is already partway down the lane when the notes first show, and reaches
     /// the receptors almost at once. (The game's own charts start about 2 s in.) When the first note
-    /// comes sooner than a note takes to cross the lane, the clock starts that much before the song
-    /// (a positive startDelay, at most <see cref="ChartOffset.MaxLeadIn"/> s): the notes scroll in from
-    /// the far end while the clock counts up to the song's start, where CustomMusic starts the song
-    /// as usual. <paramref name="chart"/> is on the song file's clock (StepMania's #OFFSET rule).
+    /// would come into view less than <see cref="ChartOffset.LeadInMargin"/> s after the clock starts,
+    /// the clock starts before the song (a positive startDelay, at most <see cref="ChartOffset.MaxLeadIn"/> s):
+    /// the notes scroll in from the far end while the clock counts up to the song's start, where
+    /// CustomMusic starts the song as usual. <paramref name="chart"/> is the chart the game plays.
     /// </summary>
     private static void StartBeforeSong(WwiseConductor conductor, SongData songData, ChartText chart, IEnumerable<ChartText.NoteBlock?> blocks,
         ref float startDelay, string what)
@@ -161,12 +168,14 @@ internal static class ChartSwap
         try
         {
             if (ChartOffset.FirstNoteOf(chart, blocks) is not { } first) return;
-            double approach = ApproachSeconds(conductor, songData, chart, first);
-            double delay = ChartOffset.StartDelay(approach, first.Seconds);
+            double enters = ChartOffset.EntersView(chart, first, WindowBeats(conductor, songData, chart));
+            double delay = ChartOffset.StartDelay(enters);
             if (!(delay > 0)) return;
             startDelay = (float)delay;
-            ModLog.Info($"{what}: the first note is {first.Seconds:0.00} s into the song and takes {approach:0.00} s to cross the lane, " +
-                        $"so the notes start {delay:0.00} s before the song.");
+            leadIn = startDelay;
+            leadInConductor = conductor.Pointer;
+            ModLog.Info($"{what}: the first note is {first.Seconds:0.00} s into the song and takes {first.Seconds - enters:0.00} s to cross the lane, " +
+                        $"so the notes start {leadIn:0.00} s before the song.");
         }
         catch (Exception ex) { ReportOnce(ex); }
     }
@@ -174,12 +183,12 @@ internal static class ChartSwap
     private static bool reportedApproach;
 
     /// <summary>
-    /// How long a note at the first note's tempo and scroll speed takes from the far end of the
-    /// note field's spawn window to the receptors, with the player's note speed: Speed Mod moves
-    /// the chart's top tempo at the Max BPM setting's speed, the other mode moves every beat by the
-    /// same distance. A setting that can't be read gives <see cref="ChartOffset.DefaultApproach"/>.
+    /// How many beats of scrolling the note field's spawn window holds with the player's note speed:
+    /// Speed Mod moves the chart's top tempo at the Max BPM setting's speed, the other mode moves
+    /// every beat by the same distance, and neither depends on the tempo of the moment. NaN when a
+    /// setting can't be read (the notes then start as if they took <see cref="ChartOffset.DefaultApproach"/> s).
     /// </summary>
-    private static double ApproachSeconds(WwiseConductor conductor, SongData songData, ChartText chart, ChartOffset.FirstNote first)
+    private static double WindowBeats(WwiseConductor conductor, SongData songData, ChartText chart)
     {
         try
         {
@@ -200,14 +209,33 @@ internal static class ChartSwap
                 unitsPerBeat = perBeat * NocturneSettings.BaseNoteSpeed * NocturneSettings.TargetBpm / top;
             }
             else unitsPerBeat = perBeat * (settings != null ? settings.XNoteSpeed : NocturneSettings.XNoteSpeed);
-            return ChartOffset.Approach(window, unitsPerBeat, first.Bpm, first.Scroll);
+            return window / unitsPerBeat;
         }
         catch (Exception ex)
         {
             if (!reportedApproach) ModLog.Error("Reading the note speed failed, so a battle's notes start as if they took 2 s to cross the lane: " + ex);
             reportedApproach = true;
-            return ChartOffset.DefaultApproach;
+            return double.NaN;
         }
+    }
+
+    /// <summary>
+    /// The text the game reads for a chart whose battle starts before its song: the events at the
+    /// song's start that set how the battle looks move to the clock start (see
+    /// <see cref="ChartOffset.EventsBeforeSong"/>), so the lanes, camera and props are in place as
+    /// the notes scroll in. Without a lead-in, <paramref name="text"/> as it is.
+    /// </summary>
+    private static string WithEventsBeforeSong(WwiseConductor conductor, ChartText chart, string text, string what)
+    {
+        if (!(leadIn > 0) || !conductor || conductor.Pointer != leadInConductor) return text;
+        var events = ChartOffset.EventsBeforeSong(chart.GetTag("ATTACKS"), leadIn, out int moved);
+        if (events == null) return text;
+        var copy = new ChartText();
+        copy.Tags.AddRange(chart.Tags);
+        copy.Blocks.AddRange(chart.Blocks);
+        copy.SetTag("ATTACKS", events);
+        ModLog.Info($"{what}: {moved} events at the song's start (lane layouts, camera, props) moved to the clock start.");
+        return copy.Write();
     }
 
     private static void SwapScoreKey(WwiseConductor conductor, SongData song, string key)
@@ -350,7 +378,7 @@ internal static class ChartSwap
             var source = CustomMusic.SourceFor(chart);
             var baked = source != null ? ChartOffset.Bake(playable) : null;
             if (baked != null) playable = baked.Chart;
-            var built = NotesLoaderSM.Instance.LoadFromText(playable.Write());
+            var built = NotesLoaderSM.Instance.LoadFromText(WithEventsBeforeSong(__instance, playable, playable.Write(), $"Custom chart {chart.DisplayName}"));
             if (built == null || built.steps == null || built.steps.Count == 0 || built.timingData == null)
                 throw new InvalidDataException("the game's reader found no playable chart in it");
             __result = built;
@@ -378,7 +406,7 @@ internal static class ChartSwap
         CustomMusic.Prepare(custom.Music, conductor, customBattle: true);
         try
         {
-            var built = NotesLoaderSM.Instance.LoadFromText(custom.PlayableText);
+            var built = NotesLoaderSM.Instance.LoadFromText(WithEventsBeforeSong(conductor, custom.PlayableChart, custom.PlayableText, $"Custom battle {custom.Title}"));
             if (built == null || built.steps == null || built.steps.Count == 0 || built.timingData == null)
                 throw new InvalidDataException("the game's reader found no playable chart in it");
             __result = built;
@@ -402,7 +430,9 @@ internal static class ChartSwap
         {
             // First, so a test from partway in never falls back to the game's music from its start.
             if (test.Music != null) CustomMusic.Prepare(test.Music, conductor, customBattle: !test.MusicFallsBackToWwise);
-            var built = NotesLoaderSM.Instance.LoadFromText(test.PlayableText);
+            string? text = test.PlayableText;
+            if (text != null && test.Chart != null) text = WithEventsBeforeSong(conductor, test.Chart, text, $"Test play of {song.name}");
+            var built = NotesLoaderSM.Instance.LoadFromText(text);
             if (built == null || built.steps == null || built.steps.Count == 0 || built.timingData == null)
                 throw new InvalidDataException("the game's reader found no playable chart in it");
             __result = built;
