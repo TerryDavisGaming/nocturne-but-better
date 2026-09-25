@@ -14,7 +14,6 @@ internal static partial class BattleCreator
 {
     // The chart editor's remembered name for charts, used as a new battle's charter.
     private const string AuthorPref = "NocturneFlatScroll.EditorAuthor.v1";
-    private const int MaxExtraHealth = 20;
 
     private static BattleDraft? draft;
     private static BattleFiles.ChartSummary? charts;
@@ -167,6 +166,8 @@ internal static partial class BattleCreator
         internal string Hint = "Type, then Enter. Esc cancels.";
         /// <summary>A part of the enemy, which can't change while the enemy's file can't be read.</summary>
         internal bool Enemy;
+        /// <summary>More for the typing hint, worked out from what is typed (like how many lines it takes).</summary>
+        internal Func<string, string>? Measure;
     }
 
     private static TextField? typing;
@@ -190,6 +191,7 @@ internal static partial class BattleCreator
         if (field == null) return;
         string hint = field.MultiLine ? "Type, then Enter. Shift+Enter starts a new line. Esc cancels." : field.Hint;
         if (field.Max >= 100) hint += $"   {typed.Length} / {field.Max}";
+        if (field.Measure != null) hint += field.Measure(typed);
         Say(hint, 3600f);
     }
 
@@ -320,14 +322,17 @@ internal static partial class BattleCreator
         Hint = "Type the time in seconds, like 42.5, then Enter. Esc cancels.",
     };
 
+    // The battle shows the name only as the title of its own info boxes that have none, so the
+    // field sits with them on the Enemy page and shows only while the battle has its own boxes.
     private static readonly TextField EnemyNameField = new()
     {
-        Label = "Name",
+        Label = "Enemy name",
         Max = 60,
         Enemy = true,
         Get = () => draft?.EnemyName ?? "",
         Set = text => draft!.EnemyName = text,
-        Empty = () => $"{EnemyChoices.NameOf(draft?.Placeholder)} (the enemy's own name)",
+        Empty = () => "(none)",
+        Hint = "Type, then Enter. It is the title of a box that has no title of its own. Esc cancels.",
     };
 
     // The loader's limits for each stat.
@@ -351,8 +356,9 @@ internal static partial class BattleCreator
         Hint = "Type a number, then Enter. Leave it empty for the enemy's own. Esc cancels.",
     }).ToArray();
 
-    // In the battle, a box without a title shows the enemy's own Name (not the placeholder's), or
-    // no title when it has none. A box shows when it has a title or a text.
+    // In the battle, a box without a title shows the Enemy name (not the placeholder's), or no
+    // title when there is none. The game only shows a box that has a text, and at most 3 lines of
+    // it (BattleDraft.InfoBoxNotes says when a box won't show as typed).
     private static readonly TextField[] InfoTitleFields = Enumerable.Range(0, EnemyPlaceholders.MaxInfoBoxes).Select(i => new TextField
     {
         Label = $"Box {i + 1} title",
@@ -360,19 +366,29 @@ internal static partial class BattleCreator
         Enemy = true,
         Get = () => draft?.InfoBox(i).Title ?? "",
         Set = text => draft!.SetInfoBox(i, text, null),
-        Empty = () => draft?.EnemyName is { Length: > 0 } name ? $"(empty: shows the Name, {name})" : "(empty: no title)",
+        Empty = () => draft?.EnemyName is { Length: > 0 } name ? $"(empty: shows the enemy name, {name})" : "(empty: no title)",
     }).ToArray();
 
+    // About three lines of the box's width; the typing hint says how many lines it takes.
     private static readonly TextField[] InfoTextFields = Enumerable.Range(0, EnemyPlaceholders.MaxInfoBoxes).Select(i => new TextField
     {
         Label = $"Box {i + 1} text",
-        Max = 300,
+        Max = BattleDraft.InfoMaxLines * BattleDraft.InfoLineChars,
         MultiLine = true,
         Enemy = true,
         Get = () => draft?.InfoBox(i).Description ?? "",
         Set = text => draft!.SetInfoBox(i, null, text),
-        Empty = () => "(empty)",
+        Empty = () => "(empty: the battle doesn't show this box)",
+        Measure = InfoLinesHint,
     }).ToArray();
+
+    private static string InfoLinesHint(string text)
+    {
+        int lines = BattleDraft.InfoTextLines(text);
+        return lines > BattleDraft.InfoMaxLines
+            ? $", about {lines} lines: the battle shows {BattleDraft.InfoMaxLines}"
+            : $", about {lines} of {BattleDraft.InfoMaxLines} lines";
+    }
 
     // ---- saving ----------------------------------------------------------------------------------
 
@@ -749,15 +765,23 @@ internal static partial class BattleCreator
         var d = draft;
         var list = EnemyChoices.List(d.Advanced);
         string current = EnemyChoices.Normalize(d.Placeholder);
+        var rows = list.Select(c => c.Advanced ? c.Name + "  (advanced boss)" : c.Name).ToList();
+        int index = list.FindIndex(c => c.Asset.Equals(current, StringComparison.OrdinalIgnoreCase));
+        // An enemy the list leaves out (an advanced boss while they're off, or one it doesn't know)
+        // gets a row of its own on top, where the list opens, so opening it to look changes nothing.
+        int keep = index < 0 ? 1 : 0;
+        if (keep == 1) rows.Insert(0, EnemyChoices.NameOf(current) + "  (current)");
         ShowPicker(new Picker
         {
             Heading = "The enemy: which game enemy stands in",
-            Rows = list.Select(c => c.Advanced ? c.Name + "  (advanced boss)" : c.Name).ToList(),
-            Hint = i => i >= 0 && i < list.Count ? EnemyHint(list[i]) : "",
-            Index = Math.Max(0, list.FindIndex(c => c.Asset.Equals(current, StringComparison.OrdinalIgnoreCase))),
+            Rows = rows,
+            Hint = i => i < keep
+                ? (EnemyChoices.Problem(current, d.Advanced) ?? "The enemy it is now.") + "  Esc goes back."
+                : i - keep < list.Count ? EnemyHint(list[i - keep]) : "",
+            Index = index + keep,
             Choose = i =>
             {
-                d.Placeholder = list[i].Asset;
+                if (i >= keep) d.Placeholder = list[i - keep].Asset;
                 BackFromPicker();
             },
             Back = BackFromPicker,
@@ -881,16 +905,29 @@ internal static partial class BattleCreator
         if (GearCatalog.All.Count == 0) { Say("The game's items aren't loaded yet, so they can't be listed now. Try again after loading a save.", 6f); return; }
         var d = draft;
         var items = GearCatalog.ForSlot(slot, showTestItems);
-        var current = GearCatalog.Find(d.GearItem(slot));
+        string? currentId = d.GearItem(slot);
+        var current = GearCatalog.Find(currentId);
+        var rows = new List<string> { "(empty)" };
+        rows.AddRange(items.Select(i => i.Debug ? i.Name + "  (test item)" : i.Name));
+        int index = current == null ? -1 : items.FindIndex(i => i.Id == current.Id);
+        // An item the list leaves out (a test item while they're hidden, or one the game doesn't
+        // have) gets a row of its own after "(empty)", where the list opens, so opening it to look
+        // changes nothing.
+        int keep = currentId != null && index < 0 ? 1 : 0;
+        if (keep == 1)
+            rows.Insert(1, current != null ? current.Name + (current.Debug ? "  (test item, current)" : "  (current)") : $"unknown item {currentId}  (current)");
         ShowPicker(new Picker
         {
             Heading = $"{GearCatalog.LabelOf(slot)} for this battle",
-            Rows = new[] { "(empty)" }.Concat(items.Select(i => i.Debug ? i.Name + "  (test item)" : i.Name)).ToList(),
-            Hint = i => i <= 0 || i > items.Count ? "Nothing in this slot.  Esc goes back." : ItemHint(items[i - 1]),
-            Index = current == null ? 0 : items.FindIndex(i => i.Id == current.Id) + 1,
+            Rows = rows,
+            Hint = i => i <= 0 ? "Nothing in this slot.  Esc goes back."
+                : i <= keep ? (current != null ? ItemHint(current) : $"The game has no item \"{currentId}\", so the battle leaves this slot empty.  Esc goes back.")
+                : i - keep <= items.Count ? ItemHint(items[i - keep - 1]) : "",
+            Index = currentId == null ? 0 : keep == 1 ? 1 : index + 1,
             Choose = i =>
             {
-                d.SetGearItem(slot, i == 0 ? null : items[i - 1].Id);
+                if (i == 0) d.SetGearItem(slot, null);
+                else if (i > keep) d.SetGearItem(slot, items[i - keep - 1].Id);
                 RefreshGear();
                 BackFromPicker();
             },
@@ -907,21 +944,22 @@ internal static partial class BattleCreator
         return (text.Length > 0 ? text + "  " : "") + $"(id {item.Id})";
     }
 
-    // The steppers change what the arcade shows ("Potion x3", "Health upgrades: 0."), so the preview is worked out again.
-    private static void StepConsumableCount(int direction)
+    // Health upgrades change what the arcade shows ("Health upgrades: 3."), so the preview is worked out again.
+    private static void SetHealthMode(bool set)
     {
         if (draft == null) return;
-        draft.SetConsumableCount(draft.ConsumableCount + direction);
+        draft.SetExtraHealthMode(set);
         RefreshGear();
     }
 
+    // Only while the battle sets them: "-" stops at 0 and "+" at the loader's limit, and neither
+    // goes back to the player's own (the button above does that). A number above the limit, from
+    // a battle.json written by hand, isn't lowered by "+".
     private static void StepExtraHealth(int direction)
     {
-        if (draft == null) return;
-        int? count = draft.ExtraHealth;
-        if (direction < 0) count = count is null or 0 ? null : count - 1;
-        else count = count is int n ? Math.Min(MaxExtraHealth, n + 1) : 0;
-        draft.SetExtraHealth(count);
+        if (draft?.ExtraHealth is not int n) return;
+        int next = direction < 0 ? Math.Max(0, Math.Min(n, GearDefinition.MaxCount + 1) - 1) : n >= GearDefinition.MaxCount ? n : n + 1;
+        draft.SetExtraHealth(next);
         RefreshGear();
     }
 }

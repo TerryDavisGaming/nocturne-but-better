@@ -369,7 +369,6 @@ internal static partial class BattleCreator
         AddHeader(p, 0, ref y, Col1W, "Enemy");
         AddChoice(p, 0, ref y, Col1W, "Looks like", () => Escape(EnemyChoices.NameOf(draft?.Placeholder)), ChooseEnemy);
         AddToggle(p, 0, ref y, Col1W, () => $"Advanced bosses: {((draft?.Advanced ?? false) ? "on" : "off")}", () => draft?.Advanced ?? false, ToggleAdvanced);
-        AddField(p, 0, ref y, Col1W, EnemyNameField);
         AddHeader(p, 0, ref y, Col1W, "Stats (blank keeps the enemy's own)");
         foreach (var field in StatFields) AddField(p, 0, ref y, Col1W, field);
         var art = MakeImage("CustomArt", pagePanels[p], PanelColor).rectTransform;
@@ -387,12 +386,23 @@ internal static partial class BattleCreator
         AddToggle(p, Col2, ref y2, Col2W, () => (draft?.OwnInfo ?? false) ? "Info boxes: this battle's own" : "Info boxes: the enemy's own",
             () => draft?.OwnInfo ?? false, ToggleOwnInfo);
         Func<bool> own = () => draft?.OwnInfo ?? false;
-        AddText(p, Col2, ref y2, Col2W, 44, () => "A box shows when it has a title or a text. A box without a title shows the Name, if the enemy has one.", 16, own);
+        Func<bool> theirs = () => !own();
+        // In the room the battle's own boxes use below, while the enemy's own are shown.
+        float y3 = y2;
+        AddText(p, Col2, ref y3, Col2W, 90, () =>
+            $"The battle shows the info boxes of the enemy it looks like ({Escape(EnemyChoices.NameOf(draft?.Placeholder))}). " +
+            "Choose this battle's own to write up to 3 boxes, with an enemy name as their title.", 16, theirs);
+        AddField(p, Col2, ref y2, Col2W, EnemyNameField, own);
+        AddText(p, Col2, ref y2, Col2W, 66, () =>
+            $"A box shows only when it has a text, and at most {BattleDraft.InfoMaxLines} lines of it. A box without a title shows the enemy name. " +
+            "With no text in any box, the battle shows no info boxes.", 16, own);
         for (int i = 0; i < EnemyPlaceholders.MaxInfoBoxes; i++)
         {
             AddField(p, Col2, ref y2, Col2W, InfoTitleFields[i], own);
-            AddField(p, Col2, ref y2, Col2W, InfoTextFields[i], own, 170);
+            AddField(p, Col2, ref y2, Col2W, InfoTextFields[i], own, 118);
         }
+        var notes = AddText(p, Col2, ref y2, Col2W, 66, () => draft == null ? "" : Escape(string.Join("\n", draft.InfoBoxNotes())), 16, own);
+        notes.color = Hex(0xF2B02E);
     }
 
     private static void BuildGearPage()
@@ -413,12 +423,17 @@ internal static partial class BattleCreator
             var s = slot;
             AddChoice(p, 0, ref y, Col1W, GearCatalog.LabelOf(s), () => GearText(s), () => ChooseGear(s), setMode);
         }
-        AddStepper(p, 0, ref y, Col1W, () => $"How many: {draft?.ConsumableCount ?? 1}",
-            () => StepConsumableCount(-1), () => StepConsumableCount(1),
-            () => setMode() && draft?.GearItem(GearSlot.Consumable) != null);
-        AddStepper(p, 0, ref y, Col1W, () => draft?.ExtraHealth is int n ? $"Health upgrades: {n}" : "Health upgrades: the player's own",
-            () => StepExtraHealth(-1), () => StepExtraHealth(1), setMode);
         AddToggle(p, 0, ref y, Col1W, () => $"Show test items: {(showTestItems ? "on" : "off")}", () => showTestItems, () => showTestItems = !showTestItems, setMode);
+        // Health upgrades: the player's own, or a number set for this battle (only then the stepper shows).
+        AddHeader(p, 0, ref y, Col1W, "Health upgrades", setMode);
+        float healthRow = y;
+        var ownHealth = AddButton(p, 0, healthRow, Col1W / 2 - 6, RowH, "Player's own", () => SetHealthMode(false), setMode);
+        ownHealth.Active = () => draft?.ExtraHealth == null;
+        var setHealth = AddButton(p, Col1W / 2 + 6, healthRow, Col1W / 2 - 6, RowH, "Set for this battle", () => SetHealthMode(true), setMode);
+        setHealth.Active = () => draft?.ExtraHealth != null;
+        y -= RowStep;
+        AddStepper(p, 0, ref y, Col1W, () => $"Health upgrades: {draft?.ExtraHealth ?? 0}",
+            () => StepExtraHealth(-1), () => StepExtraHealth(1), () => setMode() && draft?.ExtraHealth != null);
 
         // The level, then how both work and what players will see (worked out in RefreshGear).
         float y2 = 0;

@@ -41,6 +41,8 @@ internal sealed class BattleDraft
     private bool enemyAttached, enemyChanged;
     private GearDefinition gear;
     private GearDefinition? lastSetGear;
+    // The set health upgrades while the player's own are picked, so picking "set" again brings them back.
+    private int? lastExtraHealth;
     private LevelDefinition level;
     // The set level while the player's own is picked, so picking "set" again brings it back.
     private int? lastSetLevel;
@@ -348,7 +350,10 @@ internal sealed class BattleDraft
 
     // ---- the enemy ----------------------------------------------------------------------------------
 
-    /// <summary>The enemy's own name; empty shows the placeholder's.</summary>
+    /// <summary>
+    /// The enemy's name. The battle shows it only as the title of the battle's own info boxes that
+    /// have no title of their own; nothing else in the game shows an enemy's name.
+    /// </summary>
     internal string EnemyName
     {
         get => GetString(enemy, "name");
@@ -462,7 +467,74 @@ internal sealed class BattleDraft
         EnemyTouched();
     }
 
-    // Boxes with neither text would show as empty boxes in the battle, so they aren't saved.
+    /// <summary>The lines of a box's text the battle shows (the game's box stops there).</summary>
+    internal const int InfoMaxLines = 3;
+
+    /// <summary>
+    /// About how many characters fit on one line of the battle's info box: its font has letters of
+    /// one width, and 33 of them fill a line in the game (1.0.1, seen in battle screenshots).
+    /// </summary>
+    internal const int InfoLineChars = 33;
+
+    /// <summary>
+    /// About how many lines a box's text takes in the battle: each of its lines, wrapped at spaces
+    /// the way the box wraps it (a word longer than a line is broken). 0 for no text.
+    /// </summary>
+    internal static int InfoTextLines(string? text)
+    {
+        string clean = CleanText(text);
+        if (clean.Length == 0) return 0;
+        int lines = 0;
+        foreach (var line in clean.Split('\n'))
+        {
+            lines++;
+            int used = 0;
+            foreach (var word in line.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int length = word.Length;
+                if (used > 0 && used + 1 + length <= InfoLineChars)
+                {
+                    used += 1 + length;
+                    continue;
+                }
+                if (used > 0) lines++;
+                // A word longer than a line runs onto the next ones.
+                while (length > InfoLineChars)
+                {
+                    lines++;
+                    length -= InfoLineChars;
+                }
+                used = length;
+            }
+        }
+        return lines;
+    }
+
+    /// <summary>
+    /// What the battle won't show of the battle's own info boxes, for the creator: a box with a
+    /// title but no text (the game hides a box without text), and text longer than the box's lines.
+    /// </summary>
+    internal List<string> InfoBoxNotes()
+    {
+        var notes = new List<string>();
+        if (!OwnInfo) return notes;
+        for (int i = 0; i < EnemyPlaceholders.MaxInfoBoxes; i++)
+        {
+            var (title, description) = InfoBox(i);
+            if (description.Trim().Length == 0)
+            {
+                if (title.Trim().Length > 0) notes.Add($"Box {i + 1} has a title but no text, so the battle doesn't show it.");
+                continue;
+            }
+            int lines = InfoTextLines(description);
+            if (lines > InfoMaxLines) notes.Add($"Box {i + 1}'s text takes about {lines} lines; the battle shows the first {InfoMaxLines}.");
+        }
+        return notes;
+    }
+
+    // Boxes with neither text never show in the battle (the game hides a box without text), so
+    // they aren't saved. A box with only a title is kept, so what was typed isn't lost; the
+    // creator points it out (InfoBoxNotes).
     private void PruneInfoBoxes()
     {
         if (enemy["info"] is not JsonArray boxes) return;
@@ -577,6 +649,21 @@ internal sealed class BattleDraft
         if (gear.extraHealth == value) return;
         gear.extraHealth = value;
         WriteGear();
+    }
+
+    /// <summary>
+    /// Health upgrades set for this battle (true) or the player's own (false). Setting them starts
+    /// at the number set before (until the creator closes), else at 0.
+    /// </summary>
+    internal void SetExtraHealthMode(bool set)
+    {
+        if (set == (ExtraHealth != null)) return;
+        if (set) SetExtraHealth(lastExtraHealth ?? 0);
+        else
+        {
+            lastExtraHealth = ExtraHealth;
+            SetExtraHealth(null);
+        }
     }
 
     // The keys come from GearDefinition itself, so they're exactly what BattlePackage reads.
