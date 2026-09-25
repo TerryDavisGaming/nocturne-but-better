@@ -144,7 +144,7 @@ internal sealed class DialogueLink
     internal Func<string?>? Save;
     /// <summary>The name a speaker shows as (the battle's own speaker's name, a game character's, "Narrator").</summary>
     internal Func<string, string> NameOf = id => id;
-    /// <summary>Who the editor offers for a line: the battle's own speakers, the game characters it uses, the Narrator.</summary>
+    /// <summary>Who the editor offers for a line: the player's character, the battle's own speakers, the game characters it uses, the Narrator.</summary>
     internal Func<List<(string Id, string Label)>> Speakers = () => new List<(string, string)>();
     /// <summary>Opens a line (by its <see cref="DialogueCue.Place"/>; -1 for none) on the creator's Dialogue page once the editor closes.</summary>
     internal Action<int>? ShowInCreator;

@@ -97,22 +97,24 @@ internal static partial class BattleCreator
         empty.color = TextColor;
         y -= LineRowsVisible * LineRowStep;
 
-        float w6 = (Col1W - 5 * 8) / 6f;
-        float Slot(int i) => i * (w6 + 8);
-        AddButton(p, Slot(0), y, w6, RowH, "Add line", AddDialogueLine, onLines);
-        AddButton(p, Slot(1), y, w6, RowH, "Copy", CopyDialogueLine, lineChosen);
-        var up = AddButton(p, Slot(2), y, w6, RowH, "", () => MoveDialogueLine(-1), lineChosen);
+        float w7 = (Col1W - 6 * 8) / 7f;
+        float Slot(int i) => i * (w7 + 8);
+        AddButton(p, Slot(0), y, w7, RowH, "Add line", AddDialogueLine, onLines);
+        AddButton(p, Slot(1), y, w7, RowH, "Reply", ReplyToLine, lineChosen);
+        AddButton(p, Slot(2), y, w7, RowH, "Copy", CopyDialogueLine, lineChosen);
+        var up = AddButton(p, Slot(3), y, w7, RowH, "", () => MoveDialogueLine(-1), lineChosen);
         up.Text = () => dialogueTab == DialogueTab.During ? "Earlier" : "Move up";
-        var down = AddButton(p, Slot(3), y, w6, RowH, "", () => MoveDialogueLine(1), lineChosen);
+        var down = AddButton(p, Slot(4), y, w7, RowH, "", () => MoveDialogueLine(1), lineChosen);
         down.Text = () => dialogueTab == DialogueTab.During ? "Later" : "Move down";
         // Also for an item that isn't a line (written by hand), which can only be deleted.
-        AddButton(p, Slot(4), y, w6, RowH, "Delete", DeleteDialogueLine, () => onLines() && ChosenInList);
-        AddButton(p, Slot(0), y, 2 * w6 + 8, RowH, "New speaker...", () => NewSpeaker(forLine: false), onSpeakers);
-        AddButton(p, Slot(2), y, 2 * w6 + 8, RowH, "Delete speaker", DeleteSpeaker, speakerChosen);
-        AddButton(p, Slot(5), y, w6, RowH, "Undo", UndoDialogueChange, () => draft?.CanUndoDialogue == true);
+        AddButton(p, Slot(5), y, w7, RowH, "Delete", DeleteDialogueLine, () => onLines() && ChosenInList);
+        AddButton(p, Slot(0), y, 2 * w7 + 8, RowH, "New speaker...", () => NewSpeaker(forLine: false), onSpeakers);
+        AddButton(p, Slot(2), y, 2 * w7 + 8, RowH, "Delete speaker", DeleteSpeaker, speakerChosen);
+        AddButton(p, Slot(6), y, w7, RowH, "Undo", UndoDialogueChange, () => draft?.CanUndoDialogue == true);
         y -= RowStep;
-        AddText(p, 0, ref y, Col1W, 24, () => onLines()
-            ? "Insert: add   Ctrl+D: copy   Delete: delete   Ctrl+Up/Down: move   Ctrl+Z / Ctrl+Y: undo, redo   Space: play"
+        // Room for two lines, in case the keys don't fit on one.
+        AddText(p, 0, ref y, Col1W, 38, () => onLines()
+            ? "Insert: add   Ctrl+R: reply   Ctrl+D: copy   Delete: delete   Ctrl+Up/Down: move   Ctrl+Z / Ctrl+Y: undo, redo   Space: play"
             : "Ctrl+Z / Ctrl+Y: undo, redo", 15);
         var problems = AddText(p, 0, ref y, Col1W, 884 + y - 8, DialogueProblemsText, 16);
         problems.color = Hex(0xF2B02E);
@@ -406,6 +408,7 @@ internal static partial class BattleCreator
         else if (ctrl && Pressed(k, Key.Y)) RedoDialogueChange();
         else if (dialogueTab == DialogueTab.Speakers) return false;
         else if (Pressed(k, Key.Insert) || (ctrl && enter)) AddDialogueLine();
+        else if (ctrl && Pressed(k, Key.R)) ReplyToLine();
         else if (ctrl && Pressed(k, Key.D)) CopyDialogueLine();
         else if (Pressed(k, Key.Delete)) DeleteDialogueLine();
         else if (ctrl && Pressed(k, Key.UpArrow)) MoveDialogueLine(-1);
@@ -584,6 +587,65 @@ internal static partial class BattleCreator
         return new (string, JsonNode?)[] { ("time", BattleDraft.ArtNumberNode(0)), ("beat", null) };
     }
 
+    /// <summary>
+    /// Reply: a new line right after the chosen one, said by the other side of the talk. Anyone
+    /// but the player is answered by the player, and the player by whoever spoke before her.
+    /// </summary>
+    private static void ReplyToLine()
+    {
+        if (draft == null || dialogueTab == DialogueTab.Speakers || !FinishTyping() || !DialogueEditable()) return;
+        if (!HasChosenLine)
+        {
+            Say("Choose the line to reply to first.", 3f);
+            return;
+        }
+        StopDialoguePlay();
+        var section = ShownSection;
+        if (draft.LineCount(section) >= DialogueReader.MaxLines(section))
+        {
+            Say($"The lines {DialogueReader.SectionName(section)} are full: the battle plays at most {DialogueReader.MaxLines(section)}.", 5f);
+            return;
+        }
+        string speaker = ReplySpeaker();
+        var values = new List<(string, JsonNode?)> { ("speaker", JsonValue.Create(speaker)), ("text", JsonValue.Create("")) };
+        if (section == DialogueSection.During) values.AddRange(ReplyWhen());
+        chosenLine = draft.AddLine(section, chosenLine + 1, values.ToArray());
+        lastSpeaker = speaker;
+        StartTyping(LineTextField);
+    }
+
+    // Who answers the chosen line: the player, unless she said it. Then the last one before her
+    // who isn't the player or the Narrator (in this section, else anywhere in the battle's lines),
+    // else the battle's first speaker of its own, else the Narrator.
+    private static string ReplySpeaker()
+    {
+        if (!IsPlayer(ChosenSpeakerId)) return PlayerId;
+        var section = ShownSection;
+        bool Other(string? id) => (id ?? "").Trim() is { Length: > 0 } s && !IsPlayer(s) && WhoIs(s) != Who.Narrator;
+        for (int r = lineRows.IndexOf(chosenLine) - 1; r >= 0; r--)
+            if (draft!.LineText(section, lineRows[r], "speaker") is { } id && Other(id)) return id.Trim();
+        foreach (DialogueSection s in Enum.GetValues(typeof(DialogueSection)))
+            for (int i = 0; i < draft!.LineCount(s); i++)
+                if (draft.LineText(s, i, "speaker") is { } id && Other(id)) return id.Trim();
+        return draft!.SpeakerKeys().FirstOrDefault() ?? DialogueReader.Narrator;
+    }
+
+    // When a reply during the song goes. To a line that stops the song: in the same stop, right
+    // after it. To a live line: on the first beat after that line has gone, so it isn't cut short.
+    private static (string, JsonNode?)[] ReplyWhen()
+    {
+        if (ChosenTime() is not double start) return NextWhen();
+        if (ChosenStops())
+            return LineNumber("beat") is double at
+                ? new (string, JsonNode?)[] { ("beat", BattleDraft.ArtNumberNode(at)), ("time", null), ("pause", JsonValue.Create(true)) }
+                : new (string, JsonNode?)[] { ("time", BattleDraft.ArtNumberNode(start)), ("beat", null), ("pause", JsonValue.Create(true)) };
+        double shows = LineNumber("duration") is double d ? Math.Clamp(d, DialogueReader.MinDuration, DialogueReader.MaxDuration)
+            : DialogueReader.LiveSeconds(DialogueReader.CleanText(LineValue("text"), out _));
+        double beat = Math.Ceiling(Math.Round(dialogueTiming.SecondsToBeat(start + shows), 3));
+        if (LineNumber("beat") != null) return new (string, JsonNode?)[] { ("beat", BattleDraft.ArtNumberNode(beat)), ("time", null) };
+        return new (string, JsonNode?)[] { ("time", BattleDraft.ArtNumberNode(Math.Round(dialogueTiming.BeatToSeconds(beat), 3))), ("beat", null) };
+    }
+
     /// <summary>Move up or down in the list; during the song, a beat earlier or later.</summary>
     private static void MoveDialogueLine(int by)
     {
@@ -680,7 +742,7 @@ internal static partial class BattleCreator
         return DialogueReader.LineName(ShownSection, chosenLine, ChosenTime());
     }
 
-    // "Karma", "The Warden (yours)", "Narrator (no picture)".
+    // "Karma (the player)", "Kimothy", "The Warden (yours)", "Narrator (no picture)".
     private static string SpeakerValue()
     {
         string id = ChosenSpeakerId;
@@ -688,11 +750,22 @@ internal static partial class BattleCreator
         {
             Who.Custom => $"{Escape(SpeakerName(id))} <color=#9D92B4>(yours)</color>",
             Who.Narrator => "Narrator <color=#9D92B4>(no picture)</color>",
+            _ when IsPlayer(id) => $"{Escape(GameName(id))} <color=#9D92B4>(the player)</color>",
             _ => Escape(GameName(id)) + (GameCharacters() != null && FindGame(id) == null ? " <color=#F2B02E>(the game has no such character: the Narrator says it)</color>" : ""),
         };
     }
 
-    /// <summary>How the list and the rows name a speaker: its name, "Narrator", or a game character's name.</summary>
+    /// <summary>Whether a line's speaker is the player's character: the game's Karma (not a speaker of the battle's own with that key).</summary>
+    private static bool IsPlayer(string? speaker) => DialogueReader.IsPlayer(speaker) && WhoIs(speaker) == Who.Game;
+
+    /// <summary>The player's character's id as the game spells it; known before the game's characters load.</summary>
+    private static string PlayerId => FindGame(DialogueReader.Player)?.Id ?? DialogueReader.Player;
+
+    /// <summary>
+    /// How the list and the rows name a speaker: its name, "Narrator", or a game character's name.
+    /// The player's character is just "Karma" here, as the box's name tag says; the speaker
+    /// picker and the chosen line's Speaker row say "Karma (the player)".
+    /// </summary>
     private static string SpeakerLabel(string? speaker) => WhoIs(speaker) switch
     {
         Who.Custom => SpeakerName(speaker!.Trim()),
@@ -860,29 +933,35 @@ internal static partial class BattleCreator
     {
         internal string Label = "";
         internal string Id = "";
-        internal bool New;
+        internal bool New, Player;
     }
 
     /// <summary>
-    /// The speaker picker's rows: New speaker..., the battle's own speakers, the game characters
-    /// its lines already use, the Narrator, then every game character with faces, A to Z. Without
-    /// <paramref name="all"/> (the chart editor's short list), only the middle three.
+    /// The speaker picker's rows: New speaker..., the player's character ("Karma (the player)",
+    /// there even before the game's characters load), the battle's own speakers, the other game
+    /// characters its lines already use, the Narrator, then every other game character with
+    /// faces, A to Z. Without <paramref name="all"/> (the chart editor's short list), all but
+    /// New speaker... and the A to Z.
     /// </summary>
     private static List<SpeakerChoice> SpeakerChoices(bool all = true)
     {
         var list = new List<SpeakerChoice>();
         if (all) list.Add(new SpeakerChoice { Label = "New speaker...", New = true });
+        // Not when a speaker of the battle's own has her id (written by hand): that key wins.
+        if (WhoIs(DialogueReader.Player) == Who.Game)
+            list.Add(new SpeakerChoice { Label = $"{GameName(PlayerId)} (the player)", Id = PlayerId, Player = true });
         foreach (var key in draft!.SpeakerKeys()) list.Add(new SpeakerChoice { Label = $"{SpeakerName(key)} (yours)", Id = key });
         var used = new List<string>();
         foreach (DialogueSection section in Enum.GetValues(typeof(DialogueSection)))
             for (int i = 0; i < draft.LineCount(section); i++)
-                if (draft.LineText(section, i, "speaker")?.Trim() is { Length: > 0 } id && WhoIs(id) == Who.Game
+                if (draft.LineText(section, i, "speaker")?.Trim() is { Length: > 0 } id && WhoIs(id) == Who.Game && !DialogueReader.IsPlayer(id)
                     && !used.Contains(FindGame(id)?.Id ?? id, StringComparer.OrdinalIgnoreCase))
                     used.Add(FindGame(id)?.Id ?? id);
         foreach (var id in used) list.Add(new SpeakerChoice { Label = GameLabel(id), Id = id });
         list.Add(new SpeakerChoice { Label = "Narrator (no picture)", Id = DialogueReader.Narrator });
         if (all && GameCharacters() is { } everyone)
-            foreach (var c in everyone.Where(c => c.Portrait).OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ThenBy(c => c.Id, StringComparer.Ordinal))
+            foreach (var c in everyone.Where(c => c.Portrait && !DialogueReader.IsPlayer(c.Id))
+                         .OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ThenBy(c => c.Id, StringComparer.Ordinal))
                 list.Add(new SpeakerChoice { Label = GameLabel(c.Id), Id = c.Id });
         return list;
     }
@@ -910,7 +989,8 @@ internal static partial class BattleCreator
             Index = Math.Max(0, index),
             Jump = true,
             Hint = i => SpeakerChoiceHint(i >= 0 && i < choices.Count ? choices[i] : null) +
-                        (loaded ? "" : " The game's characters aren't loaded yet. Try again in a moment.") + "  Typing jumps to a name.  Esc goes back.",
+                        (loaded || (i >= 0 && i < choices.Count && choices[i].Player) ? "" : " The game's characters aren't loaded yet. Try again in a moment.") +
+                        "  Typing jumps to a name.  Esc goes back.",
             Face = i => i >= 0 && i < choices.Count && !choices[i].New ? FaceSprite(choices[i].Id, null) : null,
             FaceNote = i => i >= 0 && i < choices.Count && !choices[i].New ? FaceNote(choices[i].Id) : "",
             Choose = i =>
@@ -936,6 +1016,7 @@ internal static partial class BattleCreator
     {
         if (c == null) return "";
         if (c.New) return "Pick a picture for a speaker of your own, then type its name.";
+        if (c.Player) return "The player's character, with the game's faces. She stands on the left.";
         return WhoIs(c.Id) switch
         {
             Who.Custom => "Your own speaker. Its pictures, side and name are on the Speakers tab.",

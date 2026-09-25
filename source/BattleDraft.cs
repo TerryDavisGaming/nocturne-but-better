@@ -1158,7 +1158,8 @@ internal sealed class BattleDraft
 
     /// <summary>
     /// A speaker key made from a name: letters and digits in lower case, with "-" between words
-    /// ("Mantis Queen" gives "mantis-queen"), and "-2", "-3"... when it's taken. Never "narrator".
+    /// ("Mantis Queen" gives "mantis-queen"), and "-2", "-3"... when it's taken. Never "narrator",
+    /// nor "karma": the player's character is always the game's, even before the game's characters load.
     /// </summary>
     internal static string SpeakerKeyFor(string name, IEnumerable<string> taken)
     {
@@ -1171,7 +1172,7 @@ internal sealed class BattleDraft
         string stem = sb.ToString().Trim('-');
         if (stem.Length > DialogueReader.MaxKey - 3) stem = stem.Substring(0, DialogueReader.MaxKey - 3).Trim('-');
         if (stem.Length == 0) stem = "speaker";
-        var used = new HashSet<string>(taken, StringComparer.OrdinalIgnoreCase) { DialogueReader.Narrator };
+        var used = new HashSet<string>(taken, StringComparer.OrdinalIgnoreCase) { DialogueReader.Narrator, DialogueReader.Player };
         string key = stem;
         for (int n = 2; used.Contains(key); n++) key = $"{stem}-{n}";
         return key;

@@ -236,6 +236,8 @@ internal sealed class BattleDialogueData
 internal static class DialogueReader
 {
     internal const string Narrator = "Narrator";
+    /// <summary>The player's character: the game character the arcade battles show ("Young Karma" is her younger self).</summary>
+    internal const string Player = "Karma";
     internal const int MaxText = 150, MaxName = 24, MaxKey = 24;
     internal const int MaxSpeakers = 12, MaxExpressions = 24;
     internal const double MinDuration = 1, MaxDuration = 15;
@@ -295,8 +297,11 @@ internal static class DialogueReader
 
     /// <summary>A game character's usual side: Karma and Young Karma stand left, everyone else right.</summary>
     internal static DialogueSide GameSide(string id) =>
-        id.Trim().Equals("Karma", StringComparison.OrdinalIgnoreCase) || id.Trim().Equals("Young Karma", StringComparison.OrdinalIgnoreCase)
+        IsPlayer(id) || id.Trim().Equals("Young Karma", StringComparison.OrdinalIgnoreCase)
             ? DialogueSide.Left : DialogueSide.Right;
+
+    /// <summary>Whether a game character id is the player's character (<see cref="Player"/>) in any letter case.</summary>
+    internal static bool IsPlayer(string? id) => (id ?? "").Trim().Equals(Player, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// How a custom speaker's default face shows in the game's box: its size in game pixels, game
