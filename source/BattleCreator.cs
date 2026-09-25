@@ -365,17 +365,18 @@ internal static partial class BattleCreator
 
     /// <summary>
     /// A battle folder copied in Explorer has the same battle id as the original, and the arcade
-    /// shows only one of them: this gives the copy an id of its own, or opens it as it is.
+    /// shows only the one it finds first: this gives the other one an id of its own, or opens it
+    /// as it is.
     /// </summary>
     private static void AskSeparate(string folder, string title, string original)
     {
         string other = Path.GetFileName(original);
         ShowPicker(new Picker
         {
-            Heading = $"\"{title}\" is a copy of {other}",
+            Heading = $"\"{title}\" has the same battle id as {other}",
             Rows = { "Make it a separate battle", "Edit it as it is" },
             Hint = i => i == 0
-                ? $"Gives it a battle id of its own, so the arcade shows it next to {other}. Its scores start over.  Esc goes back."
+                ? $"Gives it a battle id of its own, so the arcade shows both. The scores so far stay with {other}.  Esc goes back."
                 : $"Opens it as it is. The arcade keeps showing only {other}.  Esc goes back.",
             Choose = i =>
             {
@@ -388,7 +389,7 @@ internal static partial class BattleCreator
                     ShowScreen(Screen.List);
                     return;
                 }
-                ModLog.Info($"Battle creator: gave {folder} a battle id of its own (it was a copy of {original}).");
+                ModLog.Info($"Battle creator: gave {folder} a battle id of its own (it had the id of {original}).");
                 Rescan();
                 SelectInList(folder);
                 OpenBattle(folder);

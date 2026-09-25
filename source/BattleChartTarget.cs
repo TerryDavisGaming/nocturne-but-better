@@ -48,20 +48,19 @@ internal sealed record BattleChartTarget(string Folder, string ChartPath, string
     /// <summary>
     /// Why the chart editor and the battle creator can't write the chart file battle.json's "chart"
     /// names, or null when they can: it must be an .sm file inside the battle whose name has no
-    /// control characters, and not a file the battle uses for something else (battle.json, or one
-    /// of <paramref name="others"/>: what it is, and its name in battle.json). Chart text written
-    /// over battle.json, the song, the card or the enemy's file would break the battle.
+    /// control characters (so never battle.json, a song or an image), and not a file the battle
+    /// uses for something else (<paramref name="others"/>: what it is, and its name in
+    /// battle.json), like an enemy file named .sm. Chart text written over any of them would
+    /// break the battle.
     /// </summary>
     internal static string? ChartFileProblem(string folder, string chart, params (string What, string? Name)[] others)
     {
         if (ChartNameProblem(chart) is { } bad) return bad;
         string? full = FullIn(folder, chart);
         if (full == null) return "the chart file must be inside the battle's folder";
-        foreach (var (what, name) in others.Prepend((BattlePackage.ManifestName, BattlePackage.ManifestName)))
-        {
-            if (string.IsNullOrWhiteSpace(name) || !string.Equals(FullIn(folder, name!), full, StringComparison.OrdinalIgnoreCase)) continue;
-            return what == BattlePackage.ManifestName ? $"the chart file is {BattlePackage.ManifestName} itself" : $"the chart file {chart.Trim()} is also the battle's {what}";
-        }
+        foreach (var (what, name) in others)
+            if (!string.IsNullOrWhiteSpace(name) && string.Equals(FullIn(folder, name!), full, StringComparison.OrdinalIgnoreCase))
+                return $"the chart file {chart.Trim()} is also the battle's {what}";
         return null;
     }
 

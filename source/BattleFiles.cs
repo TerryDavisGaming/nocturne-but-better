@@ -300,8 +300,8 @@ internal static class BattleFiles
         /// <summary>What the battle sets for the player, like "set gear, level 12"; empty when it sets neither.</summary>
         internal string Overrides = "";
         /// <summary>
-        /// The battle (folder or zip) that the arcade shows instead of this one, because this one is
-        /// a copy of it (the same battle id); null when there is none.
+        /// The battle (folder or zip) that the arcade shows instead of this one, because one is a
+        /// copy of the other (the same battle id) and it comes first; null when there is none.
         /// </summary>
         internal string? CopyOf;
     }
@@ -338,7 +338,7 @@ internal static class BattleFiles
                 {
                     entry.CopyOf = first;
                     string name = System.IO.Path.GetFileName(first);
-                    entry.Problems.Insert(0, $"it is a copy of {name} (the same battle id), so the arcade shows only {name}");
+                    entry.Problems.Insert(0, $"it has the same battle id as {name} (one is a copy of the other), so the arcade shows only {name}");
                 }
                 else ids[entry.Id] = path;
             }
@@ -349,7 +349,7 @@ internal static class BattleFiles
 
     /// <summary>
     /// Gives a battle folder a battle id of its own, so the arcade shows it next to the battle it
-    /// was copied from. Its scores start over (they are kept by id).
+    /// shared its id with. Scores are kept by id, so the ones so far stay with that other battle.
     /// </summary>
     internal static void MakeSeparate(string folder)
     {
