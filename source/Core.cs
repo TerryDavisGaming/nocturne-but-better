@@ -300,6 +300,8 @@ internal static class ModSetup
         Run("Custom battles in the arcade", () => CustomBattles.Install(harmony));
         Run("Battle gear and arcade consumables", () => BattleGear.Install(harmony));
         Run("Main menu arcade", () => ArcadeSession.Install(harmony));
+        // After the chart, gear and battle hooks it relies on, so it knows whether they're in.
+        Run("Test play", () => TestPlay.Install(harmony));
         Run("Title text", () => TitleBranding.InstallTitle(harmony));
         Run("Intro text", () => TitleBranding.InstallIntro(harmony));
     }

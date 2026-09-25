@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using static NocturneFlatScroll.EditorUi;
+using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using Object = UnityEngine.Object;
 
 namespace NocturneFlatScroll;
@@ -81,7 +82,7 @@ internal static partial class ChartEditor
         titleText.rectTransform.anchorMax = new Vector2(1, 1);
         titleText.rectTransform.offsetMin = new Vector2(16 + 5 * 146 + 10, 0);
         // A battle has no Export button: the battle creator exports the whole battle.
-        titleText.rectTransform.offsetMax = new Vector2(-(16 + 110 + 12 + (battle != null ? 0 : 170 + 12) + 150 + 16), 0);
+        titleText.rectTransform.offsetMax = new Vector2(-(16 + 110 + 12 + (battle != null ? 0 : 170 + 12) + 150 + 12 + 130 + 16), 0);
         var exit = Ui.MakeButton(top, "Exit", RequestClose);
         Place(exit.Rect, new Vector2(1, 0.5f), new Vector2(-16, 0), new Vector2(110, 44), new Vector2(1, 0.5f));
         if (battle == null)
@@ -94,6 +95,11 @@ internal static partial class ChartEditor
         save.Text = () => $"Save <size=65%><color=#9D92B4>{ShortKey(EditorAction.Save)}</color></size>";
         save.Active = () => dirty;
         Place(save.Rect, new Vector2(1, 0.5f), new Vector2(battle != null ? -138 : -320, 0), new Vector2(150, 44), new Vector2(1, 0.5f));
+        // Plays the chart in a battle from the play position; with Shift, from the start.
+        var test = Ui.MakeButton(top, "Test", () => StartTest(fromStart: InputKeyboard.current is { } k && EditorInput.Shift(k)));
+        test.Text = () => $"Test <size=65%><color=#9D92B4>{ShortKey(EditorAction.TestHere)}</color></size>";
+        test.Active = () => TestPlay.Active;
+        Place(test.Rect, new Vector2(1, 0.5f), new Vector2(battle != null ? -300 : -482, 0), new Vector2(130, 44), new Vector2(1, 0.5f));
 
         BuildLeftPanel();
         BuildRightPanel();
@@ -322,6 +328,7 @@ internal static partial class ChartEditor
         keysHint.rectTransform.pivot = new Vector2(0.5f, 1);
         keysHint.rectTransform.offsetMin = new Vector2(20, -60);
         keysHint.rectTransform.offsetMax = new Vector2(-20, -12);
+        // 25 rows a column (50 actions) end at 916 of the panel's 924 units; more need a smaller pitch.
         int perColumn = (DefaultBindings.Length + 1) / 2;
         for (int i = 0; i < DefaultBindings.Length; i++)
         {

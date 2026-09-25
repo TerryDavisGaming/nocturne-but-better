@@ -463,8 +463,9 @@ internal static partial class BattleCreator
     /// </summary>
     private static bool OpenCharts(string folder, string chartPath, string audioPath, int lanes, string title, int slot, Action onClosed)
     {
-        // A failed open still calls onClosed (a frame later); ChartsClosed ignores it then.
-        ChartEditor.OpenBattle(new BattleChartTarget(folder, chartPath, audioPath, lanes, title, onClosed), slot);
+        // A failed open still calls onClosed (a frame later); ChartsClosed ignores it then. A test
+        // play from the editor uses the battle as it is here, saved or not.
+        ChartEditor.OpenBattle(new BattleChartTarget(folder, chartPath, audioPath, lanes, title, onClosed) { Manifest = () => draft?.ManifestJson() }, slot);
         return ChartEditor.IsOpen;
     }
 

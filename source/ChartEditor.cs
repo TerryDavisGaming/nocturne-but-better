@@ -13,6 +13,7 @@ namespace NocturneFlatScroll;
 /// difficulty. It draws its own screen (an <see cref="EditorUi"/>) and reads the keyboard and
 /// mouse itself; the game's menus underneath are locked while it is open (<see cref="EditorOverlay"/>).
 /// It also edits a custom battle's chart, every difficulty in one file (<see cref="OpenBattle"/>).
+/// Test (F5) plays the chart in a real battle and comes back to it (<see cref="TestPlay"/>).
 /// </summary>
 internal static partial class ChartEditor
 {
@@ -62,7 +63,10 @@ internal static partial class ChartEditor
     {
         audio?.Dispose();
         audio = null;
+        music = null;
         loading = null;
+        testHidden = false;
+        CustomBattles.DropTest();
         ui?.Destroy();
         ui = null;
         // Gives the cursor back; the menus come back once the key that closed the editor is let go.
@@ -96,7 +100,15 @@ internal static partial class ChartEditor
         // Unlocks the menus after a close, and keeps the cursor free while an editor is open.
         EditorOverlay.Update();
         RunClosedBattles();
-        if (ui == null) return;
+        // A test play ends even if the editor has gone; both guard themselves.
+        TestPlay.Update();
+        QaTestPlay();
+        if (ui == null)
+        {
+            // Nobody to tell how a test went.
+            TestPlay.TakeOutcome();
+            return;
+        }
         try
         {
             // Only something else destroying the canvas gets here with the screen still set. Close
@@ -107,6 +119,8 @@ internal static partial class ChartEditor
                 Close();
                 return;
             }
+            // While a test starts or runs, the screen waits (hidden once the battle is on).
+            if (UpdateTest()) return;
             var keyboard = InputKeyboard.current;
             if (keyboard == null) return;
             switch (screen)

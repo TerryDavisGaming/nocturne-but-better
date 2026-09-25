@@ -41,6 +41,9 @@ internal static partial class BattleGear
     private static bool inBattle;
     private static readonly HashSet<string> Reported = new();
 
+    /// <summary>Whether achievements can be held back during a battle (test play needs it).</summary>
+    internal static bool AchievementsGuarded { get; private set; }
+
     internal static void Install(HarmonyLib.Harmony harmony)
     {
         // Everything required is looked up first, so a missing method installs nothing.
@@ -53,6 +56,7 @@ internal static partial class BattleGear
         var remove = Method(typeof(PlayingInventoryManager), "RemoveItem");
         // The guards and the restore come first, so if one of them can't be patched the swap isn't either.
         harmony.Patch(unlock, prefix: Hook(nameof(UnlockAchievementPrefix)));
+        AchievementsGuarded = true;
         harmony.Patch(use, prefix: Hook(nameof(UseConsumablePrefix)), postfix: Hook(nameof(UseConsumablePostfix)));
         harmony.Patch(remove, prefix: Hook(nameof(RemoveItemPrefix)));
         harmony.Patch(exit, postfix: Hook(nameof(ExitCombatPostfix)));
@@ -400,13 +404,16 @@ internal static partial class BattleGear
     // ---- achievements ------------------------------------------------------------------------------
 
     // The game checks achievements on many events, not only at a battle's end; none of them may
-    // count the battle's gear as the player's.
+    // count the battle's gear as the player's. A test play from the chart editor counts for none.
     private static bool UnlockAchievementPrefix(string achievementId)
     {
         try
         {
-            if (setBattle == null && swap == null) return true;
-            Note($"Battle gear: held back achievement {achievementId}: set-gear battles don't count towards achievements.", error: false);
+            bool testing = TestPlay.Active;
+            if (setBattle == null && swap == null && !testing) return true;
+            Note(testing
+                ? $"Test play: held back achievement {achievementId}."
+                : $"Battle gear: held back achievement {achievementId}: set-gear battles don't count towards achievements.", error: false);
             return false;
         }
         catch (Exception ex)

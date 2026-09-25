@@ -51,6 +51,13 @@ internal static class CustomBattles
     /// <summary>Changes whenever the list of songs or any song's objects change.</summary>
     internal static int Version { get; private set; }
 
+    /// <summary>Whether custom battles' ends are kept from counting towards achievements (test play needs it).</summary>
+    internal static bool EndGuarded { get; private set; }
+
+    // A test play's battle, built from the chart editor's unsaved chart. It isn't in the arcade:
+    // only Find knows it. Kept until the next test or until the editor closes.
+    private static Battle? test;
+
     internal static string Folder
     {
         get
@@ -74,6 +81,7 @@ internal static class CustomBattles
         harmony.Patch(showColumns, postfix: new HarmonyMethod(typeof(CustomBattles), nameof(ShowColumnsPostfix)));
         harmony.Patch(removeColumn, prefix: new HarmonyMethod(typeof(CustomBattles), nameof(RemoveColumnPrefix)));
         harmony.Patch(combatEnded, prefix: new HarmonyMethod(typeof(CustomBattles), nameof(CombatEndedPrefix)));
+        EndGuarded = true;
         CustomBattlesArcade.Install(harmony, arcade);
     }
 
@@ -83,7 +91,32 @@ internal static class CustomBattles
     internal static Battle? Find(SongData? data)
     {
         if (data == null || !data) return null;
+        var t = test;
+        if (t != null && t.Data && t.Data.Pointer == data.Pointer) return t;
         return ByData.TryGetValue(data.Pointer, out var song) ? song : null;
+    }
+
+    /// <summary>
+    /// Builds a test play's battle from a package loaded with the editor's chart, as the arcade's
+    /// are built, and keeps it until the next test. <paramref name="music"/> (the editor's decoded
+    /// song) replaces the package's file when given. Throws with the reason when it can't be built.
+    /// </summary>
+    internal static Battle BuildTest(BattlePackage package, CustomMusic.Source? music)
+    {
+        DropTest();
+        var built = Build(package, GameEnemies(), rethrow: true)
+            ?? throw new InvalidOperationException("the battle couldn't be built");
+        if (music != null) built.Music = music;
+        test = built;
+        return built;
+    }
+
+    /// <summary>Destroys the last test's battle, unless it's still being played.</summary>
+    internal static void DropTest()
+    {
+        var t = test;
+        test = null;
+        if (t != null) Retire(t);
     }
 
     /// <summary>Whether a SongData or EnemyData name is one of the mod's runtime objects.</summary>
@@ -160,7 +193,8 @@ internal static class CustomBattles
 
     // ---- building ----------------------------------------------------------------------------------
 
-    private static Battle? Build(BattlePackage package, Dictionary<string, EnemyData> enemies)
+    /// <param name="rethrow">Throw what went wrong instead of noting it and returning null.</param>
+    private static Battle? Build(BattlePackage package, Dictionary<string, EnemyData> enemies, bool rethrow = false)
     {
         var made = new List<Object>();
         try
@@ -193,6 +227,7 @@ internal static class CustomBattles
         {
             foreach (var obj in made)
                 if (obj) Object.Destroy(obj);
+            if (rethrow) throw;
             bool expected = ex is InvalidDataException or IOException;
             Note($"Skipping custom battle {package.Title} ({package.Location}): {(expected ? ex.Message : ex.ToString())}");
             return null;
@@ -590,13 +625,15 @@ internal static class CustomBattles
     }
 
     // A custom battle is anyone's chart, so its battles don't count towards the game's (Steam)
-    // achievements, which can't be taken back. The game checks them all when a battle ends.
+    // achievements, which can't be taken back. The game checks them all when a battle ends. Nor
+    // does a test play from the chart editor, whatever song it is.
     private static bool CombatEndedPrefix(CombatSummary summary)
     {
         try
         {
-            if (ChartSwap.PlayingBattle == null && !IsRuntimeName(summary?.EnemyId)) return true;
-            Note("Custom battles don't count towards achievements.", error: false);
+            bool testing = TestPlay.Active;
+            if (ChartSwap.PlayingBattle == null && !IsRuntimeName(summary?.EnemyId) && !testing) return true;
+            Note(testing ? "Test play: test battles don't count towards achievements." : "Custom battles don't count towards achievements.", error: false);
             return false;
         }
         catch (Exception ex)

@@ -332,15 +332,21 @@ internal sealed class BattlePackage
 
     internal string DisplayName => string.IsNullOrWhiteSpace(Artist) ? Title : $"{Title} ({Artist})";
 
-    /// <summary>Loads a package from a folder with battle.json, or from a .nbbbattle file.</summary>
-    internal static BattlePackage Load(string path)
+    /// <summary>
+    /// Loads a package from a folder with battle.json, or from a .nbbbattle file. A test play
+    /// loads it with what the editors have in memory instead of some of its files:
+    /// <paramref name="chartText"/> for the chart file, <paramref name="manifestJson"/> for
+    /// battle.json (checked the same way), and <paramref name="lanes"/> and
+    /// <paramref name="audio"/> over what battle.json and the chart say.
+    /// </summary>
+    internal static BattlePackage Load(string path, string? chartText = null, string? manifestJson = null, int? lanes = null, string? audio = null)
     {
         PackageFiles files;
         if (Directory.Exists(path)) files = PackageFiles.Folder(path);
         else if (File.Exists(path) && path.EndsWith(Extension, StringComparison.OrdinalIgnoreCase)) files = OpenZip(path);
         else throw new FileNotFoundException("not a battle folder or " + Extension + " file", path);
 
-        var manifest = JsonSerializer.Deserialize<BattleManifest>(files.ReadAllText(ManifestName, MaxJsonBytes), JsonOptions)
+        var manifest = JsonSerializer.Deserialize<BattleManifest>(manifestJson ?? files.ReadAllText(ManifestName, MaxJsonBytes), JsonOptions)
             ?? throw new InvalidDataException(ManifestName + " is empty");
         if (manifest.format > FormatVersion) throw new InvalidDataException($"made for a newer version (format {manifest.format})");
         if (manifest.format != FormatVersion) throw new InvalidDataException($"{ManifestName} needs \"format\": {FormatVersion}");
@@ -367,9 +373,9 @@ internal sealed class BattlePackage
         // The chart holds every difficulty.
         song.ChartPath = PackageFiles.SafeName(manifest.chart ?? DefaultChart)
             ?? throw new InvalidDataException("\"chart\" must be a file inside the package");
-        song.Chart = ChartText.Parse(files.ReadAllText(song.ChartPath, MaxChartBytes));
-        stamps.Add(files.Stamp(song.ChartPath));
-        song.Lanes = manifest.lanes ?? InferLanes(song.Chart);
+        song.Chart = ChartText.Parse(chartText ?? files.ReadAllText(song.ChartPath, MaxChartBytes));
+        if (chartText == null) stamps.Add(files.Stamp(song.ChartPath));
+        song.Lanes = lanes ?? manifest.lanes ?? InferLanes(song.Chart);
         if (song.Lanes != 4 && song.Lanes != 5) throw new InvalidDataException($"\"lanes\" must be 4 or 5, not {song.Lanes}");
         song.Slots = song.Chart.SongSlots(song.Lanes, song.Problems);
         if (song.Slots.All(s => s == null))
@@ -384,8 +390,8 @@ internal sealed class BattlePackage
             song.Problems.Add($"#OFFSET is {song.Offset.ToString("0.###", CultureInfo.InvariantCulture)} s, so beat 0 comes before the audio starts; notes in the chart's first {song.Offset.ToString("0.###", CultureInfo.InvariantCulture)} s can't be played");
 
         // The audio: battle.json's, else the chart's #MUSIC.
-        string audio = manifest.audio ?? song.Chart.GetTag("MUSIC") ?? "";
-        song.AudioPath = PackageFiles.SafeName(audio) ?? throw new InvalidDataException("the song names no audio file (\"audio\" in " + ManifestName + ")");
+        string audioName = audio ?? manifest.audio ?? song.Chart.GetTag("MUSIC") ?? "";
+        song.AudioPath = PackageFiles.SafeName(audioName) ?? throw new InvalidDataException("the song names no audio file (\"audio\" in " + ManifestName + ")");
         if (!files.Exists(song.AudioPath)) throw new InvalidDataException($"the audio file {song.AudioPath} is missing");
         stamps.Add(files.Stamp(song.AudioPath));
 

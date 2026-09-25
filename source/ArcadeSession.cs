@@ -350,9 +350,13 @@ internal static class ArcadeSession
 
     // ---- the firewall ----------------------------------------------------------------------
 
+    // The firewall also stands during a test play from the chart editor, when nothing at all is
+    // saved: not the story, and not the scores either.
+    private static bool Guarding => Active || TestPlay.Active;
+
     private static bool BlockPrefix(MethodBase __originalMethod)
     {
-        if (!Active) return true;
+        if (!Guarding) return true;
         Blocked($"{__originalMethod?.DeclaringType?.Name}.{__originalMethod?.Name}");
         return false;
     }
@@ -361,6 +365,11 @@ internal static class ArcadeSession
     // a session only the scores are saved, the way every battle's end saves them.
     private static bool SaveGameDataPrefix(SaveFileManager __instance)
     {
+        if (TestPlay.Active)
+        {
+            Blocked("SaveFileManager.SaveGameData");
+            return false;
+        }
         if (!Active) return true;
         Blocked("SaveFileManager.SaveGameData (the arcade scores are saved on their own)");
         try { __instance.SaveScores(); }
@@ -370,14 +379,16 @@ internal static class ArcadeSession
 
     private static bool WriteFilePrefix(string filename)
     {
-        if (!Active || !IsStoryFile(filename)) return true;
+        bool blocked = TestPlay.Active ? IsProdFile(filename) : Active && IsStoryFile(filename);
+        if (!blocked) return true;
         Blocked("writing " + filename);
         return false;
     }
 
     private static bool DeleteFilePrefix(string filename)
     {
-        if (!Active || !IsStoryFile(filename)) return true;
+        bool blocked = TestPlay.Active ? IsProdFile(filename) : Active && IsStoryFile(filename);
+        if (!blocked) return true;
         Blocked("deleting " + filename);
         return false;
     }
@@ -388,8 +399,18 @@ internal static class ArcadeSession
         return StoryFile.IsMatch(Path.GetFileName(filename));
     }
 
-    private static void Blocked(string what) =>
-        ModLog.Info($"Arcade: blocked {what} during the arcade session; the story save stays as it was.");
+    // Any of the game's save files: the story's .sav files and the slots' .score files.
+    private static bool IsProdFile(string? filename)
+    {
+        if (string.IsNullOrEmpty(filename)) return false;
+        return Path.GetFileName(filename).StartsWith("Prod", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void Blocked(string what)
+    {
+        if (TestPlay.Active) ModLog.Info($"Test play: blocked {what}; nothing is saved during a test.");
+        else ModLog.Info($"Arcade: blocked {what} during the arcade session; the story save stays as it was.");
+    }
 
     // The game over screen isn't expected in the arcade (a lost arcade song goes straight back to
     // the menu), but if it shows, its Continue would load the story; it's switched off.
@@ -399,7 +420,7 @@ internal static class ArcadeSession
         {
             var button = __instance ? __instance.quickLoadButton : null;
             if (!button) return;
-            if (Active)
+            if (Guarding)
             {
                 if (!button!.interactable) return;
                 button.interactable = false;
