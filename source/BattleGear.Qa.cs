@@ -7,7 +7,7 @@ namespace NocturneFlatScroll;
 /// </summary>
 internal static partial class BattleGear
 {
-    private static readonly bool QaDump = Environment.GetEnvironmentVariable("NFS_QA_GEARDUMP") == "1";
+    private static readonly bool QaDump = QaBuild.Env("NFS_QA_GEARDUMP") == "1";
 
     private static readonly (string Name, CharacterStatType Stat)[] DumpedStats =
     {

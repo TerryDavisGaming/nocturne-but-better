@@ -19,7 +19,7 @@ namespace NocturneFlatScroll;
 /// </summary>
 internal static partial class BattleDialogue
 {
-    private static readonly string? QaMode = Environment.GetEnvironmentVariable("NFS_QA_DIALOGUE");
+    private static readonly string? QaMode = QaBuild.Env("NFS_QA_DIALOGUE");
     private static readonly bool QaOn = QaMode is "1" or "auto";
     private static readonly bool QaAuto = QaMode == "auto";
     /// <summary>How long a line that waits for a key shows with NFS_QA_DIALOGUE=auto.</summary>

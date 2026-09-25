@@ -717,7 +717,7 @@ internal static partial class BattleCreator
     // QA ONLY: with NFS_QA_CREATOR=1 in the game's environment, the creator opens by itself once
     // the title screen's menu is showing (once a session), so the lead can test it without
     // clicking through the menus. Players never set it; without it this does nothing.
-    private static readonly bool QaOpen = Environment.GetEnvironmentVariable("NFS_QA_CREATOR") == "1";
+    private static readonly bool QaOpen = QaBuild.Env("NFS_QA_CREATOR") == "1";
     private static bool qaDone;
     private static float qaNextCheck;
 

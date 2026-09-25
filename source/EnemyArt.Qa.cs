@@ -11,7 +11,7 @@ namespace NocturneFlatScroll;
 /// </summary>
 internal static partial class EnemyArt
 {
-    private static readonly bool QaShotsOn = Environment.GetEnvironmentVariable("NFS_QA_ENEMYART") == "1";
+    private static readonly bool QaShotsOn = QaBuild.Env("NFS_QA_ENEMYART") == "1";
     private static int qaShot;
     private const int QaIdle = 1, QaBeforeHit = 2, QaHit = 4, QaHurt = 8, QaDefeat = 16;
     /// <summary>"Just before the hit" is logged this long before it, so the helper's picture (about 0.1 to 0.2 s later) lands on it.</summary>

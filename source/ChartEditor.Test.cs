@@ -429,7 +429,7 @@ internal static partial class ChartEditor
     // Test with no Ready prompt, so a whole test runs and comes back without input. The value is
     // battle:<folder>[#<slot 0-5>][@<seconds>|@start] or song:<SongData name>[#<melody>][@<seconds>|@start];
     // without @ it starts 20 s before the last note. Players never set it; without it this does nothing.
-    private static readonly string QaSpec = (Environment.GetEnvironmentVariable("NFS_QA_TESTPLAY") ?? "").Trim();
+    private static readonly string QaSpec = (QaBuild.Env("NFS_QA_TESTPLAY") ?? "").Trim();
     private enum QaStep { Waiting, Opened, Pressed, Done }
     private static QaStep qaStep;
     private static float qaNextCheck, qaOpenedAt;
