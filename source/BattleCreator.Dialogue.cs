@@ -1288,7 +1288,7 @@ internal static partial class BattleCreator
     }
 
     private static readonly TextField NudgeXField = NudgeField("Nudge sideways", () => Num(SpeakerNudge().X), v => SetNudge(v, SpeakerNudge().Y),
-        "Type how many game pixels to move the picture right (left is negative), then Enter. Esc cancels.");
+        "Type how many game pixels to move the picture toward its side's edge of the screen (toward the middle is negative), then Enter. Esc cancels.");
     private static readonly TextField NudgeYField = NudgeField("Nudge up/down", () => Num(SpeakerNudge().Y), v => SetNudge(SpeakerNudge().X, v),
         "Type how many game pixels to move the picture up (down is negative), then Enter. Esc cancels.");
 
