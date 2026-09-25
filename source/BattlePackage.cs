@@ -40,7 +40,14 @@ internal sealed class PackageFiles
     internal static string? SafeName(string name)
     {
         name = name.Replace('\\', '/').Trim();
-        if (name.Length == 0 || name.Contains("..") || name.StartsWith("/") || name.Contains(':')) return null;
+        if (name.Length == 0 || name.StartsWith("/") || name.Contains(':')) return null;
+        // Control characters can't be in a Windows name (a NUL makes paths throw).
+        foreach (char c in name)
+            if (c < ' ') return null;
+        // A ".." part climbs out of the package; a name like "Oops!...I Did It Again.wav" is fine.
+        // Windows drops dots and spaces at the end of a part, so a part made only of them is out too.
+        foreach (var part in name.Split('/'))
+            if (part.Length > 0 && part != "." && part.Trim('.', ' ').Length == 0) return null;
         return name;
     }
 
