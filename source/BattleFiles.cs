@@ -223,11 +223,12 @@ internal static class BattleFiles
     }
 
     /// <summary>
-    /// Of <paramref name="candidates"/> (paths inside the battle), the song and image files that
-    /// the saved battle no longer names anywhere: not in battle.json, the enemy's file, a JSON file
-    /// they name (like the dialogue), or the chart's #MUSIC. Paths are compared as the files they
-    /// point at, so "audio/./a.ogg" and "audio/a.ogg" are the same file. Only files in audio/ and
-    /// images/ are ever listed, and nothing is when a file that could name them can't be read.
+    /// Of <paramref name="candidates"/> (paths inside the battle), the song, image and enemy art
+    /// files that the saved battle no longer names anywhere: not in battle.json, the enemy's file, a
+    /// JSON file they name (like the dialogue), or the chart's #MUSIC. Paths are compared as the
+    /// files they point at, so "audio/./a.ogg" and "audio/a.ogg" are the same file. Only files in
+    /// audio/, images/ and art/ are ever listed, and nothing is when a file that could name them
+    /// can't be read.
     /// </summary>
     internal static List<string> Unreferenced(string folder, IEnumerable<string> candidates)
     {
@@ -257,7 +258,7 @@ internal static class BattleFiles
             string? full = FileIn(folder, candidate);
             if (full == null || used.Contains(full) || unused.Contains(full, StringComparer.OrdinalIgnoreCase)) continue;
             string inside = Path.GetRelativePath(folder, full).Replace('\\', '/');
-            if (!inside.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) && !inside.StartsWith("images/", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!new[] { "audio/", "images/", "art/" }.Any(f => inside.StartsWith(f, StringComparison.OrdinalIgnoreCase))) continue;
             if (File.Exists(full)) unused.Add(full);
         }
         return unused;
@@ -483,12 +484,21 @@ internal static class BattleFiles
         var plainChart = new List<string>();
         package.Chart.SongSlots(package.Lanes, loaderChart);
         package.Chart.SongSlots(package.Lanes, plainChart, plain: true);
-        // The enemy the loader asks for, picked the way BattlePackage.Load picks it.
+        // The enemy the loader asks for, picked the way BattlePackage.Load picks it: custom art
+        // fights like the placeholder, and never like a scripted boss (Mantis fights instead).
         var enemy = package.Enemy;
-        bool custom = "custom".Equals(enemy.mode?.Trim(), StringComparison.OrdinalIgnoreCase);
-        string requested = (custom ? enemy.rig ?? enemy.placeholder : enemy.placeholder) ?? "";
+        string requested = enemy.placeholder ?? "";
+        string? scriptedBoss = null;
+        if (package.CustomArt && EnemyPlaceholders.IsAdvanced(requested))
+        {
+            scriptedBoss = $"{requested.Trim()} is a scripted boss, which can't take custom art; {EnemyPlaceholders.Default} fights instead";
+            requested = EnemyPlaceholders.Default;
+        }
         var loaderEnemy = new List<string>();
         EnemyPlaceholders.Resolve(requested, enemy.advanced, loaderEnemy);
+        // Custom art with nothing to show yet: EnemyArtReader's messages, said as the Enemy page says it.
+        string look = package.EnemyPlaceholder;
+        var noIdle = new[] { $"the enemy is set to custom art but has no \"art\", so it looks like {look}", $"the enemy art has no idle, so it looks like {look}" };
         // A positive #OFFSET: the creator's own chart editor makes one when beats are moved earlier
         // from 0 (the Timing tab's "-10 ms"). This is BattlePackage.Load's message for it.
         string offset = package.Offset.ToString("0.###", CultureInfo.InvariantCulture);
@@ -509,15 +519,14 @@ internal static class BattleFiles
             }
             else if (package.Offset > 0.001 && problem == loaderOffset)
                 words.Add($"beat 0 is {offset} s before the song starts, so notes before 0:00 can't be played (the chart editor's Timing page moves it)");
-            else if (custom && problem == CustomEnemyProblem)
-                words.Add("the enemy is set to custom art, which comes later; it plays as its placeholder for now");
+            else if (package.CustomArt && noIdle.Contains(problem))
+                words.Add($"custom art needs an idle; until it has one, the enemy looks like {EnemyChoices.NameOf(look)}");
+            else if (problem == scriptedBoss)
+                words.Add($"scripted bosses can't take custom art, so {EnemyChoices.NameOf(EnemyPlaceholders.Default)} fights instead (the Enemy page picks another)");
             else words.Add(AssetName.Replace(problem, m => EnemyChoices.NameOf(m.Value)));
         }
         return words;
     }
-
-    // BattlePackage.Load's message for an enemy in "custom" mode (only a battle.json written by hand has one).
-    private const string CustomEnemyProblem = "custom enemy art comes in a later version; the enemy plays as its rig for now";
 
     /// <summary>
     /// Why BattlePackage.Load refused a battle, in the creator's words when the reason is its chart
@@ -719,7 +728,7 @@ internal static class BattleFiles
         return string.Join("/", parts);
     }
 
-    // The loader's limits for each kind of file.
+    // The loader's limits for each kind of file. Enemy art in art/ may be bigger than a card image.
     private static long LimitFor(string name)
     {
         string ext = Path.GetExtension(name).ToLowerInvariant();
@@ -727,7 +736,8 @@ internal static class BattleFiles
         {
             ".json" => BattlePackage.MaxJsonBytes,
             ".sm" or ".ssc" => BattlePackage.MaxChartBytes,
-            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" => BattlePackage.MaxImageBytes,
+            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" => name.StartsWith("art/", StringComparison.OrdinalIgnoreCase)
+                ? EnemyArtReader.MaxPictureBytes : BattlePackage.MaxImageBytes,
             _ => BattlePackage.MaxAudioBytes,
         };
     }

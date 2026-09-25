@@ -34,6 +34,7 @@ internal static partial class BattleCreator
             Say("It can't be opened: " + ex.Message, 6f);
             return;
         }
+        StopArtPreview(true);
         draft = loaded;
         touched.Clear();
         RefreshBattleInfo();
@@ -59,7 +60,7 @@ internal static partial class BattleCreator
             Hint = i => i switch
             {
                 0 => "Saves the changes, then goes back to the list.",
-                1 => "Goes back to the list without the changes. Songs and images added since the last save go to the Recycle Bin.",
+                1 => "Goes back to the list without the changes. Songs, images and art added since the last save go to the Recycle Bin.",
                 _ => "Keeps editing.",
             },
             Choose = i =>
@@ -80,6 +81,7 @@ internal static partial class BattleCreator
     {
         string? folder = draft?.Folder;
         StopPreview();
+        StopArtPreview(true);
         ClearCardPreview();
         EndTyping();
         CleanUnused();
@@ -128,6 +130,7 @@ internal static partial class BattleCreator
             if (typing != null) UpdateTyping(keyboard);
             else if (!HandleEditKeys(keyboard)) return;
         }
+        if (page == Page.Art) UpdateArtPage(Live && !Busy ? clicks : null);
         DrawEdit();
     }
 
@@ -146,6 +149,7 @@ internal static partial class BattleCreator
             SetPage(Pages[(i + (Shift(k) ? Pages.Length - 1 : 1)) % Pages.Length].Page);
             return true;
         }
+        if (HandleArtKeys(k)) return true;
         var shown = VisibleControls();
         if (Pressed(k, Key.DownArrow)) focus = shown.Count == 0 ? -1 : Math.Min(shown.Count - 1, focus + 1);
         if (Pressed(k, Key.UpArrow)) focus = shown.Count == 0 ? -1 : Math.Max(0, focus - 1);
@@ -421,7 +425,7 @@ internal static partial class BattleCreator
         catch (Exception ex) { ModLog.Error("Battle creator: updating the arcade's battles failed: " + ex.Message); }
     }
 
-    /// <summary>Sends the songs and images that the saved battle no longer uses to the Recycle Bin, in the background.</summary>
+    /// <summary>Sends the songs, images and art that the saved battle no longer uses to the Recycle Bin, in the background.</summary>
     private static void CleanUnused()
     {
         // One at a time: whatever is left waits for the next save or for leaving the battle.
@@ -464,7 +468,7 @@ internal static partial class BattleCreator
         var (moved, kept) = task.Result;
         foreach (var path in moved) ModLog.Info($"Battle creator: moved {path} to the Recycle Bin (the battle doesn't use it any more).");
         foreach (var path in kept) ModLog.Info($"Battle creator: left {path} in the battle's folder; the battle doesn't use it any more.");
-        if (kept.Count > 0) Say("Songs or images the battle doesn't use any more stay in its folder: Windows can't put them in the Recycle Bin.", 6f);
+        if (kept.Count > 0) Say("Songs, images or art the battle doesn't use any more stay in its folder: Windows can't put them in the Recycle Bin.", 6f);
     }
 
     // ---- new battles, imports and exports ------------------------------------------------------------
@@ -612,6 +616,7 @@ internal static partial class BattleCreator
         {
             ModLog.Info($"Battle creator: moved {folder} to the Recycle Bin.");
             StopPreview();
+            StopArtPreview(true);
             ClearCardPreview();
             touched.Clear();
             draft = null;
@@ -770,21 +775,22 @@ internal static partial class BattleCreator
     {
         if (draft == null || !FinishTyping() || !EnemyEditable()) return;
         var d = draft;
-        var list = EnemyChoices.List(d.Advanced);
+        // Scripted bosses can't take custom art, so a custom-art enemy picks from the others.
+        var list = EnemyChoices.List(d.Advanced && !d.CustomArt);
         string current = EnemyChoices.Normalize(d.Placeholder);
         var rows = list.Select(c => c.Advanced ? c.Name + "  (advanced boss)" : c.Name).ToList();
         int index = list.FindIndex(c => c.Asset.Equals(current, StringComparison.OrdinalIgnoreCase));
-        // An enemy the list leaves out (an advanced boss while they're off, or one it doesn't know)
-        // gets a row of its own on top, where the list opens, so opening it to look changes nothing.
+        // An enemy the list leaves out (an advanced boss while they're off or the art is custom, or one
+        // it doesn't know) gets a row of its own on top, where the list opens, so opening it to look changes nothing.
         int keep = index < 0 ? 1 : 0;
         if (keep == 1) rows.Insert(0, EnemyChoices.NameOf(current) + "  (current)");
         ShowPicker(new Picker
         {
-            Heading = "The enemy: which game enemy stands in",
+            Heading = d.CustomArt ? "The enemy: which game enemy it fights like" : "The enemy: which game enemy stands in",
             Rows = rows,
             Hint = i => i < keep
-                ? (EnemyChoices.Problem(current, d.Advanced) ?? "The enemy it is now.") + "  Esc goes back."
-                : i - keep < list.Count ? EnemyHint(list[i - keep]) : "",
+                ? (KeptEnemyProblem(d, current) ?? "The enemy it is now.") + "  Esc goes back."
+                : i - keep >= 0 && i - keep < list.Count ? EnemyHint(list[i - keep]) : "",
             Index = index + keep,
             Choose = i =>
             {
@@ -794,6 +800,12 @@ internal static partial class BattleCreator
             Back = BackFromPicker,
         });
     }
+
+    // Why the kept row's enemy isn't in the list: custom art never takes a scripted boss, whatever Advanced bosses says.
+    private static string? KeptEnemyProblem(BattleDraft d, string current) =>
+        d.CustomArt && EnemyChoices.IsAdvanced(current)
+            ? $"Scripted bosses can't take custom art, so {EnemyChoices.NameOf(EnemyPlaceholders.Default)} fights instead. Pick another enemy below."
+            : EnemyChoices.Problem(current, d.Advanced);
 
     private static string EnemyHint(EnemyChoice c) =>
         $"Its own stats: HP {Num(c.Hp)}, damage {Num(c.Damage)}, energy per miss {Num(c.EnergyChargeOnMiss)}, passive energy {Num(c.PassiveEnergyCharge)}." +

@@ -323,10 +323,12 @@ internal sealed class BattleDraft
 
     /// <summary>
     /// Why the Charts page can't edit the chart file battle.json names, or null when it can (see
-    /// BattleChartTarget.ChartFileProblem): an .sm file of its own, not the song, card or enemy file.
+    /// BattleChartTarget.ChartFileProblem): an .sm file of its own, not the song, card, enemy file
+    /// or one of the enemy's art files (art is known by its bytes, so any name can be one).
     /// </summary>
     internal string? ChartFileProblem() => BattleChartTarget.ChartFileProblem(Folder, ChartPath,
-        ("song", EffectiveAudio), ("card image", Card), ("enemy file", enemyFile), ("dialogue", GetString(root, "dialogue")));
+        new (string What, string? Name)[] { ("song", EffectiveAudio), ("card image", Card), ("enemy file", enemyFile), ("dialogue", GetString(root, "dialogue")) }
+            .Concat(EnemyArtReader.Names.Select(anim => ($"enemy's {anim} art", ArtFile(anim)))).ToArray());
 
     private int? inferredLanes;
 
@@ -379,15 +381,18 @@ internal sealed class BattleDraft
 
     internal string EnemyMode => GetString(enemy, "mode").Trim();
 
-    /// <summary>The game enemy the battle's enemy is copied from (an EnemyData asset name); empty means Mantis.</summary>
+    /// <summary>
+    /// The game enemy the battle's enemy is copied from (an EnemyData asset name); empty means
+    /// Mantis. A custom-art enemy fights like it and keeps its custom art.
+    /// </summary>
     internal string Placeholder
     {
         get => GetString(enemy, "placeholder").Trim();
         set
         {
-            if (Placeholder == value && EnemyMode.Equals("placeholder", StringComparison.OrdinalIgnoreCase)) return;
+            if (Placeholder == value && EnemyMode.Length > 0) return;
             CheckEnemy();
-            EnemySet("mode", "placeholder");
+            if (EnemyMode.Length == 0) EnemySet("mode", "placeholder");
             EnemySet("placeholder", value.Trim());
         }
     }
@@ -580,6 +585,145 @@ internal sealed class BattleDraft
             }
         }
         if (pruned) enemyChanged = true;
+    }
+
+    // ---- the enemy's custom art ------------------------------------------------------------------
+
+    /// <summary>
+    /// Whether the enemy looks like its own art ("mode": "custom") or like the game enemy
+    /// ("placeholder"). Its "art" is kept either way, so switching back brings it all back.
+    /// </summary>
+    internal bool CustomArt
+    {
+        get => EnemyMode.Equals("custom", StringComparison.OrdinalIgnoreCase);
+        set
+        {
+            if (value == CustomArt && EnemyMode.Length > 0) return;
+            CheckEnemy();
+            EnemySet("mode", value ? "custom" : "placeholder");
+        }
+    }
+
+    /// <summary>Changes counted since the draft was loaded (saving doesn't reset it), so a page can tell when to look again.</summary>
+    internal int Changes => changes;
+
+    // An animation as written: an object, or (by hand) just its file name.
+    private JsonNode? ArtNode(string anim) => anim.Length == 0 ? enemy["art"] : (enemy["art"] as JsonObject)?[anim];
+
+    /// <summary>Whether an animation ("idle", "attack", "hurt", "defeat") names a file.</summary>
+    internal bool HasArt(string anim) => ArtFile(anim) != null;
+
+    /// <summary>An animation's file, as a path inside the battle, or null.</summary>
+    internal string? ArtFile(string anim)
+    {
+        string file = ArtNode(anim) switch
+        {
+            JsonObject obj => GetString(obj, "file"),
+            JsonValue value when value.TryGetValue(out string? name) => name ?? "",
+            _ => "",
+        };
+        return file.Trim().Length == 0 ? null : file.Trim();
+    }
+
+    /// <summary>A number in an animation (anim "" is the art itself), or null when it isn't set.</summary>
+    internal double? ArtNumber(string anim, string key) => ArtNode(anim) is JsonObject obj ? GetNumber(obj, key) : null;
+
+    /// <summary>A true or false in an animation (anim "" is the art itself), or null when it isn't set.</summary>
+    internal bool? ArtBool(string anim, string key) =>
+        ArtNode(anim) is JsonObject obj && obj[key] is JsonValue v && v.TryGetValue(out bool b) ? b : null;
+
+    /// <summary>A text in an animation (anim "" is the art itself), or null when it isn't set.</summary>
+    internal string? ArtText(string anim, string key) =>
+        ArtNode(anim) is JsonObject obj && obj[key] is JsonValue v && v.TryGetValue(out string? s) ? s : null;
+
+    /// <summary>A pair of numbers like "offset": [x, y], or null when it isn't set (or isn't two numbers).</summary>
+    internal (double X, double Y)? ArtPair(string anim, string key)
+    {
+        if (ArtNode(anim) is not JsonObject obj || obj[key] is not JsonArray pair || pair.Count != 2) return null;
+        return Number(pair[0]) is double x && Number(pair[1]) is double y ? (x, y) : null;
+    }
+
+    /// <summary>Sets an animation to a new file and kind; its old settings go (the art's own size, offset and so on stay).</summary>
+    internal void SetArtAnimation(string anim, string file, string kind)
+    {
+        CheckEnemy();
+        var art = ArtObject();
+        art[anim] = new JsonObject(NodeOptions) { ["file"] = file, ["kind"] = kind };
+        EnemyTouched();
+    }
+
+    /// <summary>Sets or (with null) removes a value in an animation, or in the art itself when anim is "".</summary>
+    internal void SetArtValue(string anim, string key, JsonNode? value)
+    {
+        var obj = anim.Length == 0 ? (value == null ? enemy["art"] as JsonObject : ArtObject()) : ArtAnimation(anim, value != null);
+        if (obj == null) return;
+        if (value == null)
+        {
+            if (!obj.ContainsKey(key)) return;
+            CheckEnemy();
+            Remove(obj, key);
+            EnemyTouched();
+            return;
+        }
+        if (obj[key]?.ToJsonString() == value.ToJsonString()) return;
+        CheckEnemy();
+        obj[key] = value;
+        EnemyTouched();
+    }
+
+    /// <summary>A number for <see cref="SetArtValue"/>, whole numbers without ".0"; null removes the value.</summary>
+    internal static JsonNode? ArtNumberNode(double? value) =>
+        value is not double v ? null : v == Math.Floor(v) && Math.Abs(v) < 1e15 ? JsonValue.Create((long)v) : JsonValue.Create(Math.Round(v, 3));
+
+    /// <summary>A pair like [x, y] for <see cref="SetArtValue"/>; null removes it.</summary>
+    internal static JsonNode? ArtPairNode((double X, double Y)? pair) =>
+        pair is not (double x, double y) ? null : new JsonArray(ArtNumberNode(x), ArtNumberNode(y));
+
+    /// <summary>Removes an animation.</summary>
+    internal void RemoveArt(string anim)
+    {
+        if (enemy["art"] is not JsonObject art || !art.ContainsKey(anim)) return;
+        CheckEnemy();
+        Remove(art, anim);
+        EnemyTouched();
+    }
+
+    /// <summary>The art as it would be saved, for EnemyArtReader and the preview; null when there is none.</summary>
+    internal string? ArtJson() => enemy["art"]?.ToJsonString();
+
+    // The art object, made when the enemy has none (or "art" isn't an object).
+    private JsonObject ArtObject()
+    {
+        if (enemy["art"] is JsonObject art) return art;
+        CheckEnemy();
+        enemy["art"] = art = new JsonObject(NodeOptions);
+        EnemyTouched();
+        return art;
+    }
+
+    // An animation's object; one written as just its file name becomes {"file": name} when it's changed.
+    private JsonObject? ArtAnimation(string anim, bool make)
+    {
+        var node = ArtNode(anim);
+        if (node is JsonObject obj) return obj;
+        string? file = ArtFile(anim);
+        if (!make || file == null) return null;
+        CheckEnemy();
+        var made = new JsonObject(NodeOptions) { ["file"] = file };
+        ArtObject()[anim] = made;
+        EnemyTouched();
+        return made;
+    }
+
+    private static double? Number(JsonNode? node)
+    {
+        if (node is not JsonValue v) return null;
+        if (v.TryGetValue(out double d)) return d;
+        if (v.TryGetValue(out long l)) return l;
+        if (v.TryGetValue(out int i)) return i;
+        // As the loader reads it: numbers written as strings, but not "NaN" or "Infinity".
+        if (v.TryGetValue(out string? s) && double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out d) && double.IsFinite(d)) return d;
+        return null;
     }
 
     // Called before any change to the enemy.

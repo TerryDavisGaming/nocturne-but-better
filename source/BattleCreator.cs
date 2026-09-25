@@ -11,7 +11,7 @@ namespace NocturneFlatScroll;
 /// <summary>
 /// The battle creator: makes and edits the custom battles in the CustomBattles folder. It opens
 /// on a list of the battles (plus New, Import and Open folder); picking one opens its pages: info,
-/// song, charts, enemy, gear and level, and dialogue. It looks and works like the chart editor (an
+/// song, charts, enemy, art, gear and level, and dialogue. It looks and works like the chart editor (an
 /// <see cref="EditorUi"/> drawn over the game, Windows file pickers, mouse or keyboard), and the
 /// game's menus underneath are locked while it is open (<see cref="EditorOverlay"/>). Charting
 /// hands over to the chart editor and comes back when it closes.
@@ -76,6 +76,7 @@ internal static partial class BattleCreator
     private static void Close()
     {
         StopPreview();
+        StopArtPreview(true);
         ClearCardPreview();
         EndTyping();
         ui?.Destroy();
@@ -508,6 +509,7 @@ internal static partial class BattleCreator
     {
         if (draft == null || !FinishTyping()) return;
         StopPreview();
+        StopArtPreview(false);
         string? chart = PackageFiles.SafeName(draft.ChartPath);
         string? audio = PackageFiles.SafeName(draft.EffectiveAudio);
         if (chart == null || audio == null) { Say("The battle needs a chart file and a song first.", 4f); return; }

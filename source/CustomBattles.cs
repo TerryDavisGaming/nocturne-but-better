@@ -3,6 +3,7 @@ using HarmonyLib;
 using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using UnityEngine;
+using UnityEngine.AddressableAssets;
 using Object = UnityEngine.Object;
 
 namespace NocturneFlatScroll;
@@ -19,6 +20,12 @@ internal static class CustomBattles
     /// <summary>Names of the mod's runtime SongData and EnemyData start with this.</summary>
     internal const string RuntimePrefix = "NocturneButBetter/";
     private const string EnemyKeyPrefix = "NocturneButBetter/enemy/";
+    /// <summary>Custom art is shown on this enemy's art prefab (Mantis_Art: one renderer and an animator).</summary>
+    private const string RigEnemy = "EnemyData_Mantis";
+    private const string RigGuid = "7641ac360d94a4c719df1f7933383fb8";
+
+    /// <summary>What a custom-art enemy looks like, settled on its battle's first fight.</summary>
+    internal enum ArtLook { Undecided, Rig, Placeholder }
 
     /// <summary>One custom battle and the game objects made for it.</summary>
     internal sealed class Battle
@@ -31,6 +38,12 @@ internal static class CustomBattles
         internal Sprite Card = null!;
         internal Texture2D? CardTexture;   // null for the shared placeholder card
         internal CustomMusic.Source Music = null!;
+        // Custom art: the Mantis rig's art reference, the enemy's own (the game releases whatever
+        // reference the enemy holds when a fight ends, so a shared one would be released twice).
+        internal AssetReferenceGameObject? RigArt;
+        internal bool RigDissolvesChildren;
+        internal ArtLook Look;
+        internal string? LookReason;
 
         internal string Title => Package.Title;
         internal int Lanes => Package.Lanes;
@@ -98,6 +111,17 @@ internal static class CustomBattles
         return ByData.TryGetValue(data.Pointer, out var song) ? song : null;
     }
 
+    /// <summary>The custom battle (arcade or test) whose enemy this is, or null for the game's own enemies.</summary>
+    internal static Battle? FindEnemy(EnemyData? enemy)
+    {
+        if (enemy == null || !enemy || !IsRuntimeName(enemy.name)) return null;
+        var t = test;
+        if (t != null && t.Enemy && t.Enemy.Pointer == enemy.Pointer) return t;
+        foreach (var song in ordered)
+            if (song.Enemy && song.Enemy.Pointer == enemy.Pointer) return song;
+        return null;
+    }
+
     /// <summary>
     /// Builds a test play's battle from a package loaded with the editor's chart, as the arcade's
     /// are built, and keeps it until the next test. <paramref name="music"/> (the editor's decoded
@@ -110,6 +134,7 @@ internal static class CustomBattles
             ?? throw new InvalidOperationException("the battle couldn't be built");
         if (music != null) built.Music = music;
         test = built;
+        EnemyArt.Warm(built, "the chart editor's test");
         return built;
     }
 
@@ -198,6 +223,7 @@ internal static class CustomBattles
     private static void Retire(Battle song)
     {
         if (ChartSwap.CurrentBattle == song) return;
+        EnemyArt.Drop(song);
         foreach (Object? obj in new Object?[] { song.Beatmap, song.Data, song.Enemy, song.CardTexture != null ? song.Card : null, song.CardTexture })
             if (obj != null && obj) Object.Destroy(obj);
     }
@@ -229,9 +255,12 @@ internal static class CustomBattles
                 Info = BuildInfo(package, data, card),
                 Music = MusicSource(package)
             };
+            if (package.Art != null) SetUpRig(song, enemies);
             string difficulties = string.Join(", ", Enumerable.Range(0, package.Slots.Length)
                 .Where(s => package.Slots[s] != null).Select(s => ChartText.GameDifficultyLabels[s]));
-            ModLog.Info($"Custom battle {package.DisplayName}: {package.Lanes} lanes, {difficulties}; enemy {enemy.name} from {package.EnemyPlaceholder}.");
+            string art = package.Art != null ? $"; custom art: {package.Art.Summary()}"
+                : package.CustomArt ? $"; its custom art can't be used, so it looks like {package.EnemyPlaceholder}" : "";
+            ModLog.Info($"Custom battle {package.DisplayName}: {package.Lanes} lanes, {difficulties}; enemy {enemy.name} from {package.EnemyPlaceholder}{art}.");
             return song;
         }
         catch (Exception ex)
@@ -367,6 +396,28 @@ internal static class CustomBattles
         return clone;
     }
 
+    // Custom art is shown on the Mantis rig. The enemy only switches to it when its art loads for
+    // its first fight (EnemyArt), so until then it keeps the placeholder's own art.
+    private static void SetUpRig(Battle song, Dictionary<string, EnemyData> enemies)
+    {
+        try
+        {
+            string? guid = null;
+            if (enemies.TryGetValue(RigEnemy, out var mantis))
+            {
+                var reference = mantis.addressableArtPrefab;
+                guid = reference != null ? reference.AssetGUID : null;
+                song.RigDissolvesChildren = mantis.dissolveAffectChildRenderer;
+            }
+            song.RigArt = new AssetReferenceGameObject(string.IsNullOrEmpty(guid) ? RigGuid : guid);
+        }
+        catch (Exception ex)
+        {
+            Note($"Custom battle {song.Title}: the Mantis rig for its custom art couldn't be set up, so it looks like {song.Package.EnemyPlaceholder}: {ex.Message}");
+            song.RigArt = null;
+        }
+    }
+
     private static EnemyStatSheet Stats(EnemyStatSheet? source, EnemyStats? stats)
     {
         var sheet = new EnemyStatSheet();
@@ -488,7 +539,7 @@ internal static class CustomBattles
             {
                 var bytes = package.Files.ReadAllBytes(package.CardPath, BattlePackage.MaxImageBytes);
                 // Cards are kept for the session, so a big image is kept at the size the arcade needs.
-                var texture = CardImages.Decode(bytes, package.ScoreKey + "/card", CardImages.MaxCardSide, out float scale, out string? refused);
+                var texture = CardImages.Decode(bytes, package.ScoreKey + "/card", CardImages.MaxCardSide, out float scale, out string? why);
                 if (texture != null)
                 {
                     made.Add(texture);
@@ -496,9 +547,7 @@ internal static class CustomBattles
                     made.Add(sprite);
                     return (sprite, texture);
                 }
-                Note(refused != null
-                    ? $"Custom battle {package.Title}: {package.CardPath} {refused}, so its card is plain."
-                    : $"Custom battle {package.Title}: {package.CardPath} isn't a PNG or JPEG the game can read, so its card is plain for now.");
+                Note($"Custom battle {package.Title}: {package.CardPath} {why}, so its card is plain for now.");
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException)
             {
@@ -520,26 +569,52 @@ internal static class CustomBattles
 
         /// <summary>The longest side an arcade card is kept at; a bigger image is scaled down to it.</summary>
         internal const int MaxCardSide = 1024;
-        /// <summary>A card image bigger than this on a side isn't decoded at all (8192 x 8192 is 256 MB while decoding).</summary>
+        /// <summary>
+        /// A card image bigger than this on a side isn't decoded at all (8192 x 8192 is 256 MB while
+        /// decoding); a 50 MP phone photo (8160 x 6120) still is.
+        /// </summary>
         internal const int MaxDecodeSide = 8192;
         private static bool reportedScaling;
 
-        /// <summary>A PNG or JPEG as a texture at its own size, or null when it can't be decoded.</summary>
-        internal static Texture2D? Decode(byte[] bytes, string name) => Decode(bytes, name, 0, out _, out _);
-
         /// <summary>
-        /// A PNG or JPEG as a texture, or null when it can't be decoded. The texture keeps no copy in
-        /// system memory (nothing reads its pixels back).
+        /// A card image as a texture, or null with why it can't be shown (<paramref name="why"/>,
+        /// written to follow the file's name). The texture keeps no copy in system memory (nothing
+        /// reads a card's pixels back), and an image whose header says it is over
+        /// <see cref="MaxDecodeSide"/> on a side is refused before it's decoded.
         /// </summary>
-        /// <param name="maxSide">
-        /// When above 0, a bigger image is scaled down so neither side is over it, and one over
-        /// <see cref="MaxDecodeSide"/> isn't decoded (<paramref name="refused"/> says why).
+        /// <param name="keepSide">
+        /// When above 0, a bigger image is scaled down so neither side is over it; 0 keeps the image's
+        /// own size (the battle creator's preview, which shows it).
         /// </param>
         /// <param name="scale">The texture's size over the image's: 1 unless it was scaled down.</param>
-        internal static Texture2D? Decode(byte[] bytes, string name, int maxSide, out float scale, out string? refused)
+        internal static Texture2D? Decode(byte[] bytes, string name, int keepSide, out float scale, out string? why)
         {
             scale = 1f;
-            refused = null;
+            var texture = Load(bytes, name, MaxDecodeSide, "card images", readable: false, out why);
+            if (texture == null || keepSide <= 0 || (texture.width <= keepSide && texture.height <= keepSide)) return texture;
+            var smaller = ScaledDown(texture, keepSide);
+            if (smaller != null)
+            {
+                scale = smaller.width / (float)texture.width;
+                Object.Destroy(texture);
+                texture = smaller;
+            }
+            return texture;
+        }
+
+        /// <summary>
+        /// A PNG or JPEG as a texture whose pixels can be read back (custom enemy art reads them for
+        /// its feet, see-through colour and atlases), at its own size; the caller destroys it once
+        /// it has them. Null with why (<paramref name="why"/>, written to follow the file's name).
+        /// The decoder makes whatever size the file's header claims, so a header over
+        /// <paramref name="maxSide"/> on a side is refused first; <paramref name="what"/> names the
+        /// pictures in that limit.
+        /// </summary>
+        internal static Texture2D? DecodeReadable(byte[] bytes, string name, int maxSide, string what, out string? why) =>
+            Load(bytes, name, maxSide, what, readable: true, out why);
+
+        private static Texture2D? Load(byte[] bytes, string name, int maxSide, string what, bool readable, out string? why)
+        {
             if (!looked)
             {
                 looked = true;
@@ -547,34 +622,21 @@ internal static class CustomBattles
                 if (call != IntPtr.Zero) loadImage = Marshal.GetDelegateForFunctionPointer<LoadImageCall>(call);
                 else ModLog.Info("Custom battles: the game has no image decoder, so cards are plain.");
             }
-            if (loadImage == null || bytes.Length == 0) return null;
-            if (maxSide > 0 && ImageSize.Read(bytes) is { } size && (size.Width > MaxDecodeSide || size.Height > MaxDecodeSide))
-            {
-                refused = $"is {size.Width} x {size.Height} pixels; a card can be at most {MaxDecodeSide} on a side";
-                return null;
-            }
+            why = loadImage == null ? "can't be shown: the game has no image decoder" : bytes.Length == 0 ? "is empty" : MediaSniff.PictureProblem(bytes, maxSide, what);
+            if (why != null) return null;
             var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = name, hideFlags = HideFlags.HideAndDontSave };
             var data = new Il2CppStructArray<byte>(bytes);
-            // Not readable: the decoded pixels go to the graphics card and the copy in memory is freed.
-            bool loaded = loadImage(texture.Pointer, data.Pointer, 1) != 0;
+            // Not readable unless asked: the decoded pixels go to the graphics card and the copy in memory is freed.
+            bool loaded = loadImage!(texture.Pointer, data.Pointer, readable ? (byte)0 : (byte)1) != 0;
             GC.KeepAlive(data);
             if (!loaded || texture.width < 1 || texture.height < 1)
             {
                 Object.Destroy(texture);
+                why = "couldn't be read by the game's PNG and JPEG decoder";
                 return null;
             }
             texture.wrapMode = TextureWrapMode.Clamp;
             texture.filterMode = FilterMode.Bilinear;
-            if (maxSide > 0 && (texture.width > maxSide || texture.height > maxSide))
-            {
-                var smaller = ScaledDown(texture, maxSide);
-                if (smaller != null)
-                {
-                    scale = smaller.width / (float)texture.width;
-                    Object.Destroy(texture);
-                    texture = smaller;
-                }
-            }
             return texture;
         }
 
