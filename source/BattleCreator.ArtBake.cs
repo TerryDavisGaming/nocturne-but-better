@@ -367,7 +367,8 @@ internal static partial class BattleCreator
         string anim = b.Anim;
         // The video goes after a save, when nothing names it any more (another animation may use it too).
         touched.Add(b.Video);
-        var video = JsonNode.Parse(d.ArtJson() ?? "{}")?[anim] as JsonObject;
+        // Keys in any letter case, as the draft reads them.
+        var video = JsonNode.Parse(d.ArtJson() ?? "{}", new JsonNodeOptions { PropertyNameCaseInsensitive = true })?[anim] as JsonObject;
         d.SetArtAnimation(anim, r.File, ArtEditing.Json(ArtKind.Sheet));
         foreach (var (key, value) in VideoBake.Settings(plan, anim, video, b.Hit)) d.SetArtValue(anim, key, value);
         if (anim == "idle")
