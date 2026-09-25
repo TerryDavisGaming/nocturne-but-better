@@ -5,7 +5,8 @@ namespace NocturneFlatScroll;
 
 /// <summary>
 /// Plays a battle's music from a file with the mod's own player instead of Wwise: a custom
-/// song's audio, or the song file a custom chart names with #MUSIC (StepMania's tag). The
+/// song's audio, or the song file a custom chart names with #MUSIC (StepMania's tag), or in a
+/// test play the chart editor's own decoded song, which can start partway through. The
 /// conductor starts its music in PlayWWiseTrack. For these battles the mod starts its player
 /// there instead, fades out the music from before the battle with Wwise's silence event, and
 /// gives the conductor a playing id of its own. Every frame, just before the conductor moves the
@@ -26,6 +27,11 @@ internal static class CustomMusic
         internal string Key = "";
         /// <summary>Reads the file; runs on a worker thread.</summary>
         internal Func<byte[]> Read = () => Array.Empty<byte>();
+        /// <summary>
+        /// Song already decoded (the chart editor's, for a test play) with the clock time of its
+        /// first sample; used instead of <see cref="Read"/>. Such a song has no key, so it isn't kept.
+        /// </summary>
+        internal Func<(short[] Stereo, int Rate, double Origin)>? Decoded;
     }
 
     private sealed class Song
@@ -193,6 +199,13 @@ internal static class CustomMusic
 
     private static Song Load(Source source)
     {
+        if (source.Decoded != null)
+        {
+            var (pcm, pcmRate, pcmOrigin) = source.Decoded();
+            // Copied only when it needs silence in front.
+            var (lead, leadOrigin) = LeadIn.Pad(pcm, pcmRate, pcmOrigin);
+            return new Song { Stereo = lead, Rate = pcmRate, Origin = leadOrigin };
+        }
         byte[] bytes = source.Read();
         var (stereo, rate) = AudioFile.Decode(bytes, source.Name);
         // The file's first sample is at clock time 0; the chart's #OFFSET is the game's to apply.
@@ -258,8 +271,9 @@ internal static class CustomMusic
     private static void Start(WwiseConductor c, Pending p, Song song)
     {
         pending = null;
-        // Kept for a retry of the same song, unless it's very long.
-        decoded = song.Stereo.Length <= MaxCachedSamples ? (p.Source.Key, song) : null;
+        // Kept for a retry of the same song, unless it's very long. A song without a key (the
+        // editor's, in a test) is never kept, so its large buffer goes once the battle is over.
+        if (p.Source.Key.Length > 0) decoded = song.Stereo.Length <= MaxCachedSamples ? (p.Source.Key, song) : null;
         player = new EditorAudio(song.Stereo, song.Rate);
         origin = song.Origin;
         conductor = c;

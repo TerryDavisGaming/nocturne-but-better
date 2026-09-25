@@ -46,12 +46,16 @@ internal static class ChartSwap
     private static bool keyedOverride;
     private static string? keyedKey;
 
+    /// <summary>Whether the battle's chart and clock can be swapped (test play needs it).</summary>
+    internal static bool Installed { get; private set; }
+
     internal static void Install(HarmonyLib.Harmony harmony)
     {
         harmony.Patch(Method(typeof(WwiseConductor), "Initialize"), prefix: new HarmonyMethod(typeof(ChartSwap), nameof(InitializePrefix)));
         harmony.Patch(Method(typeof(WwiseConductor), "CreateBeatmap"), prefix: new HarmonyMethod(typeof(ChartSwap), nameof(CreateBeatmapPrefix)));
         // The song's score key goes back once the battle is left (after its score is recorded).
         harmony.Patch(Method(typeof(CombatManagerV3), "ExitCombat"), postfix: new HarmonyMethod(typeof(ChartSwap), nameof(ExitCombatPostfix)));
+        Installed = true;
         // Only custom battles need this, so custom charts keep working if it can't be installed.
         try { harmony.Patch(Method(typeof(WwiseConductor), "InitializeNoteField"), postfix: new HarmonyMethod(typeof(ChartSwap), nameof(InitializeNoteFieldPostfix))); }
         catch (Exception ex) { ModLog.Error("Custom battles' full-length songs could not be installed: " + ex); }
@@ -60,8 +64,12 @@ internal static class ChartSwap
     private static System.Reflection.MethodInfo Method(Type type, string name) =>
         AccessTools.DeclaredMethod(type, name) ?? throw new MissingMethodException(type.FullName, name);
 
-    /// <summary>Starts every battle: decides the chart, and fixes the melody the chart was written for.</summary>
-    private static void InitializePrefix(WwiseConductor __instance, SongData songData, ref Il2CppStructArray<int> melodies)
+    /// <summary>
+    /// Starts every battle: decides the chart, and fixes the melody the chart was written for. A
+    /// test play's battle can start its clock partway into the song: the game passes the start as
+    /// a plain float (always 0 in battles), and a negative delay starts the clock that far in.
+    /// </summary>
+    private static void InitializePrefix(WwiseConductor __instance, SongData songData, ref Il2CppStructArray<int> melodies, ref float startDelay)
     {
         Playing = null;
         RestoreScoreKey(__instance);
@@ -69,10 +77,20 @@ internal static class ChartSwap
         CustomMusic.Reset(__instance);
         try
         {
+            var test = TestPlay.Claim(__instance, songData);
             if (TakeCustomBattle(__instance, songData))
             {
                 // A custom battle has one melody, and its chart and score key are its own.
                 melodies = new Il2CppStructArray<int>(new[] { 0, 0 });
+                if (test != null) StartTestClock(test, ref startDelay);
+                return;
+            }
+            if (test != null)
+            {
+                // A game song's test plays the editor's chart on one melody; it records nothing,
+                // so no custom chart and no score key of its own.
+                melodies = new Il2CppStructArray<int>(new[] { test.Melody, test.Melody });
+                StartTestClock(test, ref startDelay);
                 return;
             }
             if (!songData) return;
@@ -101,6 +119,11 @@ internal static class ChartSwap
             SwapScoreKey(__instance, songData, ScoreKeyPrefix + chart.Key);
         }
         catch (Exception ex) { ReportOnce(ex); }
+    }
+
+    private static void StartTestClock(TestPlay.Run test, ref float startDelay)
+    {
+        if (test.T0 > 0) startDelay = -(float)test.T0;
     }
 
     private static void SwapScoreKey(WwiseConductor conductor, SongData song, string key)
@@ -178,6 +201,10 @@ internal static class ChartSwap
         if (custom != null && song && custom.Data && song.Pointer == custom.Data.Pointer && IsBattleConductor(__instance))
             return CreateBattleBeatmap(__instance, custom, ref __result);
 
+        // A test of a game song's chart; a custom battle's test is the custom battle above.
+        var test = TestPlay.ChartFor(__instance, song);
+        if (test != null) return CreateTestBeatmap(__instance, song, test, ref __result);
+
         var chart = Playing;
         if (chart == null || !song || !chart.Song.Equals(song.name, StringComparison.OrdinalIgnoreCase)) return true;
         try
@@ -227,6 +254,29 @@ internal static class ChartSwap
         {
             // The song's beatmap holds the same chart, so the game's own read of it is the fallback.
             ModLog.Error($"Custom battle {custom.Title} could not be built, so the game reads its chart: {ex}");
+            return true;
+        }
+    }
+
+    /// <summary>A test play's chart for a game song, built by the chart editor from its unsaved chart.</summary>
+    private static bool CreateTestBeatmap(WwiseConductor conductor, SongData song, TestPlay.Run test, ref SmSongData __result)
+    {
+        try
+        {
+            // First, so a test from partway in never falls back to the game's music from its start.
+            if (test.Music != null) CustomMusic.Prepare(test.Music, conductor, customBattle: !test.MusicFallsBackToWwise);
+            var built = NotesLoaderSM.Instance.LoadFromText(test.PlayableText);
+            if (built == null || built.steps == null || built.steps.Count == 0 || built.timingData == null)
+                throw new InvalidDataException("the game's reader found no playable chart in it");
+            __result = built;
+            ScrollSpeedHooks.Prepare(test.Chart);
+            ModLog.Info($"Test play: playing the test chart for {song.name}.");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            // The editor checked the chart with the same reader, so this isn't expected.
+            ModLog.Error($"Test play: the test chart for {song.name} could not be loaded, so the game's chart plays: {ex}");
             return true;
         }
     }

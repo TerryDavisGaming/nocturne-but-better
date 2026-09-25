@@ -145,6 +145,7 @@ internal static partial class ChartEditor
 
         audio?.Dispose();
         audio = null;
+        music = null;
         audioOrigin = 0;
         musicState = "Loading music...";
         string folder = target.Folder, name = target.AudioPath;
@@ -154,7 +155,7 @@ internal static partial class ChartEditor
         SetTab(Tab.Compose);
         BuildField();
         Say(tabCharted
-            ? $"Space plays. Click in a lane to place a note. {ShortKey(EditorAction.PrevDifficulty)} / {ShortKey(EditorAction.NextDifficulty)} switch difficulty."
+            ? $"Space plays{TestKeyHint()}. Click in a lane to place a note. {ShortKey(EditorAction.PrevDifficulty)} / {ShortKey(EditorAction.NextDifficulty)} switch difficulty."
             : $"{SlotName(slot)} isn't charted yet: click Start empty, or copy another difficulty.", 6f);
     }
 
@@ -540,7 +541,8 @@ internal static partial class ChartEditor
             .Select(g => $"{SlotName(g.Key)}'s notes on {JoinAnd(g.Select(SlotName))}").ToList();
         if (standIns.Count > 0) sb.Append($"Until the rest are charted, the arcade plays {string.Join("; ", standIns)}.\n");
         if (leftOutBlocks > 0) sb.Append($"{leftOutBlocks} extra copies of a difficulty in the file never play; saving leaves them out.\n");
-        sb.Append($"\n{ShortKey(EditorAction.Save)} saves every difficulty into the chart file. The battle creator exports the battle.");
+        sb.Append($"\n{ShortKey(EditorAction.Save)} saves every difficulty into the chart file. The battle creator exports the battle.\n");
+        sb.Append(TestText());
         return sb.ToString();
     }
 

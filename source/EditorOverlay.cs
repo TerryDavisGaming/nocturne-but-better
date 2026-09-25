@@ -10,7 +10,8 @@ namespace NocturneFlatScroll;
 /// (no navigation, select or back), and the cursor free. Screens register with
 /// <see cref="Enter"/> and <see cref="Leave"/>; the menus stay locked while any screen is
 /// registered, so one screen can hand over to another (enter the next, then leave, or leave and
-/// enter in the same frame) without the menus waking up in between.
+/// enter in the same frame) without the menus waking up in between. A test play's battle lifts
+/// the lock while it runs (<see cref="Suspend"/> and <see cref="Resume"/>).
 /// </summary>
 internal static class EditorOverlay
 {
@@ -24,6 +25,13 @@ internal static class EditorOverlay
 
     /// <summary>Whether any editor screen is open.</summary>
     internal static bool IsOpen => screens.Count > 0;
+
+    // A test play's battle runs with the editors still open but hidden: the game's own menus (the
+    // pause menu) must work then, so the lock is lifted until the battle is over.
+    private static bool suspended;
+
+    /// <summary>Whether the lock is lifted for a test play's battle.</summary>
+    internal static bool Suspended => suspended;
 
     internal static void Install(HarmonyLib.Harmony harmony)
     {
@@ -43,7 +51,7 @@ internal static class EditorOverlay
     {
         get
         {
-            if (IsOpen || Time.frameCount <= blockBackUntilFrame) return true;
+            if ((IsOpen && !suspended) || Time.frameCount <= blockBackUntilFrame) return true;
             // With no editor open or closing, nothing else is read: the game's Back runs as usual.
             if (!pendingUnlock) return false;
             var keyboard = InputKeyboard.current;
@@ -83,6 +91,7 @@ internal static class EditorOverlay
     {
         screens.Remove(screen);
         if (screens.Count > 0) return;
+        suspended = false;
         if (cursorWas is { } was)
         {
             Cursor.lockState = was.Lock;
@@ -91,6 +100,51 @@ internal static class EditorOverlay
         }
         blockBackUntilFrame = Time.frameCount + 3;
         pendingUnlock = true;
+    }
+
+    /// <summary>
+    /// A test play's battle starts: the menus and the cursor go back to how the game had them,
+    /// whichever screens are open, until <see cref="Resume"/>.
+    /// </summary>
+    internal static void Suspend()
+    {
+        suspended = true;
+        LockGameInput(false);
+        if (cursorWas is { } was)
+        {
+            Cursor.lockState = was.Lock;
+            Cursor.visible = was.Visible;
+        }
+    }
+
+    /// <summary>The test's battle is over: the menus are locked again while a screen is open.</summary>
+    internal static void Resume()
+    {
+        suspended = false;
+        if (IsOpen) Relock();
+    }
+
+    /// <summary>
+    /// Locks the menus again, including panels that came up since they were locked. The game's own
+    /// input lock may still hold navigation during a fade, so the setting noted when the first
+    /// screen opened is kept rather than read again.
+    /// </summary>
+    internal static void Relock()
+    {
+        if (suspended) return;
+        try
+        {
+            var events = UnityEngine.EventSystems.EventSystem.current;
+            if (lockedEvents != null && lockedEvents && events && lockedEvents.Pointer != events.Pointer)
+                lockedEvents.sendNavigationEvents = navigationWas;
+            if (events)
+            {
+                events.sendNavigationEvents = false;
+                lockedEvents = events;
+            }
+        }
+        catch (Exception ex) { ModLog.Error("Locking the menus for the editor failed: " + ex.Message); }
+        LockGameInput(true);
     }
 
     /// <summary>
@@ -110,7 +164,11 @@ internal static class EditorOverlay
                 pendingUnlock = false;
                 LockGameInput(false);
             }
-            if (IsOpen) FreeCursor();
+            if (IsOpen && !suspended)
+            {
+                FreeCursor();
+                KeepNavigationOff();
+            }
             // Folders chosen in a file dialog are saved to the player prefs here, on the main thread.
             FileDialogs.Update();
         }
@@ -168,6 +226,19 @@ internal static class EditorOverlay
             }
         }
         catch (Exception ex) { ModLog.Error("Locking the menus for the editor failed: " + ex.Message); }
+    }
+
+    // The game sets menu navigation from its own input lock whenever that lock changes: on when
+    // it's let go, as at the end of a fade (after a test play's battle, say). With an editor
+    // open it's turned off again on the same frame, before the menus underneath read a key.
+    private static void KeepNavigationOff()
+    {
+        var events = UnityEngine.EventSystems.EventSystem.current;
+        if (events == null || !events || !events.sendNavigationEvents) return;
+        // No event system when the screen opened: this is the first lock, and notes the setting.
+        if (lockedEvents == null) LockGameInput(true);
+        else if (lockedEvents && lockedEvents.Pointer == events.Pointer) events.sendNavigationEvents = false;
+        else Relock();
     }
 
     // ---- the cursor ---------------------------------------------------------------------------

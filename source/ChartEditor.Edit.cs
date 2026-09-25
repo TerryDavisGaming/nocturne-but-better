@@ -93,6 +93,7 @@ internal static partial class ChartEditor
 
         audio?.Dispose();
         audio = null;
+        music = null;
         musicState = "Loading music...";
         string songName = song!.name;
         int m = melody;
@@ -102,7 +103,7 @@ internal static partial class ChartEditor
         ShowScreen(Screen.Edit);
         SetTab(Tab.Compose);
         BuildField();
-        Say("Space plays. Click in a lane to place a note; right click deletes.", 5f);
+        Say($"Space plays{TestKeyHint()}. Click in a lane to place a note; right click deletes.", 5f);
     }
 
     /// <summary>Shows a message in the status line for a few seconds.</summary>
@@ -114,15 +115,19 @@ internal static partial class ChartEditor
     {
         FinishLoading();
         FinishExport();
-        bool clicked = closePrompt ? UpdatePromptButtons(mouse) : Ui.UpdateButtons(mouse);
-        if (!IsOpen) return;
-        if (closePrompt) UpdateClosePrompt(keyboard);
+        // Just back from a test: the keys and clicks that left the battle aren't for the editor.
+        bool live = Time.unscaledTime >= inputFrom;
+        bool clicked = closePrompt ? UpdatePromptButtons(live ? mouse : null) : Ui.UpdateButtons(live ? mouse : null);
+        if (!IsOpen || TestPlay.Active) return;
+        if (!live) { }
+        else if (closePrompt) UpdateClosePrompt(keyboard);
         else if (exportDialog != null) { }
         else if (keyMap.Rebinding != null) keyMap.UpdateRebinding(keyboard, Say);
         else if (typing != TextField.None) UpdateTyping(keyboard);
         else if (!HandleKeys(keyboard)) return; // closed
-        if (!IsOpen) return;
-        if (mouse != null && tab != Tab.Keys && exportDialog == null && !closePrompt) HandleMouse(mouse, clicked);
+        // A test that started this frame has the screen from now on.
+        if (!IsOpen || TestPlay.Active) return;
+        if (live && mouse != null && tab != Tab.Keys && exportDialog == null && !closePrompt) HandleMouse(mouse, clicked);
         if (manualPlaying)
         {
             manualTime += Time.unscaledDeltaTime * Speeds[speedIndex];
@@ -152,6 +157,8 @@ internal static partial class ChartEditor
         try
         {
             var result = task.Result;
+            // A test plays the same decoded song (the player shares the buffer, nothing is copied).
+            music = result;
             bool wasPlaying = manualPlaying;
             manualPlaying = false;
             audioOrigin = result.Origin;
@@ -204,6 +211,8 @@ internal static partial class ChartEditor
             return RequestCloseKeepOpen();
         }
         if (k.anyKey.wasPressedThisFrame) confirmLeave = false;
+        if (Triggered(k, EditorAction.TestHere)) { StartTest(fromStart: false); return true; }
+        if (Triggered(k, EditorAction.TestFromStart)) { StartTest(fromStart: true); return true; }
 
         if (Triggered(k, EditorAction.PlayPause)) TogglePlay();
         if (Triggered(k, EditorAction.SnapForward)) Step(SnapRows);
@@ -786,28 +795,12 @@ internal static partial class ChartEditor
         try
         {
             if (chart!.Notes.Count == 0) { Say("Place some notes before saving", 3f); return false; }
-            var output = new ChartText();
-            output.Tags.Add(new("NBBSONG", song!.name));
-            output.Tags.Add(new("NBBEDITOR", "1"));
-            output.Tags.Add(new("NBBMELODY", melody.ToString()));
-            // The song's own events unless they were changed here; then the chart carries its own.
-            if (eventsChanged) output.Tags.Add(new("NBBEVENTS", "chart"));
-            if (bookmarks.Count > 0) output.Tags.Add(new("NBBBOOKMARKS", string.Join(",", bookmarks.Select(b => b.ToString("0.###", CultureInfo.InvariantCulture)))));
-            foreach (var tag in header!.Tags)
-            {
-                if (tag.Key.StartsWith("NBB", StringComparison.OrdinalIgnoreCase)) continue;
-                if (tag.Key.ToUpperInvariant() is "TITLE" or "CREDIT" or "SCROLLS") continue;
-                output.Tags.Add(tag);
-            }
             title = CleanText(title).Length > 0 ? CleanText(title) : "New chart";
             author = CleanText(author);
-            output.SetTag("TITLE", title);
-            output.SetTag("CREDIT", author);
-            output.SetTag("ATTACKS", eventsChanged ? WriteEvents(events) : GameChart().GetTag("ATTACKS") ?? "");
-            if (scrolls.Count > 0) output.SetTag("SCROLLS", ScrollsTag());
+            var output = GameSongHeader(SongAttacks());
             output.Blocks.Add(new ChartText.NoteBlock
             {
-                StepsType = header.Blocks.FirstOrDefault(b => b.Lanes == chart.Lanes)?.StepsType ?? (chart.Lanes == 5 ? "pump-single" : "dance-single"),
+                StepsType = GameSongStepsType(),
                 Description = title,
                 Difficulty = "Challenge",
                 Meter = EstimateMeter().ToString(),
@@ -818,7 +811,7 @@ internal static partial class ChartEditor
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(path, output.Write(), new UTF8Encoding(false));
             CustomCharts.Reload();
-            var saved = CustomCharts.ForSong(song.name).FirstOrDefault(c => c.SourceFile.Equals(path, StringComparison.OrdinalIgnoreCase) && c.PackEntry == null);
+            var saved = CustomCharts.ForSong(song!.name).FirstOrDefault(c => c.SourceFile.Equals(path, StringComparison.OrdinalIgnoreCase) && c.PackEntry == null);
             confirmLeave = false;
             if (saved == null)
             {
@@ -842,6 +835,39 @@ internal static partial class ChartEditor
             return false;
         }
     }
+
+    /// <summary>
+    /// A game song's chart header as saving writes it (a test plays the same): the editor's tags,
+    /// the song's tags (timing and the rest), the name and author, the events and the scroll speeds.
+    /// </summary>
+    private static ChartText GameSongHeader(string attacks)
+    {
+        var output = new ChartText();
+        output.Tags.Add(new("NBBSONG", song!.name));
+        output.Tags.Add(new("NBBEDITOR", "1"));
+        output.Tags.Add(new("NBBMELODY", melody.ToString()));
+        // The song's own events unless they were changed here; then the chart carries its own.
+        if (eventsChanged) output.Tags.Add(new("NBBEVENTS", "chart"));
+        if (bookmarks.Count > 0) output.Tags.Add(new("NBBBOOKMARKS", string.Join(",", bookmarks.Select(b => b.ToString("0.###", CultureInfo.InvariantCulture)))));
+        foreach (var tag in header!.Tags)
+        {
+            if (tag.Key.StartsWith("NBB", StringComparison.OrdinalIgnoreCase)) continue;
+            if (tag.Key.ToUpperInvariant() is "TITLE" or "CREDIT" or "SCROLLS") continue;
+            output.Tags.Add(tag);
+        }
+        output.SetTag("TITLE", CleanText(title).Length > 0 ? CleanText(title) : "New chart");
+        output.SetTag("CREDIT", CleanText(author));
+        output.SetTag("ATTACKS", attacks);
+        if (scrolls.Count > 0) output.SetTag("SCROLLS", ScrollsTag());
+        return output;
+    }
+
+    /// <summary>The #ATTACKS a game song's chart saves: the song's own text unless they were changed here.</summary>
+    private static string SongAttacks() => eventsChanged ? WriteEvents(events) : GameChart().GetTag("ATTACKS") ?? "";
+
+    // The song's own chart type for this lane count.
+    private static string GameSongStepsType() =>
+        header!.Blocks.FirstOrDefault(b => b.Lanes == chart!.Lanes)?.StepsType ?? (chart!.Lanes == 5 ? "pump-single" : "dance-single");
 
     /// <summary>
     /// A chart the editor saved before (a loose .sm with its #NBBEDITOR tag and one difficulty) is
@@ -964,6 +990,7 @@ internal static partial class ChartEditor
         $"{Escape(song!.name)}, melody {melody}, {chart!.Lanes} lanes.\n\n" +
         "Saving makes this the song's custom difficulty. Export writes one .nbbchart file with the notes, " +
         "the events and the scroll speeds, ready to share.\n\n" +
+        $"{TestText()}\n\n" +
         $"Events: {(eventsChanged ? "this chart's own" : "the song's own (the enemy plays as usual)")}";
 
     private static string EventsText()

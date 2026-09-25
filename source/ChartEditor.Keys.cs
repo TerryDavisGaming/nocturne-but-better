@@ -15,7 +15,7 @@ internal static partial class ChartEditor
         NoteTicks, Metronome, AddBookmark, NextBookmark, PrevBookmark,
         Undo, Redo, SelectAll, Copy, Cut, Paste, Delete, Mirror, Reverse,
         NudgeLater, NudgeEarlier, NudgeLeft, NudgeRight, Resnap,
-        Save, Export, Rename, SetAuthor,
+        Save, Export, Rename, SetAuthor, TestHere, TestFromStart,
         NextDifficulty, PrevDifficulty, BeatsEarlier, BeatsLater, BeatsEarlier10, BeatsLater10,
     }
 
@@ -64,6 +64,9 @@ internal static partial class ChartEditor
         (EditorAction.Export, "Export as a pack", new[] { new KeyBinding(Key.E, ctrl: true) }),
         (EditorAction.Rename, "Name the chart", new[] { new KeyBinding(Key.F2) }),
         (EditorAction.SetAuthor, "Set the author", new[] { new KeyBinding(Key.F3) }),
+        // Plays the chart in a battle and comes back (osu!'s test key).
+        (EditorAction.TestHere, "Test from here", new[] { new KeyBinding(Key.F5) }),
+        (EditorAction.TestFromStart, "Test from the start", new[] { new KeyBinding(Key.F5, shift: true) }),
         // Battles only: the difficulty tabs, and moving every beat against the music (#OFFSET).
         (EditorAction.NextDifficulty, "Next difficulty (battles)", new[] { new KeyBinding(Key.PageDown, ctrl: true) }),
         (EditorAction.PrevDifficulty, "Previous difficulty (battles)", new[] { new KeyBinding(Key.PageUp, ctrl: true) }),

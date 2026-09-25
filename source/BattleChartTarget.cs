@@ -14,6 +14,12 @@ internal sealed record BattleChartTarget(string Folder, string ChartPath, string
     internal string ChartFullPath => FullPath(ChartPath);
 
     /// <summary>
+    /// battle.json as the battle creator would save it now, so a test play uses its unsaved
+    /// changes (title, enemy, gear); null, or no function, reads the file.
+    /// </summary>
+    internal Func<string?>? Manifest { get; init; }
+
+    /// <summary>
     /// Reads what the editor needs from a battle folder's battle.json: the chart it names, the
     /// song (battle.json's "audio", else the chart's #MUSIC), the lanes (else those of the
     /// chart's first difficulty with notes, else 4) and the title. Nothing else is checked, so a
