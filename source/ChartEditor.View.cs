@@ -36,6 +36,7 @@ internal static partial class ChartEditor
     {
         eventRows.Clear();
         markerPool.Clear();
+        ClearBattleWidgets();
         ui = new EditorUi("NocturneButBetter Chart Editor");
         Ui.BuildList();
         BuildEditor();
@@ -47,9 +48,10 @@ internal static partial class ChartEditor
         editPanel = MakeRect("Edit", Ui.CanvasRect);
         Stretch(editPanel, 0, 0, 0, 0);
 
-        // The playfield sits between the panels and bars; the Keys tab uses the same space.
+        // The playfield sits between the panels and bars; the Keys tab uses the same space. A
+        // battle's difficulty tabs take a strip above the playfield.
         fieldArea = MakeRect("FieldArea", editPanel);
-        Stretch(fieldArea, LeftW, BottomH, RightW, TopH);
+        Stretch(fieldArea, LeftW, BottomH, RightW, TopH + (battle != null ? DifficultyH : 0));
         field = MakeRect("Field", fieldArea);
         field.anchorMin = new Vector2(0.5f, 0);
         field.anchorMax = new Vector2(0.5f, 1);
@@ -78,20 +80,25 @@ internal static partial class ChartEditor
         titleText.rectTransform.anchorMin = new Vector2(0, 0);
         titleText.rectTransform.anchorMax = new Vector2(1, 1);
         titleText.rectTransform.offsetMin = new Vector2(16 + 5 * 146 + 10, 0);
-        titleText.rectTransform.offsetMax = new Vector2(-(16 + 110 + 12 + 170 + 12 + 150 + 16), 0);
+        // A battle has no Export button: the battle creator exports the whole battle.
+        titleText.rectTransform.offsetMax = new Vector2(-(16 + 110 + 12 + (battle != null ? 0 : 170 + 12) + 150 + 16), 0);
         var exit = Ui.MakeButton(top, "Exit", RequestClose);
         Place(exit.Rect, new Vector2(1, 0.5f), new Vector2(-16, 0), new Vector2(110, 44), new Vector2(1, 0.5f));
-        var export = Ui.MakeButton(top, "Export", StartExportPack);
-        export.Text = () => $"Export <size=65%><color=#9D92B4>{ShortKey(EditorAction.Export)}</color></size>";
-        Place(export.Rect, new Vector2(1, 0.5f), new Vector2(-138, 0), new Vector2(170, 44), new Vector2(1, 0.5f));
+        if (battle == null)
+        {
+            var export = Ui.MakeButton(top, "Export", StartExportPack);
+            export.Text = () => $"Export <size=65%><color=#9D92B4>{ShortKey(EditorAction.Export)}</color></size>";
+            Place(export.Rect, new Vector2(1, 0.5f), new Vector2(-138, 0), new Vector2(170, 44), new Vector2(1, 0.5f));
+        }
         var save = Ui.MakeButton(top, "Save", () => Save());
         save.Text = () => $"Save <size=65%><color=#9D92B4>{ShortKey(EditorAction.Save)}</color></size>";
         save.Active = () => dirty;
-        Place(save.Rect, new Vector2(1, 0.5f), new Vector2(-320, 0), new Vector2(150, 44), new Vector2(1, 0.5f));
+        Place(save.Rect, new Vector2(1, 0.5f), new Vector2(battle != null ? -138 : -320, 0), new Vector2(150, 44), new Vector2(1, 0.5f));
 
         BuildLeftPanel();
         BuildRightPanel();
         BuildBottomBar();
+        if (battle != null) BuildBattleWidgets();
 
         // Messages go last, so they draw over the notes.
         Ui.BuildStatus(editPanel);
@@ -202,6 +209,7 @@ internal static partial class ChartEditor
             b.Label.fontSize = 17;
             PlaceTop(b.Rect, 16 + (i % 2) * (width / 2 + 4), -270 - (i / 2) * 46, width / 2 - 4, 40);
         }
+        if (battle != null) BuildBattleTiming(width, -270 - (timing.Length / 2) * 46);
 
         // Events: the chart's events, and what to do with the picked one.
         for (int i = 0; i < EventRowsVisible; i++)
@@ -215,7 +223,7 @@ internal static partial class ChartEditor
             PlaceTop(b.Rect, 16, -262 - i * 32, width, 29);
             eventRows.Add(b);
         }
-        var eventButtons = new (string Label, Action Do)[]
+        var eventButtons = new List<(string Label, Action Do)>
         {
             ("Add here", AddEventHere), ("Edit text", () => StartTyping(TextField.EventMods)),
             ("Move here", MovePickedEventHere), ("Copy here", DuplicatePickedEvent),
@@ -223,7 +231,13 @@ internal static partial class ChartEditor
             ("Shorter", () => ChangePickedEventLength(-0.25)), ("Longer", () => ChangePickedEventLength(0.25)),
             ("Delete", DeletePickedEvent), ("Song's events", RestoreSongEvents),
         };
-        for (int i = 0; i < eventButtons.Length; i++)
+        // A battle has no song events to go back to; it gets player attacks instead.
+        if (battle != null)
+        {
+            eventButtons[^1] = ("Delete all", ClearEvents);
+            eventButtons.Add(("Player attack", AddPlayerAttack));
+        }
+        for (int i = 0; i < eventButtons.Count; i++)
         {
             var (label, doIt) = eventButtons[i];
             var b = Ui.MakeButton(rightPanel, label, doIt);
@@ -232,15 +246,26 @@ internal static partial class ChartEditor
             PlaceTop(b.Rect, 16 + (i % 2) * (width / 2 + 4), -262 - EventRowsVisible * 32 - 8 - (i / 2) * 40, width / 2 - 4, 35);
         }
 
-        // Setup: the chart's name and author, and the file actions.
-        var name = Ui.MakeButton(rightPanel, "", () => StartTyping(TextField.Title));
+        // Setup: the chart's name and author, and the file actions. A battle's are its difficulties'.
+        if (battle != null) BuildBattleSetup(width);
+        else BuildSetup(width);
+
+        // Keys: back to the defaults.
+        var reset = Ui.MakeButton(rightPanel, "Reset all keys", () => { ResetBindings(); Say("Keys are back to the defaults", 3f); });
+        reset.Visible = () => tab == Tab.Keys;
+        PlaceTop(reset.Rect, 16, -270, width, 42);
+    }
+
+    private static void BuildSetup(float width)
+    {
+        var name = Ui.MakeButton(rightPanel!, "", () => StartTyping(TextField.Title));
         name.Text = () => $"Name: {Escape(title)}{(typing == TextField.Title ? "_" : "")}";
         name.Visible = () => tab == Tab.Setup;
         name.Active = () => typing == TextField.Title;
         name.Label.alignment = TextAlignmentOptions.Left;
         name.Label.margin = new Vector4(12, 0, 8, 0);
         PlaceTop(name.Rect, 16, -270, width, 42);
-        var who = Ui.MakeButton(rightPanel, "", () => StartTyping(TextField.Author));
+        var who = Ui.MakeButton(rightPanel!, "", () => StartTyping(TextField.Author));
         who.Text = () => $"Author: {Escape(author.Length > 0 ? author : "(click to set)")}{(typing == TextField.Author ? "_" : "")}";
         who.Visible = () => tab == Tab.Setup;
         who.Active = () => typing == TextField.Author;
@@ -251,15 +276,10 @@ internal static partial class ChartEditor
         for (int i = 0; i < files.Length; i++)
         {
             var (label, doIt) = files[i];
-            var b = Ui.MakeButton(rightPanel, label, doIt);
+            var b = Ui.MakeButton(rightPanel!, label, doIt);
             b.Visible = () => tab == Tab.Setup;
             PlaceTop(b.Rect, 16 + (i % 2) * (width / 2 + 4), -378 - (i / 2) * 46, width / 2 - 4, 40);
         }
-
-        // Keys: back to the defaults.
-        var reset = Ui.MakeButton(rightPanel, "Reset all keys", () => { ResetBindings(); Say("Keys are back to the defaults", 3f); });
-        reset.Visible = () => tab == Tab.Keys;
-        PlaceTop(reset.Rect, 16, -270, width, 42);
     }
 
     private static void BuildBottomBar()
@@ -337,6 +357,9 @@ internal static partial class ChartEditor
         typing = TextField.None;
         keysPanel!.gameObject.SetActive(tab == Tab.Keys);
         fieldArea!.gameObject.SetActive(tab != Tab.Keys);
+        if (difficultyBar) difficultyBar!.gameObject.SetActive(tab != Tab.Keys);
+        // The offset loop belongs to the Timing tab.
+        if (tab != Tab.Timing) looping = false;
     }
 
     // ---- the playfield -----------------------------------------------------------------------
@@ -365,9 +388,10 @@ internal static partial class ChartEditor
         float width = LaneWidth * chart!.Lanes;
         field.offsetMin = new Vector2(-width / 2 - FieldLeftRoom, 0);
         field.offsetMax = new Vector2(width / 2 + FieldRightRoom, 0);
-        for (int lane = 0; lane < chart.Lanes; lane++) StretchColumn(MakeImage("Lane" + lane, field, LaneColor), LaneX(lane), LaneWidth - 4);
+        for (int lane = 0; lane < chart.Lanes; lane++) StretchColumn(MakeImage("Lane" + lane, field, lane == AttackLane ? AttackLaneColor : LaneColor), LaneX(lane), LaneWidth - 4);
         StretchColumn(MakeImage("EdgeL", field, LaneEdge), FieldLeft - 2, 3);
         StretchColumn(MakeImage("EdgeR", field, LaneEdge), -FieldLeft + 2, 3);
+        BuildAttackLabel();
         judgeLine = MakeImage("JudgeLine", field, Accent);
         selectionBox = MakeImage("SelectionBox", field, new Color(1f, 1f, 1f, 0.12f));
         selectionBox.gameObject.SetActive(false);
@@ -475,7 +499,7 @@ internal static partial class ChartEditor
             float y0 = TimeToY(chart.RowToSeconds(dragStartRow), now), y1 = TimeToY(chart.RowToSeconds(Math.Max(dragStartRow, hoverRow)), now);
             PlaceField(Pooled(notePool, images++, field!, "Note"), LaneX(dragLane), (y0 + y1) / 2f, (LaneWidth - 14) * 0.6f, Math.Max(2f, y1 - y0), new Color(0.6f, 0.4f, 0.95f, 0.35f));
         }
-        if (hoverLane >= 0 && tool != Tool.Select && drag == DragKind.None)
+        if (hoverLane >= 0 && tool != Tool.Select && drag == DragKind.None && (battle == null || tabCharted))
             PlaceField(Pooled(notePool, images++, field!, "Note"), LaneX(hoverLane), TimeToY(chart.RowToSeconds(hoverRow), now), LaneWidth - 14, NoteHeight, new Color(1f, 1f, 1f, 0.18f));
 
         // Bookmarks, scroll speed changes and events as flags left of the lanes.
@@ -504,6 +528,7 @@ internal static partial class ChartEditor
 
         PlaceField(judgeLine!, 0, JudgeY, width + 30, 4, Accent);
         judgeLine!.transform.SetAsLastSibling();
+        PlaceAttackLabel();
         selectionBox!.transform.SetAsLastSibling();
         if (drag == DragKind.Box)
         {

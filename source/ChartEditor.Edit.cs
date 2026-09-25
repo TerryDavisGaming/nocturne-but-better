@@ -13,7 +13,7 @@ namespace NocturneFlatScroll;
 internal static partial class ChartEditor
 {
     private enum DragKind { None, Hold, Box, Move, Scrub }
-    private enum TextField { None, Title, Author, EventMods, ScrollSpeed }
+    private enum TextField { None, Title, Author, EventMods, ScrollSpeed, Bpm, BpmChange }
 
     private const string AuthorPref = "NocturneFlatScroll.EditorAuthor.v1";
 
@@ -114,18 +114,21 @@ internal static partial class ChartEditor
     {
         FinishLoading();
         FinishExport();
-        bool clicked = Ui.UpdateButtons(mouse);
+        bool clicked = closePrompt ? UpdatePromptButtons(mouse) : Ui.UpdateButtons(mouse);
         if (!IsOpen) return;
-        if (exportDialog != null) { }
+        if (closePrompt) UpdateClosePrompt(keyboard);
+        else if (exportDialog != null) { }
         else if (keyMap.Rebinding != null) keyMap.UpdateRebinding(keyboard, Say);
         else if (typing != TextField.None) UpdateTyping(keyboard);
         else if (!HandleKeys(keyboard)) return; // closed
-        if (mouse != null && tab != Tab.Keys && exportDialog == null) HandleMouse(mouse, clicked);
+        if (!IsOpen) return;
+        if (mouse != null && tab != Tab.Keys && exportDialog == null && !closePrompt) HandleMouse(mouse, clicked);
         if (manualPlaying)
         {
             manualTime += Time.unscaledDeltaTime * Speeds[speedIndex];
             if (manualTime >= manualLength) { manualTime = manualLength; manualPlaying = false; }
         }
+        UpdateLoop();
         if (ticksDirty) UpdateTicks();
         if (selection.Count > 0) selection.IntersectWith(chart!.Notes.Select(NoteKey));
         double now = Now;
@@ -142,7 +145,8 @@ internal static partial class ChartEditor
         {
             var reason = task.Exception?.InnerException?.Message ?? "no music found";
             musicState = "No music: " + reason;
-            ModLog.Error($"Chart editor music for {song?.name} melody {melody} couldn't load: {task.Exception?.InnerException ?? task.Exception}");
+            if (battle != null) ModLog.Error($"Chart editor music {battle.AudioPath} for the battle {battle.Title} couldn't load: {task.Exception?.InnerException ?? task.Exception}");
+            else ModLog.Error($"Chart editor music for {song?.name} melody {melody} couldn't load: {task.Exception?.InnerException ?? task.Exception}");
             return;
         }
         try
@@ -220,7 +224,15 @@ internal static partial class ChartEditor
         if (Triggered(k, EditorAction.ToolNote)) SetTool(Tool.Note);
         if (Triggered(k, EditorAction.ToolHold)) SetTool(Tool.Hold);
         if (Triggered(k, EditorAction.ToolMine)) SetTool(Tool.Mine);
-        if (Triggered(k, EditorAction.NoteTicks)) { ToggleTicks(); Say(ticksOn ? "Note ticks on" : "Note ticks off", 1.5f); }
+        // A battle's Timing tab taps the tempo with its key, which is the note ticks' key by default.
+        if (battle != null && tab == Tab.Timing && Triggered(k, EditorAction.TapTempo)) Tap();
+        else if (Triggered(k, EditorAction.NoteTicks)) { ToggleTicks(); Say(ticksOn ? "Note ticks on" : "Note ticks off", 1.5f); }
+        if (battle != null)
+        {
+            if (tab == Tab.Timing && taps.Bpm != null && (Pressed(k, Key.Enter) || Pressed(k, Key.NumpadEnter))) ApplyTaps(exact: Shift(k));
+            if (Triggered(k, EditorAction.NextDifficulty)) ShowDifficulty(slot + 1);
+            if (Triggered(k, EditorAction.PrevDifficulty)) ShowDifficulty(slot - 1);
+        }
         if (Triggered(k, EditorAction.Metronome)) { ToggleMetronome(); Say(metronomeOn ? "Metronome on" : "Metronome off", 1.5f); }
         if (Triggered(k, EditorAction.AddBookmark)) ToggleBookmark();
         if (Triggered(k, EditorAction.NextBookmark)) JumpBookmark(1);
@@ -241,6 +253,11 @@ internal static partial class ChartEditor
         if (Triggered(k, EditorAction.Resnap)) Resnap();
         if (Triggered(k, EditorAction.Save)) Save();
         if (Triggered(k, EditorAction.Export)) StartExportPack();
+        if (battle != null)
+        {
+            if (Triggered(k, EditorAction.Rename) || Triggered(k, EditorAction.SetAuthor)) Say("The battle's title and charter are set in the battle creator.", 3f);
+            return true;
+        }
         if (Triggered(k, EditorAction.Rename)) StartTyping(TextField.Title);
         if (Triggered(k, EditorAction.SetAuthor)) StartTyping(TextField.Author);
         return true;
@@ -251,6 +268,13 @@ internal static partial class ChartEditor
 
     private static bool RequestCloseKeepOpen()
     {
+        if (battle != null)
+        {
+            // A battle asks with a prompt: Save, Discard or Cancel.
+            if (!dirty) { Close(); return false; }
+            closePrompt = true;
+            return true;
+        }
         if (dirty && !confirmLeave)
         {
             confirmLeave = true;
@@ -277,13 +301,15 @@ internal static partial class ChartEditor
         {
             TextField.EventMods => "Type the event (a verb and its values), Enter to finish, Esc to cancel.",
             TextField.ScrollSpeed => "Type how fast the notes scroll from here, like 0.5 or 2, then Enter.",
+            TextField.Bpm => "Type the tempo in BPM, like 120 or 157.5, then Enter. It sets the tempo of the section you're in.",
+            TextField.BpmChange => "Type the new tempo in BPM, like 120 or 157.5, then Enter. It starts at the current beat.",
             _ => "Type, then Enter to finish (Esc cancels).",
         }, 60f);
     }
 
     private static void UpdateTyping(InputKeyboard k)
     {
-        int max = typing == TextField.EventMods ? 160 : typing == TextField.ScrollSpeed ? 6 : 40;
+        int max = typing switch { TextField.EventMods => 160, TextField.ScrollSpeed => 6, TextField.Bpm or TextField.BpmChange => 8, _ => 40 };
         TypeInto(k, ref typed, max);
         if (Pressed(k, Key.Escape)) { typing = TextField.None; Say("", 0f); return; }
         if (!Pressed(k, Key.Enter) && !Pressed(k, Key.NumpadEnter)) return;
@@ -310,6 +336,15 @@ internal static partial class ChartEditor
             case TextField.ScrollSpeed:
                 if (double.TryParse(typed.Trim().TrimStart('x', 'X'), NumberStyles.Float, CultureInfo.InvariantCulture, out double ratio) && ratio > 0) SetScrollHere(ratio);
                 else Say("That isn't a speed; use a number like 0.5, 1 or 2", 3f);
+                break;
+            case TextField.Bpm:
+            case TextField.BpmChange:
+                if (double.TryParse(typed.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double bpm) && bpm >= BattleTiming.MinBpm && bpm <= BattleTiming.MaxBpm)
+                {
+                    if (typing == TextField.Bpm) SetSectionBpm(bpm);
+                    else AddTempoChange(bpm);
+                }
+                else Say($"That isn't a tempo; use a number from {BattleTiming.MinBpm:0} to {BattleTiming.MaxBpm:0}, like 120", 3f);
                 break;
         }
         typing = TextField.None;
@@ -398,6 +433,7 @@ internal static partial class ChartEditor
 
     private static void LeftPress(double now)
     {
+        if (tool != Tool.Select && !CanPlaceNotes()) return;
         int hit = NoteUnderMouse(now);
         switch (tool)
         {
@@ -536,6 +572,12 @@ internal static partial class ChartEditor
         internal List<ChartEvent> Events = null!;
         internal bool EventsChanged;
         internal List<(double Beat, double Ratio)> Scrolls = null!;
+        // Battles: the difficulty tab the notes are from and whether it was charted, and the
+        // tempo and #OFFSET every tab shares. Null tempos for a game song.
+        internal int Slot;
+        internal bool Charted;
+        internal List<(double Beat, double Bpm)>? Bpms;
+        internal double Offset;
     }
 
     private static readonly List<Snapshot> undo = new(), redo = new();
@@ -546,6 +588,10 @@ internal static partial class ChartEditor
         Events = events.Select(e => e.Copy()).ToList(),
         EventsChanged = eventsChanged,
         Scrolls = new List<(double, double)>(scrolls),
+        Slot = slot,
+        Charted = tabCharted,
+        Bpms = battle != null ? new List<(double, double)>(chart.Bpms) : null,
+        Offset = chart.Offset,
     };
 
     private static void Restore(Snapshot s)
@@ -557,6 +603,19 @@ internal static partial class ChartEditor
         eventIndex = Math.Min(eventIndex, events.Count - 1);
         selection.Clear();
         dirty = ticksDirty = true;
+        if (battle == null || s.Bpms == null) return;
+        tabCharted = s.Charted;
+        if (chart.Offset == s.Offset && chart.Bpms.SequenceEqual(s.Bpms)) return;
+        chart.Bpms.Clear();
+        chart.Bpms.AddRange(s.Bpms);
+        chart.Offset = s.Offset;
+        timingEdited = true;
+    }
+
+    // A battle's undo and redo go back to the tab the change was made on first.
+    private static void ShowTabOf(Snapshot s)
+    {
+        if (battle != null && s.Slot != slot) ShowDifficulty(s.Slot);
     }
 
     private static void PushUndo()
@@ -572,6 +631,7 @@ internal static partial class ChartEditor
     private static void Undo()
     {
         if (undo.Count == 0) { Say("Nothing to undo", 1.5f); return; }
+        ShowTabOf(undo[^1]);
         redo.Add(Capture());
         Restore(undo[^1]);
         undo.RemoveAt(undo.Count - 1);
@@ -580,6 +640,7 @@ internal static partial class ChartEditor
     private static void Redo()
     {
         if (redo.Count == 0) { Say("Nothing to redo", 1.5f); return; }
+        ShowTabOf(redo[^1]);
         undo.Add(Capture());
         Restore(redo[^1]);
         redo.RemoveAt(redo.Count - 1);
@@ -623,6 +684,7 @@ internal static partial class ChartEditor
     {
         if (clipboard.Count == 0) { Say("Nothing copied yet", 1.5f); return; }
         if (clipboardLanes != chart!.Lanes) { Say($"Those notes were copied from a {clipboardLanes}-lane chart", 3f); return; }
+        if (!CanPlaceNotes()) return;
         PushUndo();
         int at = SnapRow(chart.SecondsToRow(Now));
         PlaceNotes(clipboard.Select(c => new EditorChart.Note { Row = c.Row + at, Lane = c.Lane, Type = c.Type, EndRow = c.EndRow + at }).ToList());
@@ -660,6 +722,7 @@ internal static partial class ChartEditor
     private static void Mirror()
     {
         bool all = selection.Count == 0;
+        if (all && !CanPlaceNotes()) return;
         PushUndo();
         if (all)
         {
@@ -709,9 +772,10 @@ internal static partial class ChartEditor
 
     // ---- saving and exporting ---------------------------------------------------------------
 
-    /// <returns>Whether the chart is saved and loaded as a custom chart.</returns>
+    /// <returns>Whether the chart is saved and loaded as a custom chart (for a battle: saved to its chart file).</returns>
     private static bool Save()
     {
+        if (battle != null) return SaveBattle();
         try
         {
             if (chart!.Notes.Count == 0) { Say("Place some notes before saving", 3f); return false; }
@@ -790,6 +854,8 @@ internal static partial class ChartEditor
     /// <summary>Saves, then asks where to put a one-file pack with the chart and all its events.</summary>
     private static void StartExportPack()
     {
+        // A battle is exported whole (song, charts, enemy) from the battle creator.
+        if (battle != null) { Say("Export the battle from the battle creator.", 3f); return; }
         if (exportDialog != null) return;
         if ((dirty || editing == null || editing.PackEntry != null) && !Save()) return;
         if (editing == null) return;
@@ -820,11 +886,13 @@ internal static partial class ChartEditor
     }
 
     /// <summary>A rough level from how dense the chart is, for the .sm meter field.</summary>
-    private static int EstimateMeter()
+    private static int EstimateMeter() => EstimateMeter(chart!.Notes);
+
+    private static int EstimateMeter(List<EditorChart.Note> all)
     {
-        var notes = chart!.Notes.Where(n => n.Type != 'M').ToList();
+        var notes = all.Where(n => n.Type != 'M').ToList();
         if (notes.Count < 2) return 1;
-        double span = chart.RowToSeconds(notes[^1].Row) - chart.RowToSeconds(notes[0].Row);
+        double span = chart!.RowToSeconds(notes[^1].Row) - chart.RowToSeconds(notes[0].Row);
         double nps = span > 0 ? notes.Count / span : 0;
         return Math.Clamp((int)Math.Round(nps * 1.6), 1, 20);
     }
@@ -841,7 +909,8 @@ internal static partial class ChartEditor
     private static void DrawPanels(double now)
     {
         double beat = chart!.SecondsToBeat(now);
-        titleText!.text = $"{Escape(song!.name)}  <color=#9D92B4>melody {melody}</color>  {Escape(title)}{(dirty ? " <color=#F2B02E>*</color>" : "")}";
+        titleText!.text = battle != null ? BattleTitle()
+            : $"{Escape(song!.name)}  <color=#9D92B4>melody {melody}</color>  {Escape(title)}{(dirty ? " <color=#F2B02E>*</color>" : "")}";
         timeText!.text = $"{FormatTime(now)} <size=70%><color=#9D92B4>/ {FormatTime(SongLength)}</color></size>";
 
         int holds = chart.Notes.Count(n => n.IsLong), mines = chart.Notes.Count(n => n.Type == 'M');
@@ -850,22 +919,25 @@ internal static partial class ChartEditor
         sb.Append($"<color=#9D92B4>Scroll</color> x{ScrollAt(beat):0.##}   <color=#9D92B4>Snap</color> 1/{Snaps[snapIndex]}\n");
         sb.Append($"<color=#9D92B4>Notes</color> {chart.Notes.Count}  ({holds} holds, {mines} mines)\n");
         sb.Append($"<color=#9D92B4>Selected</color> {selection.Count}\n");
-        sb.Append($"<color=#9D92B4>Events</color> {events.Count} {(eventsChanged ? "(edited)" : "(the song's)")}\n");
+        sb.Append(battle != null ? $"<color=#9D92B4>Events</color> {events.Count} (every difficulty)\n"
+            : $"<color=#9D92B4>Events</color> {events.Count} {(eventsChanged ? "(edited)" : "(the song's)")}\n");
         sb.Append($"<color=#9D92B4>{Escape(musicState)}</color>\n");
         infoText!.text = sb.ToString();
 
         tabText!.text = tab switch
         {
             Tab.Compose => $"Click a lane to place with the tool. Hold tool: drag up. Select tool: click or drag a box, then drag to move. Right click deletes.\n\n{ShortKey(EditorAction.NudgeLater)} / {ShortKey(EditorAction.NudgeEarlier)} move the selection by a snap; {ShortKey(EditorAction.NudgeLeft)} / {ShortKey(EditorAction.NudgeRight)} change its lanes.",
-            Tab.Timing => TimingText(),
-            Tab.Events => EventsText(),
-            Tab.Setup => SetupText(),
+            Tab.Timing => battle != null ? BattleTimingText() : TimingText(),
+            Tab.Events => battle != null ? BattleEventsText() : EventsText(),
+            Tab.Setup => battle != null ? BattleSetupText() : SetupText(),
             _ => "Keys are saved on this PC and used every time you open the editor.",
         };
 
-        // The Events tab's list and buttons reach further down, so its help text gets less room.
-        tabText.rectTransform.offsetMax = new Vector2(-16, tab == Tab.Events ? 200 : 250);
+        // The Events tab's list and buttons reach further down, so its help text gets less room
+        // (a battle's has one more row of buttons).
+        tabText.rectTransform.offsetMax = new Vector2(-16, tab == Tab.Events ? (battle != null ? 180 : 200) : 250);
         if (tab == Tab.Events) UpdateEventRows();
+        if (battle != null) DrawBattlePanels();
         string status = Ui.MessageShowing ? Escape(Ui.Message) : "";
         if (typing != TextField.None) status = $"{Escape(Ui.Message)}\n<color=#EAE6F5>{Escape(typed)}_</color>";
         // Centred over the playfield, just above the bottom bar.

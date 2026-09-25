@@ -16,6 +16,7 @@ internal static partial class ChartEditor
         Undo, Redo, SelectAll, Copy, Cut, Paste, Delete, Mirror, Reverse,
         NudgeLater, NudgeEarlier, NudgeLeft, NudgeRight, Resnap,
         Save, Export, Rename, SetAuthor,
+        TapTempo, NextDifficulty, PrevDifficulty,
     }
 
     private static readonly (EditorAction Action, string Label, KeyBinding[] Keys)[] DefaultBindings =
@@ -62,6 +63,10 @@ internal static partial class ChartEditor
         (EditorAction.Export, "Export as a pack", new[] { new KeyBinding(Key.E, ctrl: true) }),
         (EditorAction.Rename, "Name the chart", new[] { new KeyBinding(Key.F2) }),
         (EditorAction.SetAuthor, "Set the author", new[] { new KeyBinding(Key.F3) }),
+        // Battles only. On a battle's Timing tab the tap takes T from the note ticks.
+        (EditorAction.TapTempo, "Tap tempo (battle Timing tab)", new[] { new KeyBinding(Key.T) }),
+        (EditorAction.NextDifficulty, "Next difficulty (battles)", new[] { new KeyBinding(Key.PageDown, ctrl: true) }),
+        (EditorAction.PrevDifficulty, "Previous difficulty (battles)", new[] { new KeyBinding(Key.PageUp, ctrl: true) }),
     };
 
     // The chart editor's own keys; other editor screens use their own KeyMap and player prefs key.
