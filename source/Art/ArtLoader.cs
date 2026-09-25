@@ -235,7 +235,7 @@ internal sealed class ArtLoader
 
     private MeasuredAnimation MeasureVideo(ArtAnimationSpec a, List<string> notes)
     {
-        string path = PlayablePath(a, notes);
+        string path = PlayablePath(files, a, cacheFolder, notes);
         VideoFacts facts;
         using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             facts = VideoProbe.Read(stream);
@@ -256,9 +256,9 @@ internal sealed class ArtLoader
     /// A path Unity's video player can open. It needs a real file whose extension matches what
     /// the file is (it picks its decoder by extension), and it trips over some characters, so a
     /// video inside a zip, or one with another extension or an awkward path, is copied once to
-    /// the cache.
+    /// the cache (also the battle creator's, when it turns a video into frames).
     /// </summary>
-    private string PlayablePath(ArtAnimationSpec a, List<string> notes)
+    internal static string PlayablePath(PackageFiles files, ArtAnimationSpec a, string? cacheFolder, List<string> notes)
     {
         string wanted = a.Media.Type == MediaType.WebM ? ".webm" : ".mp4";
         string? loose = files.LoosePathOf(a.File);

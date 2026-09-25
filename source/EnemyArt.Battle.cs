@@ -30,6 +30,14 @@ internal static partial class EnemyArt
     private static ArtSet? pendingSet;
     private static string? pendingText;
     private static bool reportedHook;
+    /// <summary>
+    /// How long a battle's card must stay highlighted in the arcade before its art starts loading, so
+    /// sweeping the mouse or keys over the cards doesn't start (and let go) a load for each.
+    /// </summary>
+    private const float HighlightSeconds = 0.2f;
+    // The custom-art battle whose card is highlighted, and when; loaded once it stays so HighlightSeconds.
+    private static CustomBattles.Battle? highlighted;
+    private static float highlightedAt;
 
     internal static void Install(HarmonyLib.Harmony harmony)
     {
@@ -40,6 +48,8 @@ internal static partial class EnemyArt
         var playHit = Method(typeof(CombatEnemyView), "PlayHit");
         var attacking = Method(typeof(CombatEnemyView), "IsPlayingAttackAnimation");
         var click = Method(typeof(ArcadeMenuV2), "ArcadeSongGroup_OnClick");
+        // The card highlight (keys, or the mouse: OnHoverEnter jumps straight into OnSelected).
+        var select = Method(typeof(GenericArcadeMenuV2), "ArcadeSongGroup_OnSelected");
         // The hooks do nothing until every patch is in (the Initialize prefix checks "installed", and
         // the others only act on a fight it started), so a patch that fails part way leaves the
         // battles looking like their placeholders instead of on a rig nothing drives.
@@ -48,6 +58,7 @@ internal static partial class EnemyArt
         harmony.Patch(playHit, postfix: Hook(nameof(PlayHitPostfix)));
         harmony.Patch(attacking, postfix: Hook(nameof(IsPlayingAttackAnimationPostfix)));
         harmony.Patch(click, postfix: Hook(nameof(ArcadeClickPostfix)));
+        harmony.Patch(select, postfix: Hook(nameof(ArcadeSelectPostfix)));
         installed = true;
     }
 
@@ -217,9 +228,41 @@ internal static partial class EnemyArt
             if (songGroup == null || !songGroup) return;
             var info = songGroup.CurrentSong;
             var battle = info != null ? CustomBattles.Find(info.songData) : null;
+            highlighted = null;
             if (battle?.Package.Art != null) Warm(battle, "the arcade");
         }
         catch (Exception ex) { ReportHook(ex); }
+    }
+
+    // A battle's card highlighted in the arcade: its art starts loading if the card stays highlighted
+    // a moment (WarmHighlighted). A video needs about half a second of frames to get ready, and the
+    // click alone gives it too little: the fight's start can't wait for it (the video doesn't get
+    // ready while the start holds the frames), so its first fight would look like the placeholder.
+    private static void ArcadeSelectPostfix(ArcadeSongGroup songGroup)
+    {
+        try
+        {
+            highlighted = null;
+            if (songGroup == null || !songGroup) return;
+            var info = songGroup.CurrentSong;
+            var battle = info != null ? CustomBattles.Find(info.songData) : null;
+            if (battle?.Package.Art == null) return;
+            highlighted = battle;
+            highlightedAt = Time.unscaledTime;
+        }
+        catch (Exception ex) { ReportHook(ex); }
+    }
+
+    /// <summary>Every frame: starts loading the highlighted card's art once it has stayed highlighted HighlightSeconds.</summary>
+    private static void WarmHighlighted()
+    {
+        var battle = highlighted;
+        if (battle == null || Time.unscaledTime - highlightedAt < HighlightSeconds) return;
+        // Never while a fight shows art (loading another battle's lets that go): the arcade that comes
+        // back after a fight highlights its card again before the fight's enemy is gone.
+        if (fight != null && fight.Alive) return;
+        highlighted = null;
+        Warm(battle, "the arcade's highlighted card");
     }
 
     private static void ReportHook(Exception ex)

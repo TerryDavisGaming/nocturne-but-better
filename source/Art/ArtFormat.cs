@@ -426,7 +426,7 @@ internal static class EnemyArtReader
         }
         if (a.Kind == ArtKind.Video)
         {
-            notes.Add("see-through colours work on pictures, sheets and GIFs, not on videos yet");
+            notes.Add("see-through colours work on pictures, sheets and GIFs, not on videos; Turn into frames on the Art page makes the video a sprite sheet that can have one");
             return;
         }
         if (key.Equals("corner", StringComparison.OrdinalIgnoreCase)) a.KeyCorner = true;

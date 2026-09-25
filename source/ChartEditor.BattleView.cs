@@ -243,7 +243,19 @@ internal static partial class ChartEditor
         attackLabel.rectTransform.sizeDelta = new Vector2(LaneWidth, 44);
         attackLabel.enableWordWrapping = false;
         attackLabel.color = Hex(0xE58A5C, 0.85f);
-        attackLabel.text = "ATTACK\nSpace";
+        attackLabel.text = "ATTACK\n" + Escape(AttackKeyName());
+    }
+
+    /// <summary>The key that plays 5 lanes' middle (attack) lane, as the game's own key labels name it: the player may have changed it.</summary>
+    private static string AttackKeyName()
+    {
+        try
+        {
+            string name = NocturneInput.Combat.GetColumnInputName(2, true);
+            if (!string.IsNullOrWhiteSpace(name)) return name.Trim();
+        }
+        catch (Exception) { }
+        return "Space";
     }
 
     private static void PlaceAttackLabel()

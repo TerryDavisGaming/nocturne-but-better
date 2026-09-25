@@ -107,24 +107,45 @@ internal static class FrameAtlas
     /// </summary>
     internal static void Key(byte[] frame, int pixels, int rgb, double range)
     {
-        int kr = (rgb >> 16) & 0xFF, kg = (rgb >> 8) & 0xFF, kb = rgb & 0xFF;
-        Ycc(kr, kg, kb, out double ky, out double kcb, out double kcr);
-        bool grey = Math.Abs(kcb - 128) + Math.Abs(kcr - 128) < 24;
-        double wy = grey ? 1.0 : 0.5;
-        bool green = !grey && kg > kr && kg > kb, blue = !grey && kb > kr && kb > kg;
+        var key = new KeyColour(rgb);
         double lo = Math.Max(0, range), soft = lo * 0.5 + 0.02;
         for (int i = 0; i < pixels; i++)
         {
             int o = i * 4;
             if (frame[o + 3] == 0) continue;
-            Ycc(frame[o], frame[o + 1], frame[o + 2], out double y, out double cb, out double cr);
-            double dy = (y - ky) * wy, dcb = cb - kcb, dcr = cr - kcr;
-            double d = Math.Sqrt(dy * dy + dcb * dcb + dcr * dcr) / 255.0;
+            double d = key.Distance(frame[o], frame[o + 1], frame[o + 2]);
             if (d >= lo + soft) continue;
             double keep = d <= lo ? 0 : (d - lo) / soft;
             frame[o + 3] = (byte)Math.Round(frame[o + 3] * keep);
-            if (keep > 0 && green) frame[o + 1] = Math.Min(frame[o + 1], Math.Max(frame[o], frame[o + 2]));
-            if (keep > 0 && blue) frame[o + 2] = Math.Min(frame[o + 2], Math.Max(frame[o], frame[o + 1]));
+            if (keep > 0 && key.Green) frame[o + 1] = Math.Min(frame[o + 1], Math.Max(frame[o], frame[o + 2]));
+            if (keep > 0 && key.Blue) frame[o + 2] = Math.Min(frame[o + 2], Math.Max(frame[o], frame[o + 1]));
+        }
+    }
+
+    /// <summary>How far a colour is from a see-through colour, 0..about 1, measured as Key measures it.</summary>
+    internal static double Distance(int keyRgb, int r, int g, int b) => new KeyColour(keyRgb).Distance(r, g, b);
+
+    // A see-through colour in YCbCr, and what its edge pixels lose.
+    private readonly struct KeyColour
+    {
+        private readonly double y, cb, cr, wy;
+        internal readonly bool Green, Blue;
+
+        internal KeyColour(int rgb)
+        {
+            int kr = (rgb >> 16) & 0xFF, kg = (rgb >> 8) & 0xFF, kb = rgb & 0xFF;
+            Ycc(kr, kg, kb, out y, out cb, out cr);
+            bool grey = Math.Abs(cb - 128) + Math.Abs(cr - 128) < 24;
+            wy = grey ? 1.0 : 0.5;
+            Green = !grey && kg > kr && kg > kb;
+            Blue = !grey && kb > kr && kb > kg;
+        }
+
+        internal double Distance(int r, int g, int b)
+        {
+            Ycc(r, g, b, out double py, out double pcb, out double pcr);
+            double dy = (py - y) * wy, dcb = pcb - cb, dcr = pcr - cr;
+            return Math.Sqrt(dy * dy + dcb * dcb + dcr * dcr) / 255.0;
         }
     }
 

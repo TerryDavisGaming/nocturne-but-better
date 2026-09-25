@@ -23,9 +23,11 @@ internal static partial class EnemyArt
     private const float CollectSeconds = 5f;
     /// <summary>
     /// How much longer a battle's first fight waits for its idle video to be prepared once the rest
-    /// is loaded. Short: the video player may need the frames the wait holds up to get ready.
+    /// is loaded. None: the video player doesn't get ready while the wait holds up the frames (seen in
+    /// QA: still not ready after 0.5 s, then ready about 0.6 s into the fight), so waiting only freezes
+    /// the start. The arcade starts loading when a card is highlighted instead.
     /// </summary>
-    private const float IdleVideoWait = 0.5f;
+    private const float IdleVideoWait = 0f;
     /// <summary>How long a video may take to get ready, in frames after a fight's start.</summary>
     private const float PrepareSeconds = 8f;
     /// <summary>A warm start nobody fights is let go after this long.</summary>
@@ -182,10 +184,7 @@ internal static partial class EnemyArt
             }, cancel);
         }
 
-        string? IArtLoadHost.VideoUnsupported(VideoFacts facts) =>
-            facts.Container == "mp4" && !MediaFoundation.Value
-                ? "needs Windows Media Foundation, which this PC doesn't have (Windows N needs the Media Feature Pack), so use a VP8 WebM"
-                : null;
+        string? IArtLoadHost.VideoUnsupported(VideoFacts facts) => EnemyArt.VideoUnsupported(facts);
 
         Task IArtLoadHost.Frames(PackedAnimation packed, bool smooth, CancellationToken cancel) =>
             OnMain(() => { Upload(packed, smooth); return true; }, cancel);
@@ -406,6 +405,12 @@ internal static partial class EnemyArt
     [DllImport("kernel32", CharSet = CharSet.Unicode)]
     private static extern IntPtr LoadLibraryW(string name);
 
+    /// <summary>Why this PC can't play a video (written to follow its file's name), or null.</summary>
+    internal static string? VideoUnsupported(VideoFacts facts) =>
+        facts.Container == "mp4" && !MediaFoundation.Value
+            ? "needs Windows Media Foundation, which this PC doesn't have (Windows N needs the Media Feature Pack), so use a VP8 WebM"
+            : null;
+
     /// <summary>Runs <paramref name="work"/> on the main thread (the next time the queue is pumped).</summary>
     private static Task<T> OnMain<T>(Func<T> work, CancellationToken cancel)
     {
@@ -570,6 +575,7 @@ internal static partial class EnemyArt
         if (!installed) return;
         try
         {
+            WarmHighlighted();
             // One step a frame, so a battle's transition doesn't hitch.
             Pump(1);
             var set = current;
