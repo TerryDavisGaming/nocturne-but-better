@@ -269,6 +269,11 @@ internal static partial class BattleCreator
         LineStepper(move, 0, half, ArtMoveXField, () => $"{OwnMoveLabel("Sideways")} {ArtEditing.Num(OwnOffset().X)}", () => StepOwnOffset(-1, 0), () => StepOwnOffset(1, 0));
         LineStepper(move, right, half, ArtMoveYField, () => $"{OwnMoveLabel("Up/down")} {ArtEditing.Num(OwnOffset().Y)}", () => StepOwnOffset(0, -1), () => StepOwnOffset(0, 1));
 
+        // A video can't take a see-through colour; turned into frames (BattleCreator.ArtBake.cs) it's a sheet that can.
+        var frames = ArtLine(BakeShown);
+        LineButton(frames, 0, 260, "Turn into frames...", AskBake);
+        LineText(frames, 272, Col1W - 272, RowH, () => "Makes the video a sprite sheet, so a see-through colour works and it plays on any PC.", 16);
+
         var key = ArtLine(() => isSet() && ArtKindOf(artSelected) != ArtKind.Video);
         var keyButton = LineButton(key, 0, half, "", CycleKey);
         keyButton.Text = () => $"See-through colour: {Escape(ArtEditing.KeyName(draft?.ArtText(artSelected, "keyColor")))}";
@@ -711,6 +716,8 @@ internal static partial class BattleCreator
             }
             if (m.Video == null && !m.FeetFound && !m.Spec.HasKey)
                 notes.Add("It has no see-through parts, so it shows as a rectangle; to cut out a flat background, turn on See-through colour: corner colour.");
+            else if (m.Video is { Alpha: false })
+                notes.Add("A video has no see-through parts; Turn into frames makes it a sprite sheet that can cut out a flat background.");
             RefreshArt(force: true);
             string summary = artSpec?.Get(anim) is { } a ? ArtEditing.Summary(a, ArtTimelineOf(anim)) : ArtEditing.Label(ArtKindOf(anim) ?? ArtKind.Image);
             said.Add($"{Cap(anim)} set: {summary}.{(notes.Count > 0 ? " " + string.Join(" ", notes) : "")}");
@@ -984,6 +991,11 @@ internal static partial class BattleCreator
         string? next = ArtEditing.NextKey(d.ArtText(artSelected, "keyColor"));
         d.SetArtValue(artSelected, "keyColor", next == null ? null : JsonValue.Create(next));
         if (next == null) d.SetArtValue(artSelected, "keyRange", null);
+        // A sheet made from a video on a flat background (a green screen): its corner colour takes a
+        // range wide enough for all of that background.
+        else if (next == "corner" && Sel("keyRange") == null && d.ArtFile(artSelected) is { } file && bakedBackgrounds.TryGetValue(file, out var background)
+                 && background.Range > 0.15 + 1e-9)
+            d.SetArtValue(artSelected, "keyRange", BattleDraft.ArtNumberNode(background.Range));
         Say(next == null ? "See-through colour off." : $"See-through colour: {ArtEditing.KeyName(next)}. Pixels near it become see-through; Range sets how near.", 4f);
     }
 

@@ -165,6 +165,7 @@ internal static partial class BattleCreator
         RefreshArt();
         LayoutArtLines();
         EnemyArt.RunSteps(4);
+        UpdateBake();
         bool custom = CustomArtEnemy();
         if (previewBox!.gameObject.activeSelf != custom) previewBox.gameObject.SetActive(custom);
         if (previewBarRect!.gameObject.activeSelf != custom) previewBarRect.gameObject.SetActive(custom);
@@ -310,10 +311,13 @@ internal static partial class BattleCreator
     /// </summary>
     private static void StopArtPreview(bool forget)
     {
+        // A video being turned into frames stops too; nothing changes.
+        StopBake("the Art page closed");
         DropPreview();
         lock (previewPictures) previewPictures.Clear();
         previewError = previewErrorJson = "";
         if (!forget) return;
+        bakedBackgrounds.Clear();
         artFills.Clear();
         artMedia.Clear();
         artSizeAuto = artHitAuto = false;
@@ -640,8 +644,9 @@ internal static partial class BattleCreator
             if (idle.Video != null)
             {
                 if (idle.Spec.Media.Type == MediaType.Mp4)
-                    lines.Add("MP4 videos have no see-through parts, so they show as a rectangle. Use a WebM with transparency, a GIF, PNGs or a sprite sheet for a cut-out enemy.");
-                else if (!idle.Video.Alpha) lines.Add("This WebM has no see-through parts, so it shows as a rectangle.");
+                    lines.Add("MP4 videos have no see-through parts, so they show as a rectangle. Turn into frames and a see-through colour cut out a flat background; " +
+                              "a WebM with transparency, a GIF or PNGs work too.");
+                else if (!idle.Video.Alpha) lines.Add("This WebM has no see-through parts, so it shows as a rectangle. Turn into frames and a see-through colour cut out a flat background.");
                 // A video's pixels aren't read, so its feet and width are the whole frame's.
                 if (idle.Spec.Feet == null && draft.ArtPair("idle", "offset") == null)
                     lines.Add("A video stands on its frame's bottom edge, and its shadow is as wide as the frame. If the character stands higher, move the idle down with On shadow: up/down (or Shift+drag), and turn Shadow off if it's too big.");
