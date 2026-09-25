@@ -184,10 +184,10 @@ internal static partial class BattleCreator
         var b = AddButton(p, x, y, w, h, "", () => StartTyping(field), shown);
         b.Text = () => FieldText(field, b);
         b.Active = () => typing == field;
-        b.Label.alignment = field.MultiLine ? TextAlignmentOptions.TopLeft : TextAlignmentOptions.Left;
-        b.Label.margin = new Vector4(16, field.MultiLine ? 10 : 0, 12, field.MultiLine ? 8 : 0);
+        b.Label.alignment = field.Tall ? TextAlignmentOptions.TopLeft : TextAlignmentOptions.Left;
+        b.Label.margin = new Vector4(16, field.Tall ? 10 : 0, 12, field.Tall ? 8 : 0);
         b.Label.fontSize = 19;
-        if (field.MultiLine)
+        if (field.Tall)
         {
             // A long text ends in "..." when it doesn't fit; while it's typed, its end shows instead (FieldText).
             b.Label.enableWordWrapping = true;
@@ -262,7 +262,7 @@ internal static partial class BattleCreator
     {
         // While typing the row is lit in the accent colour, where the dim label wouldn't read.
         string label = typing == field ? field.Label : $"<color=#9D92B4>{field.Label}</color>";
-        string Row(string shown) => field.MultiLine ? $"{label}\n{shown}" : $"{label}<pos=32%>{shown}";
+        string Row(string shown) => field.Tall ? $"{label}\n{shown}" : $"{label}<pos=32%>{shown}";
         if (typing == field)
         {
             // The end of the text, where the "_" cursor is, always shows: what doesn't fit is cut from the start.
@@ -270,7 +270,7 @@ internal static partial class BattleCreator
             {
                 fittedField = field;
                 fittedText = typed;
-                fittedShown = TextTail.Fit(typed, shown => Fits(button, field.MultiLine, Row(Escape(shown) + "_"), Escape(shown) + "_"));
+                fittedShown = TextTail.Fit(typed, shown => Fits(button, field.Tall, Row(Escape(shown) + "_"), Escape(shown) + "_"));
             }
             return Row(Escape(fittedShown) + "_");
         }
@@ -465,22 +465,15 @@ internal static partial class BattleCreator
         AddText(p, Col2, ref y2, Col2W, 210, () => noticePreview, 16);
     }
 
-    private static void BuildDialoguePage()
-    {
-        const Page p = Page.Dialogue;
-        float y = 0;
-        AddHeader(p, 0, ref y, Col1W, "Dialogue");
-        var t = AddText(p, 0, ref y, Col1W, 80, () => "Boss-style dialogue: coming later.", 22);
-        t.color = TextColor;
-    }
-
     // ---- per-frame --------------------------------------------------------------------------------
 
     private static void SetPage(Page next)
     {
         if (!FinishTyping()) return;
-        // The Art page's preview lets go of its textures and videos when the page closes.
+        // The Art page's preview lets go of its textures and videos when the page closes, and the
+        // Dialogue page's of the faces and pictures it loaded.
         if (page == Page.Art && next != Page.Art) StopArtPreview(false);
+        if (page == Page.Dialogue && next != Page.Dialogue) StopDialoguePreview(false);
         page = next;
         focus = -1;
         foreach (var (p, panel) in pagePanels) panel.gameObject.SetActive(p == page);

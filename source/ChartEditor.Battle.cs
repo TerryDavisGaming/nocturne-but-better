@@ -35,13 +35,20 @@ internal static partial class ChartEditor
     private static readonly List<BattleChartTarget> closedBattles = new();
     private static int closedFrame;
 
+    // A test asked for on opening (see OpenBattle), and whether the editor closes when it ends.
+    private static double? openTest;
+    private static bool closeAfterTest;
+
     /// <summary>
     /// Opens the editor on a custom battle's chart, at a difficulty slot (0 Beginner to 5 Zen) or,
     /// with -1, the first one that has notes. <see cref="BattleChartTarget.Closed"/> runs once
     /// after the editor has closed, however it closes (also when it fails to open), on the frame
     /// after, so the key or click that closed the editor can't reach the screen that shows again.
+    /// With <paramref name="test"/> (the battle creator's Test buttons), a test starts as soon as
+    /// the music has loaded, from that many seconds in (0: from the start), and the editor closes
+    /// itself when the test ends; a test that can't start leaves the editor open, saying why.
     /// </summary>
-    internal static void OpenBattle(BattleChartTarget target, int slot = -1)
+    internal static void OpenBattle(BattleChartTarget target, int slot = -1, double? test = null)
     {
         if (IsOpen)
         {
@@ -56,7 +63,9 @@ internal static partial class ChartEditor
             BuildCanvas();
             EditorOverlay.Enter(OverlayOwner);
             StartBattle(target, slot);
-            ModLog.Info($"Chart editor opened for the custom battle {target.Title} ({target.ChartFullPath}), {target.Lanes} lanes.");
+            openTest = test;
+            closeAfterTest = test != null;
+            ModLog.Info($"Chart editor opened for the custom battle {target.Title} ({target.ChartFullPath}), {target.Lanes} lanes{(test != null ? ", to test it" : "")}.");
         }
         catch (Exception ex)
         {

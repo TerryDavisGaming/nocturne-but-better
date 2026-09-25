@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using UnityEngine;
+using UnityEngine.UI;
 using static NocturneFlatScroll.EditorInput;
 using static NocturneFlatScroll.EditorUi;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
@@ -55,6 +56,7 @@ internal static partial class BattleCreator
             ui = new EditorUi("NocturneButBetter Battle Creator");
             Ui.BuildList();
             BuildListBack();
+            BuildPickerFace();
             BuildEdit();
             EditorOverlay.Enter(OverlayOwner);
             ignoreKeysFrame = Time.frameCount;
@@ -77,10 +79,14 @@ internal static partial class BattleCreator
     {
         StopPreview();
         StopArtPreview(true);
+        StopDialoguePreview(true);
         ClearCardPreview();
         EndTyping();
         ui?.Destroy();
         ui = null;
+        pickerFaceBox = null;
+        pickerFace = null;
+        pickerFaceNote = null;
         // Gives the cursor back; the menus come back once the key that closed the creator is let go.
         EditorOverlay.Leave(OverlayOwner);
         draft = null;
@@ -143,6 +149,8 @@ internal static partial class BattleCreator
         clicksFrom = Time.unscaledTime + ClickDelay;
         Ui.ListPanel!.gameObject.SetActive(next != Screen.Edit);
         editPanel!.gameObject.SetActive(next == Screen.Edit);
+        // A picker with a picture shows it again on its first update.
+        if (pickerFaceBox) pickerFaceBox!.gameObject.SetActive(false);
     }
 
     /// <summary>
@@ -444,16 +452,66 @@ internal static partial class BattleCreator
         internal Action<int> Choose = _ => { };
         internal Action Back = () => { };
         internal int Index;
+        /// <summary>Typing letters jumps to the first row that starts with them (for long lists).</summary>
+        internal bool Jump;
+        /// <summary>A picture beside the list for the highlighted row (null shows none), and a line under it.</summary>
+        internal Func<int, Sprite?>? Face;
+        internal Func<int, string>? FaceNote;
     }
 
     private static Picker? picker;
+    // What has been typed to jump in the list, and when last (a pause starts it over).
+    private static string jumpTyped = "";
+    private static float jumpAt;
+    private static RectTransform? pickerFaceBox;
+    private static Image? pickerFace;
+    private static TMP_Text? pickerFaceNote;
 
     private static void ShowPicker(Picker next)
     {
         // A prompt or a list interrupts the song's preview.
         StopPreview();
         picker = next;
+        jumpTyped = "";
         ShowScreen(Screen.Pick);
+    }
+
+    // The picture beside a picker's list, right of its box (the list's box is 1200 wide, so the
+    // canvas has room at any window shape).
+    private static void BuildPickerFace()
+    {
+        pickerFaceBox = MakeImage("FaceBox", Ui.ListPanel!, PanelColor).rectTransform;
+        Place(pickerFaceBox, new Vector2(0.5f, 0.5f), new Vector2(780, 60), new Vector2(320, 440));
+        pickerFace = MakeImage("Face", pickerFaceBox, Color.white);
+        pickerFace.preserveAspect = true;
+        PlaceTop(pickerFace.rectTransform, 10, -10, 300, 300);
+        pickerFaceNote = MakeText("Note", pickerFaceBox, 18, TextAlignmentOptions.Top);
+        pickerFaceNote.color = DimText;
+        PlaceTop(pickerFaceNote.rectTransform, 12, -318, 296, 112);
+        pickerFaceBox.gameObject.SetActive(false);
+    }
+
+    private static void DrawPickerFace(Picker p)
+    {
+        bool show = p.Face != null;
+        if (pickerFaceBox!.gameObject.activeSelf != show) pickerFaceBox.gameObject.SetActive(show);
+        if (!show) return;
+        var face = p.Face!(p.Index);
+        if (pickerFace!.sprite != face) pickerFace.sprite = face;
+        if (pickerFace.enabled != (face != null)) pickerFace.enabled = face != null;
+        pickerFaceNote!.text = Escape(p.FaceNote?.Invoke(p.Index) ?? "");
+    }
+
+    // Typing letters jumps to the first row that starts with them; a pause of a second starts over.
+    private static void TypeJump(InputKeyboard keyboard, Picker p)
+    {
+        if (Time.unscaledTime > jumpAt + 1f) jumpTyped = "";
+        string before = jumpTyped;
+        if (!TypeInto(keyboard, ref jumpTyped, 24) || jumpTyped == before) return;
+        jumpAt = Time.unscaledTime;
+        if (jumpTyped.Trim().Length == 0) return;
+        int row = p.Rows.FindIndex(r => r.StartsWith(jumpTyped, StringComparison.OrdinalIgnoreCase));
+        if (row >= 0) p.Index = row;
     }
 
     /// <summary>Back to the battle's pages when one is open, else to the list.</summary>
@@ -470,6 +528,7 @@ internal static partial class BattleCreator
         bool live = Live && !Busy;
         if (live && Pressed(keyboard, Key.Escape)) { picker = null; p.Back(); return; }
         if (live) p.Index = MoveInList(keyboard, p.Index, p.Rows.Count);
+        if (live && p.Jump) TypeJump(keyboard, p);
         bool chosen = Chosen(keyboard, p.Rows.Count, ref p.Index);
         if (live && chosen)
         {
@@ -480,7 +539,11 @@ internal static partial class BattleCreator
             return;
         }
         string hint = Ui.MessageShowing ? Ui.Message : p.Hint(p.Index);
+        if (p.Jump && jumpTyped.Trim().Length > 0 && Time.unscaledTime <= jumpAt + 1f) hint = $"Jump: {jumpTyped}   " + hint;
         Ui.DrawList(Escape(p.Heading), Escape(hint), p.Rows, p.Index);
+        DrawPickerFace(p);
+        // Only the highlighted row's faces stay loaded (see FacesOf).
+        if (p.Face != null) ReleaseUnwantedFaces();
     }
 
     /// <summary>A yes or no prompt, with the cursor on no.</summary>
@@ -504,12 +567,17 @@ internal static partial class BattleCreator
     private static bool handedOver;
     private static int handOverFrame;
 
-    /// <summary>Opens the battle's chart in the chart editor, on a difficulty slot (0 to 5) or -1 for its choice.</summary>
-    private static void EditCharts(int slot)
+    /// <summary>
+    /// Opens the battle's chart in the chart editor, on a difficulty slot (0 to 5) or -1 for its
+    /// choice. With <paramref name="test"/>, the editor starts a test at once (from that many
+    /// seconds in, or from the start at 0) and closes itself when the test ends.
+    /// </summary>
+    private static void EditCharts(int slot, double? test = null)
     {
         if (draft == null || !FinishTyping()) return;
         StopPreview();
         StopArtPreview(false);
+        StopDialoguePreview(false);
         string? chart = PackageFiles.SafeName(draft.ChartPath);
         string? audio = PackageFiles.SafeName(draft.EffectiveAudio);
         if (chart == null || audio == null) { Say("The battle needs a chart file and a song first.", 4f); return; }
@@ -522,7 +590,7 @@ internal static partial class BattleCreator
         handedOver = true;
         handOverFrame = Time.frameCount;
         bool opened;
-        try { opened = OpenCharts(draft.Folder, chart, audio, draft.Lanes, draft.Title, slot, ChartsClosed); }
+        try { opened = OpenCharts(draft.Folder, chart, audio, draft.Lanes, draft.Title, slot, ChartsClosed, test); }
         catch (Exception ex)
         {
             opened = false;
@@ -535,18 +603,23 @@ internal static partial class BattleCreator
             return;
         }
         Ui.SetVisible(false);
-        ModLog.Info($"Battle creator: opened the chart of {draft.Folder} in the chart editor ({SlotName(slot)}).");
+        ModLog.Info($"Battle creator: opened the chart of {draft.Folder} in the chart editor ({SlotName(slot)})" +
+                    (test is double at ? $" to test it from {(at > 0 ? DialogueReader.Clock(at) : "the start")}." : "."));
     }
 
     /// <summary>
     /// Hands the battle's chart to the chart editor; true when it opened. The editor calls
     /// <paramref name="onClosed"/> when it closes, and the creator shows again.
     /// </summary>
-    private static bool OpenCharts(string folder, string chartPath, string audioPath, int lanes, string title, int slot, Action onClosed)
+    private static bool OpenCharts(string folder, string chartPath, string audioPath, int lanes, string title, int slot, Action onClosed, double? test)
     {
         // A failed open still calls onClosed (a frame later); ChartsClosed ignores it then. A test
-        // play from the editor uses the battle as it is here, saved or not.
-        ChartEditor.OpenBattle(new BattleChartTarget(folder, chartPath, audioPath, lanes, title, onClosed) { Manifest = () => draft?.ManifestJson() }, slot);
+        // play from the editor uses the battle as it is here, saved or not, dialogue too.
+        ChartEditor.OpenBattle(new BattleChartTarget(folder, chartPath, audioPath, lanes, title, onClosed)
+        {
+            Manifest = () => draft?.ManifestJson(),
+            DialogueJson = () => draft?.DialogueJson(),
+        }, slot, test);
         return ChartEditor.IsOpen;
     }
 

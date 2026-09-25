@@ -317,11 +317,15 @@ internal static partial class ChartEditor
 
     // ---- while it runs, and back ---------------------------------------------------------------
 
-    /// <summary>Called every frame while the editor is open. True while a test has the screen.</summary>
+    /// <summary>Called every frame while the editor is open. True while a test has the screen (or the editor closed after one).</summary>
     private static bool UpdateTest()
     {
         var outcome = TestPlay.TakeOutcome();
-        if (outcome != null) Returned(outcome);
+        if (outcome != null)
+        {
+            Returned(outcome);
+            if (!IsOpen) return true;
+        }
         switch (TestPlay.State)
         {
             case TestPlay.Phase.Starting:
@@ -336,8 +340,21 @@ internal static partial class ChartEditor
                 }
                 return true;
             default:
+                StartOpenTest();
                 return false;
         }
+    }
+
+    // The test OpenBattle was asked for, once the editor is on its chart with the music loaded.
+    private static void StartOpenTest()
+    {
+        if (openTest is not double at || screen != Screen.Edit || chart == null || loading != null) return;
+        openTest = null;
+        bool fromStart = at <= 0;
+        if (!fromStart) SeekTo(at);
+        StartTest(fromStart);
+        // It didn't start: the editor stays, with the reason in its status line.
+        if (!TestPlay.Active) closeAfterTest = false;
     }
 
     // The screen without reading keys or clicks.
@@ -350,9 +367,18 @@ internal static partial class ChartEditor
         DrawPanels(now);
     }
 
-    // The battle was left: the screen shows again, on the same frame the game turns black.
+    // The battle was left: the screen shows again, on the same frame the game turns black. An
+    // editor opened only for the test closes instead, and the battle creator shows again (unless
+    // the test never started: the editor then stays to say so).
     private static void Returned(TestPlay.Outcome outcome)
     {
+        if (closeAfterTest && !dirty && outcome.Started)
+        {
+            ModLog.Info("Chart editor: the test it was opened for is over, so it closes.");
+            Close();
+            return;
+        }
+        closeAfterTest = false;
         Ui.SetVisible(true);
         testHidden = false;
         inputFrom = Time.unscaledTime + 0.4f;

@@ -87,6 +87,8 @@ internal static partial class ChartEditor
         var closedBattle = battle;
         if (closedBattle == null) return;
         battle = null;
+        openTest = null;
+        closeAfterTest = false;
         closePrompt = false;
         looping = false;
         taps.Clear();
