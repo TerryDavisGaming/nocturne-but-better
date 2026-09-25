@@ -3,6 +3,7 @@ using HarmonyLib;
 using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using UnityEngine;
+using UnityEngine.AddressableAssets;
 using Object = UnityEngine.Object;
 
 namespace NocturneFlatScroll;
@@ -19,6 +20,12 @@ internal static class CustomBattles
     /// <summary>Names of the mod's runtime SongData and EnemyData start with this.</summary>
     internal const string RuntimePrefix = "NocturneButBetter/";
     private const string EnemyKeyPrefix = "NocturneButBetter/enemy/";
+    /// <summary>Custom art is shown on this enemy's art prefab (Mantis_Art: one renderer and an animator).</summary>
+    private const string RigEnemy = "EnemyData_Mantis";
+    private const string RigGuid = "7641ac360d94a4c719df1f7933383fb8";
+
+    /// <summary>What a custom-art enemy looks like, settled on its battle's first fight.</summary>
+    internal enum ArtLook { Undecided, Rig, Placeholder }
 
     /// <summary>One custom battle and the game objects made for it.</summary>
     internal sealed class Battle
@@ -31,6 +38,12 @@ internal static class CustomBattles
         internal Sprite Card = null!;
         internal Texture2D? CardTexture;   // null for the shared placeholder card
         internal CustomMusic.Source Music = null!;
+        // Custom art: the Mantis rig's art reference, the enemy's own (the game releases whatever
+        // reference the enemy holds when a fight ends, so a shared one would be released twice).
+        internal AssetReferenceGameObject? RigArt;
+        internal bool RigDissolvesChildren;
+        internal ArtLook Look;
+        internal string? LookReason;
 
         internal string Title => Package.Title;
         internal int Lanes => Package.Lanes;
@@ -97,6 +110,17 @@ internal static class CustomBattles
         return ByData.TryGetValue(data.Pointer, out var song) ? song : null;
     }
 
+    /// <summary>The custom battle (arcade or test) whose enemy this is, or null for the game's own enemies.</summary>
+    internal static Battle? FindEnemy(EnemyData? enemy)
+    {
+        if (enemy == null || !enemy || !IsRuntimeName(enemy.name)) return null;
+        var t = test;
+        if (t != null && t.Enemy && t.Enemy.Pointer == enemy.Pointer) return t;
+        foreach (var song in ordered)
+            if (song.Enemy && song.Enemy.Pointer == enemy.Pointer) return song;
+        return null;
+    }
+
     /// <summary>
     /// Builds a test play's battle from a package loaded with the editor's chart, as the arcade's
     /// are built, and keeps it until the next test. <paramref name="music"/> (the editor's decoded
@@ -109,6 +133,7 @@ internal static class CustomBattles
             ?? throw new InvalidOperationException("the battle couldn't be built");
         if (music != null) built.Music = music;
         test = built;
+        EnemyArt.Warm(built, "the chart editor's test");
         return built;
     }
 
@@ -192,6 +217,7 @@ internal static class CustomBattles
     private static void Retire(Battle song)
     {
         if (ChartSwap.CurrentBattle == song) return;
+        EnemyArt.Drop(song);
         foreach (Object? obj in new Object?[] { song.Beatmap, song.Data, song.Enemy, song.CardTexture != null ? song.Card : null, song.CardTexture })
             if (obj != null && obj) Object.Destroy(obj);
     }
@@ -223,9 +249,12 @@ internal static class CustomBattles
                 Info = BuildInfo(package, data, card),
                 Music = MusicSource(package)
             };
+            if (package.Art != null) SetUpRig(song, enemies);
             string difficulties = string.Join(", ", Enumerable.Range(0, package.Slots.Length)
                 .Where(s => package.Slots[s] != null).Select(s => ChartText.GameDifficultyLabels[s]));
-            ModLog.Info($"Custom battle {package.DisplayName}: {package.Lanes} lanes, {difficulties}; enemy {enemy.name} from {package.EnemyPlaceholder}.");
+            string art = package.Art != null ? $"; custom art: {package.Art.Summary()}"
+                : package.CustomArt ? $"; its custom art can't be used, so it looks like {package.EnemyPlaceholder}" : "";
+            ModLog.Info($"Custom battle {package.DisplayName}: {package.Lanes} lanes, {difficulties}; enemy {enemy.name} from {package.EnemyPlaceholder}{art}.");
             return song;
         }
         catch (Exception ex)
@@ -358,6 +387,28 @@ internal static class CustomBattles
         if (package.Lanes == 5) FitFiveLanes(package, clone);
         clone.hideFlags = HideFlags.DontUnloadUnusedAsset;
         return clone;
+    }
+
+    // Custom art is shown on the Mantis rig. The enemy only switches to it when its art loads for
+    // its first fight (EnemyArt), so until then it keeps the placeholder's own art.
+    private static void SetUpRig(Battle song, Dictionary<string, EnemyData> enemies)
+    {
+        try
+        {
+            string? guid = null;
+            if (enemies.TryGetValue(RigEnemy, out var mantis))
+            {
+                var reference = mantis.addressableArtPrefab;
+                guid = reference != null ? reference.AssetGUID : null;
+                song.RigDissolvesChildren = mantis.dissolveAffectChildRenderer;
+            }
+            song.RigArt = new AssetReferenceGameObject(string.IsNullOrEmpty(guid) ? RigGuid : guid);
+        }
+        catch (Exception ex)
+        {
+            Note($"Custom battle {song.Title}: the Mantis rig for its custom art couldn't be set up, so it looks like {song.Package.EnemyPlaceholder}: {ex.Message}");
+            song.RigArt = null;
+        }
     }
 
     private static EnemyStatSheet Stats(EnemyStatSheet? source, EnemyStats? stats)
@@ -514,8 +565,12 @@ internal static class CustomBattles
         private static bool looked;
         private static Sprite? placeholder;
 
-        /// <summary>A PNG or JPEG as a texture, or null when it can't be decoded.</summary>
-        internal static Texture2D? Decode(byte[] bytes, string name)
+        /// <summary>
+        /// A PNG or JPEG as a texture (readable), or null when it can't be decoded. The decoder makes
+        /// whatever size the file's header claims, so a header over <paramref name="maxSide"/> on a
+        /// side is refused first.
+        /// </summary>
+        internal static Texture2D? Decode(byte[] bytes, string name, int maxSide = 4096)
         {
             if (!looked)
             {
@@ -525,6 +580,12 @@ internal static class CustomBattles
                 else ModLog.Info("Custom battles: the game has no image decoder, so cards are plain.");
             }
             if (loadImage == null || bytes.Length == 0) return null;
+            try
+            {
+                var header = MediaSniff.Probe(bytes, true);
+                if (header.Type is not (MediaType.Png or MediaType.Jpeg) || header.Width > maxSide || header.Height > maxSide) return null;
+            }
+            catch (InvalidDataException) { return null; }
             var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = name, hideFlags = HideFlags.HideAndDontSave };
             var data = new Il2CppStructArray<byte>(bytes);
             bool loaded = loadImage(texture.Pointer, data.Pointer, 0) != 0;

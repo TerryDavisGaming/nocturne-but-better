@@ -65,11 +65,12 @@ internal static class EnemyAttackFade
 
     /// <summary>
     /// Whether the enemy is attacking: the game's own flag covers the start of an attack, and
-    /// the "Attack" tag on its animation states covers the rest.
+    /// the "Attack" tag on its animation states covers the rest (a custom-art attack counts for
+    /// as long as it shows).
     /// </summary>
     private static bool Attacking(CombatEnemyView enemy)
     {
-        if (enemy.isAttacking) return true;
+        if (enemy.isAttacking || EnemyArt.AttackShowing(enemy)) return true;
         var animator = enemy.enemyAnimator;
         if (!animator || !animator.isActiveAndEnabled || !animator.isInitialized) return false;
         int layer = 0;
