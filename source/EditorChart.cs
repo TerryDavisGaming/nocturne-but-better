@@ -194,11 +194,17 @@ internal sealed class EditorChart
         }
         var sb = new StringBuilder();
         int[] divisions = { 4, 8, 12, 16, 24, 32, 48, 64, 96, 192 };
+        // One pass over the rows in order: each measure looks only at its own rows.
+        var rows = grid.Keys.ToList();
+        rows.Sort();
+        int next = 0;
+        while (next < rows.Count && rows[next] < 0) next++;
         for (int m = 0; m < measureCount; m++)
         {
             int start = m * RowsPerMeasure;
-            var rows = grid.Keys.Where(r => r >= start && r < start + RowsPerMeasure).ToList();
-            int lines = divisions.First(d => rows.All(r => (r - start) % (RowsPerMeasure / d) == 0));
+            int first = next;
+            while (next < rows.Count && rows[next] < start + RowsPerMeasure) next++;
+            int lines = divisions.First(d => OnGrid(rows, first, next, start, RowsPerMeasure / d));
             int step = RowsPerMeasure / lines;
             for (int i = 0; i < lines; i++)
             {
@@ -208,6 +214,14 @@ internal sealed class EditorChart
             if (m < measureCount - 1) sb.Append(",\n");
         }
         return sb.ToString();
+    }
+
+    // Whether rows[from..to) all sit on every step-th row of the measure starting at start.
+    private static bool OnGrid(List<int> rows, int from, int to, int start, int step)
+    {
+        for (int i = from; i < to; i++)
+            if ((rows[i] - start) % step != 0) return false;
+        return true;
     }
 
     internal EditorChart Clone()

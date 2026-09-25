@@ -469,7 +469,7 @@ internal sealed class BattlePackage
         if (Math.Abs(song.Offset) > LeadIn.MaxOffset)
             throw new InvalidDataException($"#OFFSET is {song.Offset:0.###} s; it can be at most {LeadIn.MaxOffset:0} s either way");
         // The battle's clock starts with the audio, so a chart that starts before it loses its start.
-        if (song.Offset > 0.001)
+        if (song.Offset > 0.001 && BattleChartFile.NoteBeforeSongStart(song.Chart, song.Slots, song.Lanes))
             song.Problems.Add($"#OFFSET is {song.Offset.ToString("0.###", CultureInfo.InvariantCulture)} s, so beat 0 comes before the audio starts; notes in the chart's first {song.Offset.ToString("0.###", CultureInfo.InvariantCulture)} s can't be played");
 
         // The audio: battle.json's, else the chart's #MUSIC.
