@@ -13,7 +13,8 @@ namespace NocturneFlatScroll;
 /// pictures, sprite sheets, GIFs or videos. This half loads an enemy's art for a fight: the
 /// files are read and decoded on worker threads (ArtLoader), and the Unity steps (decoding PNGs
 /// and JPEGs, uploading textures, making sprites and video players) run on the main thread, one
-/// a frame while a fight is coming, or all at once when it starts. One set is loaded at a time.
+/// a frame while a fight is coming, or all at once when it starts. One set is loaded at a time
+/// for battles; the battle creator's preview loads its own the same way (BattleCreator.ArtPreview.cs).
 /// The battle half (EnemyArt.Battle.cs) shows it on the enemy.
 /// </summary>
 internal static partial class EnemyArt
@@ -39,6 +40,15 @@ internal static partial class EnemyArt
         internal VideoArt? Video;
         /// <summary>The idle's visible width in game pixels, for the shadow.</summary>
         internal float VisibleWidth;
+        /// <summary>
+        /// For the creator's preview: the texture the frames are in (the atlas, or a video's render
+        /// texture), each frame's rect in it, the pivot (the feet) as a share of a frame from its
+        /// bottom-left, and game pixels per stored pixel.
+        /// </summary>
+        internal Texture? Texture;
+        internal int TextureW, TextureH;
+        internal (int X, int Y, int W, int H)[] Rects = Array.Empty<(int, int, int, int)>();
+        internal float PivotX, PivotY, Scale = 1f;
 
         internal bool Usable => Video == null || !Video.Failed;
     }
@@ -65,11 +75,16 @@ internal static partial class EnemyArt
         internal VideoPlayer.ErrorEventHandler? OnError;
     }
 
-    /// <summary>One enemy's loaded art.</summary>
+    /// <summary>One enemy's loaded art: a battle's, or the battle creator's preview.</summary>
     internal sealed class ArtSet : IArtLoadHost
     {
-        internal readonly CustomBattles.Battle Battle;
+        /// <summary>The battle it's loaded for; null for the creator's preview.</summary>
+        internal readonly CustomBattles.Battle? Battle;
+        internal readonly string Title;
+        /// <summary>The game enemy it looks like when its idle can't be used, for messages.</summary>
+        internal readonly string LookName;
         internal readonly EnemyArtSpec Spec;
+        internal readonly PackageFiles Files;
         internal readonly ArtLoader Loader;
         internal readonly CancellationTokenSource Cancel = new();
         internal readonly Stopwatch Clock = Stopwatch.StartNew();
@@ -79,21 +94,54 @@ internal static partial class EnemyArt
         internal bool Disposed, Reported, Used;
         internal int Textures, Sprites, Videos;
         internal float WarmedAt;
+        /// <summary>
+        /// Pictures already decoded, by file and stamp, shared between loads (the creator's preview
+        /// loads again after each change); null keeps none.
+        /// </summary>
+        internal Dictionary<string, Picture>? Pictures;
+        /// <summary>How the cleanup line starts in the log.</summary>
+        internal string LogName = "Enemy art";
 
-        internal ArtSet(CustomBattles.Battle battle, EnemyArtSpec spec, string? cache)
+        internal ArtSet(CustomBattles.Battle battle, string? cache)
+            : this(battle.Title, battle.Package.Art!, battle.Package.Files, battle.Package.EnemyPlaceholder, cache)
         {
             Battle = battle;
+        }
+
+        internal ArtSet(string title, EnemyArtSpec spec, PackageFiles files, string lookName, string? cache)
+        {
+            Title = title;
+            LookName = lookName;
             Spec = spec;
-            Loader = new ArtLoader(spec, battle.Package.Files, this, cache);
+            Files = files;
+            Loader = new ArtLoader(spec, files, this, cache);
         }
 
         internal ArtLoadResult Result => Loader.Result;
         internal bool Done => Work.IsCompleted;
         internal bool IdleReady => Clips.TryGetValue("idle", out var idle) && idle.Usable;
-        internal string Title => Battle.Title;
 
-        Task<Picture> IArtLoadHost.DecodePicture(ArtAnimationSpec a, byte[] file, CancellationToken cancel) =>
-            OnMain(() => DecodePicture(a, file), cancel);
+        /// <summary>Starts loading on worker threads; the main-thread steps wait for the pump.</summary>
+        internal void Begin() => Work = Task.Run(() => Loader.Run(Cancel.Token));
+
+        /// <summary>The key a decoded picture is kept under: its file, and its size and time.</summary>
+        internal string PictureKey(string file) => file + "|" + Files.Stamp(file);
+
+        Task<Picture> IArtLoadHost.DecodePicture(ArtAnimationSpec a, byte[] file, CancellationToken cancel)
+        {
+            var kept = Pictures;
+            string key = kept == null ? "" : PictureKey(a.File);
+            if (kept != null)
+                lock (kept)
+                    if (kept.TryGetValue(key, out var known)) return Task.FromResult(known);
+            return OnMain(() =>
+            {
+                if (Disposed) throw new OperationCanceledException();
+                var picture = ReadPicture(file, a.File);
+                if (kept != null) lock (kept) kept[key] = picture;
+                return picture;
+            }, cancel);
+        }
 
         string? IArtLoadHost.VideoUnsupported(VideoFacts facts) =>
             facts.Container == "mp4" && !MediaFoundation.Value
@@ -105,27 +153,6 @@ internal static partial class EnemyArt
 
         Task IArtLoadHost.Video(VideoPlan plan, bool smooth, CancellationToken cancel) =>
             OnMain(() => { MakeVideo(plan, smooth); return true; }, cancel);
-
-        // Unity's own PNG and JPEG decoder (the one cards use), then the pixels as RGBA, top row first.
-        private Picture DecodePicture(ArtAnimationSpec a, byte[] file)
-        {
-            if (Disposed) throw new OperationCanceledException();
-            var texture = CustomBattles.CardImages.Decode(file, CustomBattles.RuntimePrefix + "art/" + a.File, EnemyArtReader.MaxPictureSide)
-                ?? throw new InvalidDataException($"{a.File} isn't a PNG or JPEG the game can read");
-            try
-            {
-                int w = texture.width, h = texture.height;
-                // Whatever format the decoder made, GetPixels32 gives RGBA, bottom row first.
-                var pixels = texture.GetPixels32();
-                if (pixels == null || pixels.Length != w * h) throw new InvalidDataException($"{a.File} couldn't be read back");
-                var rgba = new byte[w * h * 4];
-                IntPtr start = IntPtr.Add(pixels.Pointer, 4 * IntPtr.Size);   // an il2cpp array's elements start after its header
-                for (int y = 0; y < h; y++) Marshal.Copy(IntPtr.Add(start, (h - 1 - y) * w * 4), rgba, y * w * 4, w * 4);
-                GC.KeepAlive(pixels);
-                return new Picture { Rgba = rgba, Width = w, Height = h };
-            }
-            finally { Object.Destroy(texture); }
-        }
 
         private void Upload(PackedAnimation p, bool smooth)
         {
@@ -156,7 +183,10 @@ internal static partial class EnemyArt
                 Sprites++;
                 frames[i] = sprite;
             }
-            Clips[a.Name] = NewClip(p.From, frames);
+            var clip = NewClip(p.From, frames);
+            (clip.Texture, clip.TextureW, clip.TextureH, clip.Rects) = (texture, p.AtlasW, p.AtlasH, p.Rects);
+            (clip.PivotX, clip.PivotY, clip.Scale) = (p.PivotX, p.PivotY, 1f / p.Ppu);
+            Clips[a.Name] = clip;
         }
 
         private Clip NewClip(MeasuredAnimation m, Sprite[] frames)
@@ -235,6 +265,8 @@ internal static partial class EnemyArt
 
             var clip = NewClip(m, new[] { sprite });
             clip.Video = video;
+            (clip.Texture, clip.TextureW, clip.TextureH, clip.Rects) = (target, plan.TextureW, plan.TextureH, new[] { (0, 0, plan.TextureW, plan.TextureH) });
+            (clip.PivotX, clip.PivotY, clip.Scale) = (plan.PivotX, plan.PivotY, 1f / plan.Ppu);
             Clips[a.Name] = clip;
         }
 
@@ -272,11 +304,11 @@ internal static partial class EnemyArt
             Reported = true;
             if (Work.IsFaulted && Work.Exception?.GetBaseException() is not OperationCanceledException)
                 ModLog.Error($"Enemy art for {Title}: loading failed: {Work.Exception?.GetBaseException()}");
-            var problems = Battle.Package.Problems;
+            var problems = Battle?.Package.Problems ?? new List<string>();
             foreach (var dropped in Spec.Dropped)
                 ModLog.Error($"Enemy art for {Title}: {dropped.Key} can't be used ({dropped.Value}); {EnemyArtReader.StandIn(dropped.Key, Spec)}.");
             foreach (var failed in Result.Failed)
-                ModLog.Error($"Enemy art for {Title}: {failed.Key} can't be used ({failed.Value}); {(failed.Key == "idle" ? $"the enemy looks like {Battle.Package.EnemyPlaceholder}" : EnemyArtReader.StandIn(failed.Key, Spec))}.");
+                ModLog.Error($"Enemy art for {Title}: {failed.Key} can't be used ({failed.Value}); {(failed.Key == "idle" ? $"the enemy looks like {LookName}" : EnemyArtReader.StandIn(failed.Key, Spec))}.");
             foreach (var note in Result.Notes.Where(n => !problems.Contains(n)).Distinct()) ModLog.Info($"Enemy art for {Title}: {note}.");
             foreach (var error in Result.Errors) ModLog.Error($"Enemy art for {Title}: {error}");
             if (IdleReady) ModLog.Info($"Enemy art for {Title}: ready in {Clock.ElapsedMilliseconds} ms: {Result.Describe()}.");
@@ -302,7 +334,7 @@ internal static partial class EnemyArt
                 if (obj) Object.Destroy(obj);
             Made.Clear();
             Clips.Clear();
-            ModLog.Info($"Enemy art: cleaned up {Textures} textures, {Sprites} sprites, {Videos} videos.");
+            ModLog.Info($"{LogName}: cleaned up {Textures} textures, {Sprites} sprites, {Videos} videos.");
         }
     }
 
@@ -339,6 +371,32 @@ internal static partial class EnemyArt
         });
         return done.Task;
     }
+
+    /// <summary>
+    /// Unity's own PNG and JPEG decoder (the one cards use), then the pixels as RGBA, top row first.
+    /// Main thread only; the file's size was checked from its header first.
+    /// </summary>
+    internal static Picture ReadPicture(byte[] file, string name)
+    {
+        var texture = CustomBattles.CardImages.Decode(file, CustomBattles.RuntimePrefix + "art/" + name, EnemyArtReader.MaxPictureSide)
+            ?? throw new InvalidDataException($"{name} isn't a PNG or JPEG the game can read");
+        try
+        {
+            int w = texture.width, h = texture.height;
+            // Whatever format the decoder made, GetPixels32 gives RGBA, bottom row first.
+            var pixels = texture.GetPixels32();
+            if (pixels == null || pixels.Length != w * h) throw new InvalidDataException($"{name} couldn't be read back");
+            var rgba = new byte[w * h * 4];
+            IntPtr start = IntPtr.Add(pixels.Pointer, 4 * IntPtr.Size);   // an il2cpp array's elements start after its header
+            for (int y = 0; y < h; y++) Marshal.Copy(IntPtr.Add(start, (h - 1 - y) * w * 4), rgba, y * w * 4, w * 4);
+            GC.KeepAlive(pixels);
+            return new Picture { Rgba = rgba, Width = w, Height = h };
+        }
+        finally { Object.Destroy(texture); }
+    }
+
+    /// <summary>Runs up to <paramref name="max"/> main-thread loading steps, for the creator's preview (which loads without a fight).</summary>
+    internal static void RunSteps(int max) => Pump(max);
 
     /// <summary>Runs up to <paramref name="max"/> main-thread steps; false when there were none.</summary>
     private static bool Pump(int max)
@@ -381,20 +439,24 @@ internal static partial class EnemyArt
     private static ArtSet Start(CustomBattles.Battle battle)
     {
         Release(current);
-        if (cacheFolder == null)
-        {
-            cacheFolder = Path.Combine(Application.persistentDataPath, "NocturneButBetter", "Cache", "EnemyArt");
-            string folder = cacheFolder;
-            Task.Run(() =>
-            {
-                try { ArtLoader.TrimCache(folder, CacheBytes); }
-                catch (Exception) { }
-            });
-        }
-        var set = new ArtSet(battle, battle.Package.Art!, cacheFolder) { WarmedAt = Time.unscaledTime };
-        set.Work = Task.Run(() => set.Loader.Run(set.Cancel.Token));
+        var set = new ArtSet(battle, CacheFolder()) { WarmedAt = Time.unscaledTime };
+        set.Begin();
         current = set;
         return set;
+    }
+
+    /// <summary>Where videos that can't play in place are copied; trimmed to CacheBytes the first time it's asked for.</summary>
+    internal static string CacheFolder()
+    {
+        if (cacheFolder != null) return cacheFolder;
+        cacheFolder = Path.Combine(Application.persistentDataPath, "NocturneButBetter", "Cache", "EnemyArt");
+        string folder = cacheFolder;
+        Task.Run(() =>
+        {
+            try { ArtLoader.TrimCache(folder, CacheBytes); }
+            catch (Exception) { }
+        });
+        return cacheFolder;
     }
 
     /// <summary>

@@ -12,7 +12,7 @@ namespace NocturneFlatScroll;
 // bottom bar's (Up/Down, Enter).
 internal static partial class BattleCreator
 {
-    private enum Page { Info, Song, Charts, Enemy, Gear, Dialogue }
+    private enum Page { Info, Song, Charts, Enemy, Art, Gear, Dialogue }
 
     private const float TopH = 64f, BottomH = 92f, LeftW = 300f;
     private const float RowH = 44f, RowStep = 52f;
@@ -42,7 +42,7 @@ internal static partial class BattleCreator
 
     private static readonly (Page Page, string Name)[] Pages =
     {
-        (Page.Info, "Info"), (Page.Song, "Song"), (Page.Charts, "Charts"), (Page.Enemy, "Enemy"), (Page.Gear, "Gear"), (Page.Dialogue, "Dialogue"),
+        (Page.Info, "Info"), (Page.Song, "Song"), (Page.Charts, "Charts"), (Page.Enemy, "Enemy"), (Page.Art, "Art"), (Page.Gear, "Gear"), (Page.Dialogue, "Dialogue"),
     };
 
     // ---- building --------------------------------------------------------------------------------
@@ -69,6 +69,7 @@ internal static partial class BattleCreator
         BuildSongPage();
         BuildChartsPage();
         BuildEnemyPage();
+        BuildArtPage();
         BuildGearPage();
         BuildDialoguePage();
         // The keyboard's marker: a bar left of the button it's on (see DrawEdit).
@@ -367,22 +368,27 @@ internal static partial class BattleCreator
         const Page p = Page.Enemy;
         float y = 0;
         AddHeader(p, 0, ref y, Col1W, "Enemy");
+        // How it looks: a game enemy's own art, or the battle's custom art (the Art page).
+        float row = y;
+        var gameArt = AddButton(p, 0, row, Col1W / 2 - 6, RowH, "Game enemy's art", () => SetArtMode(false));
+        gameArt.Active = () => draft != null && !CustomArtEnemy();
+        var customArt = AddButton(p, Col1W / 2 + 6, row, Col1W / 2 - 6, RowH, "Custom art", () => SetArtMode(true));
+        customArt.Active = CustomArtEnemy;
+        y -= RowStep;
         var looks = AddChoice(p, 0, ref y, Col1W, "Looks like", () => Escape(EnemyChoices.NameOf(draft?.Placeholder)), ChooseEnemy);
         // A custom-art enemy only fights like the game enemy.
         looks.Text = () => $"<color=#9D92B4>{(CustomArtEnemy() ? "Fights like" : "Looks like")}</color><pos=32%>{Escape(EnemyChoices.NameOf(draft?.Placeholder))}";
-        AddToggle(p, 0, ref y, Col1W, () => $"Advanced bosses: {((draft?.Advanced ?? false) ? "on" : "off")}", () => draft?.Advanced ?? false, ToggleAdvanced);
+        // Scripted bosses can't take custom art, so custom mode shows its art instead of that toggle.
+        float slot = y;
+        AddToggle(p, 0, ref y, Col1W, () => $"Advanced bosses: {((draft?.Advanced ?? false) ? "on" : "off")}", () => draft?.Advanced ?? false, ToggleAdvanced,
+            () => !CustomArtEnemy());
+        AddChoice(p, 0, ref slot, Col1W, "Art", ArtRowSummary, () => SetPage(Page.Art), CustomArtEnemy);
         AddField(p, 0, ref y, Col1W, EnemyNameField);
         AddHeader(p, 0, ref y, Col1W, "Stats (blank keeps the enemy's own)");
         foreach (var field in StatFields) AddField(p, 0, ref y, Col1W, field);
-        var art = MakeImage("CustomArt", pagePanels[p], PanelColor).rectTransform;
-        PlaceTop(art, 0, y, Col1W, RowH);
-        var artText = MakeText("CustomArtText", art, 18, TextAlignmentOptions.Center);
-        artText.color = DimText;
-        artText.text = "Custom art (pictures, GIFs, sheets, videos): set in battle.json for now";
-        Stretch(artText.rectTransform, 12, 0, 12, 0);
-        y -= RowStep;
         var warning = AddText(p, 0, ref y, Col1W, 60, EnemyWarning, 17);
         warning.color = Hex(0xF2B02E);
+        AddText(p, 0, ref y, Col1W, 50, () => "Custom art fights with this enemy's attacks, sounds and stats; the Art page sets how it looks.", 16, CustomArtEnemy);
 
         float y2 = 0;
         AddHeader(p, Col2, ref y2, Col2W, "Info boxes (top right in the battle)");
@@ -441,6 +447,8 @@ internal static partial class BattleCreator
     private static void SetPage(Page next)
     {
         if (!FinishTyping()) return;
+        // The Art page's preview lets go of its textures and videos when the page closes.
+        if (page == Page.Art && next != Page.Art) StopArtPreview(false);
         page = next;
         focus = -1;
         foreach (var (p, panel) in pagePanels) panel.gameObject.SetActive(p == page);
@@ -537,15 +545,17 @@ internal static partial class BattleCreator
         return string.Join("\n", charts.Problems.Take(6).Select(p => "- " + Escape(p)));
     }
 
-    private static bool CustomArtEnemy() => draft?.EnemyMode.Equals("custom", StringComparison.OrdinalIgnoreCase) == true;
+    private static bool CustomArtEnemy() => draft?.CustomArt == true;
 
     private static string EnemyWarning()
     {
         if (draft == null) return "";
         if (draft.EnemyLocked != null) return Escape(draft.EnemyLocked);
+        // Custom art never takes a scripted boss (its Advanced toggle is hidden), whatever that toggle says.
+        if (CustomArtEnemy() && EnemyChoices.IsAdvanced(draft.Placeholder)) return Escape(ArtWarning() ?? "");
         string? problem = EnemyChoices.Problem(draft.Placeholder, draft.Advanced);
         if (problem != null) return Escape(problem);
-        if (CustomArtEnemy()) return "This enemy uses its own art from battle.json, and fights like the enemy picked above.";
+        if (CustomArtEnemy()) return Escape(ArtWarning() ?? "");
         return EnemyChoices.IsAdvanced(draft.Placeholder) ? "Advanced bosses are built around scripted fights and may not play well here." : "";
     }
 

@@ -76,6 +76,7 @@ internal static partial class BattleCreator
     private static void Close()
     {
         StopPreview();
+        StopArtPreview(true);
         ClearCardPreview();
         EndTyping();
         ui?.Destroy();
@@ -435,6 +436,7 @@ internal static partial class BattleCreator
     {
         if (draft == null || !FinishTyping()) return;
         StopPreview();
+        StopArtPreview(false);
         string? chart = PackageFiles.SafeName(draft.ChartPath);
         string? audio = PackageFiles.SafeName(draft.EffectiveAudio);
         if (chart == null || audio == null) { Say("The battle needs a chart file and a song first.", 4f); return; }

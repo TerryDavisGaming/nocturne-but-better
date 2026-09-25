@@ -35,6 +35,7 @@ internal static partial class BattleCreator
             Say("It can't be opened: " + ex.Message, 6f);
             return;
         }
+        StopArtPreview(true);
         draft = loaded;
         touched.Clear();
         RefreshBattleInfo();
@@ -60,7 +61,7 @@ internal static partial class BattleCreator
             Hint = i => i switch
             {
                 0 => "Saves the changes, then goes back to the list.",
-                1 => "Goes back to the list without the changes. Songs and images added since the last save go to the Recycle Bin.",
+                1 => "Goes back to the list without the changes. Songs, images and art added since the last save go to the Recycle Bin.",
                 _ => "Keeps editing.",
             },
             Choose = i =>
@@ -81,6 +82,7 @@ internal static partial class BattleCreator
     {
         string? folder = draft?.Folder;
         StopPreview();
+        StopArtPreview(true);
         ClearCardPreview();
         EndTyping();
         CleanUnused();
@@ -127,6 +129,7 @@ internal static partial class BattleCreator
             if (typing != null) UpdateTyping(keyboard);
             else if (!HandleEditKeys(keyboard)) return;
         }
+        if (page == Page.Art) UpdateArtPage(Live && !Busy ? clicks : null);
         DrawEdit();
     }
 
@@ -145,6 +148,7 @@ internal static partial class BattleCreator
             SetPage(Pages[(i + (Shift(k) ? Pages.Length - 1 : 1)) % Pages.Length].Page);
             return true;
         }
+        if (HandleArtKeys(k)) return true;
         var shown = VisibleControls();
         if (Pressed(k, Key.DownArrow)) focus = shown.Count == 0 ? -1 : Math.Min(shown.Count - 1, focus + 1);
         if (Pressed(k, Key.UpArrow)) focus = shown.Count == 0 ? -1 : Math.Max(0, focus - 1);
@@ -450,7 +454,7 @@ internal static partial class BattleCreator
         var (moved, kept) = task.Result;
         foreach (var path in moved) ModLog.Info($"Battle creator: moved {path} to the Recycle Bin (the battle doesn't use it any more).");
         foreach (var path in kept) ModLog.Info($"Battle creator: left {path} in the battle's folder; the battle doesn't use it any more.");
-        if (kept.Count > 0) Say("Songs or images the battle doesn't use any more stay in its folder: Windows can't put them in the Recycle Bin.", 6f);
+        if (kept.Count > 0) Say("Songs, images or art the battle doesn't use any more stay in its folder: Windows can't put them in the Recycle Bin.", 6f);
     }
 
     // ---- new battles, imports and exports ------------------------------------------------------------
@@ -595,6 +599,7 @@ internal static partial class BattleCreator
         {
             ModLog.Info($"Battle creator: moved {folder} to the Recycle Bin.");
             StopPreview();
+            StopArtPreview(true);
             ClearCardPreview();
             touched.Clear();
             draft = null;
@@ -747,11 +752,12 @@ internal static partial class BattleCreator
     {
         if (draft == null || !FinishTyping() || !EnemyEditable()) return;
         var d = draft;
-        var list = EnemyChoices.List(d.Advanced);
+        // Scripted bosses can't take custom art, so a custom-art enemy picks from the others.
+        var list = EnemyChoices.List(d.Advanced && !d.CustomArt);
         string current = EnemyChoices.Normalize(d.Placeholder);
         ShowPicker(new Picker
         {
-            Heading = "The enemy: which game enemy stands in",
+            Heading = d.CustomArt ? "The enemy: which game enemy it fights like" : "The enemy: which game enemy stands in",
             Rows = list.Select(c => c.Advanced ? c.Name + "  (advanced boss)" : c.Name).ToList(),
             Hint = i => i >= 0 && i < list.Count ? EnemyHint(list[i]) : "",
             Index = Math.Max(0, list.FindIndex(c => c.Asset.Equals(current, StringComparison.OrdinalIgnoreCase))),
