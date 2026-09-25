@@ -1,4 +1,4 @@
-nocturne but better 2.6.0 (formerly nocturne flat scroll)
+nocturne but better 2.6.1 (formerly nocturne flat scroll)
 windows x64 | steam nocturne 1.0.1 | tested steam build 25487568
 works with bepinex 6 (bundled) or melonloader 0.7.3 and newer (not bundled)
 
@@ -83,7 +83,20 @@ start) plays the chart in a real battle and brings you back to the
 editor. it works for custom battles and the game's songs when the editor
 was opened from the title screen, and nothing is saved.
 
-fixed
+fixed in 2.6.1
+- after quitting a fight from the pause menu, later fights had no music
+  and their notes stuttered back and forth.
+- battles with an #offset (charts timed with "first beat here", most osz
+  imports) played their notes off the music and started with notes
+  already partway down the lane. the offset now counts, and when the
+  first note comes early the notes start up to 3 s before the song.
+- custom enemy art stuck on its defeat picture once the enemy's health
+  hit 0, and the attack opacity setting stopped fading its attacks.
+- an error in options > gameplay when the custom charts page hid the row
+  it had selected.
+your battles don't need any changes.
+
+fixed in 2.6.0
 2.5.0 garbled the results screen's high-score info in every battle. 2.6.0
 records custom chart scores without the hook that caused it.
 
@@ -153,7 +166,7 @@ if something does not work
   this package must be checked again after a game update.
 
 share
-send the original nocturne-flat-scroll-2.6.0-windows.zip to the other person
+send the original nocturne-flat-scroll-2.6.1-windows.zip to the other person
 or device. they need their own installed copy of nocturne. the package
 contains no game assets, game-generated assemblies, saves, or account data.
 it does not support macos, linux, or steam deck through these installers.

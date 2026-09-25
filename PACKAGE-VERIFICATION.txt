@@ -1,17 +1,17 @@
-nocturne but better 2.6.0 - package verification
+nocturne but better 2.6.1 - package verification
 checked september 25, 2026 on windows 11, using windows powershell 5.1.
 
 installer
-45 checks ran against throwaway copies of the game files. the
+47 checks ran against throwaway copies of the game files. the
 real game folder was not used, and its files were unchanged afterwards.
 - every package script parses in windows powershell 5.1.
 - install previews (-whatif) leave the game folder unchanged for both
   loaders, and so does the uninstall preview.
 - a game without melonloader gets the bundled bepinex and the plugin. a
   repeat install changes nothing.
-- upgrading from the published 2.1.2, 2.2.0, 2.4.1, or 2.5.0 plugin
-  installs 2.6.0 and keeps the old dll as a backup. upgrading the 2.2.0,
-  2.4.1, or 2.5.0 melonloader mod does the same.
+- upgrading from the published 2.1.2, 2.2.0, 2.4.1, 2.5.0, or 2.6.0 plugin
+  installs 2.6.1 and keeps the old dll as a backup. upgrading the 2.2.0,
+  2.4.1, 2.5.0, or 2.6.0 melonloader mod does the same.
 - with melonloader 0.7.3 installed and turned on, the mod goes into mods and
   the bepinex copy is disabled. a melonloader-only game gets no bepinex
   files. a repeat install changes nothing.
@@ -29,16 +29,19 @@ real game folder was not used, and its files were unchanged afterwards.
   unknown game asset, a conflicting loader binary, and a disabled doorstop
   configuration. an existing compatible doorstop configuration is kept.
 
-for 2.6.0 the real installer was not run on the test pc's own game; the
+for 2.6.1 the real installer was not run on the test pc's own game; the
 installer script only changed its version and pinned dll hashes since
-2.5.0. the optional fullscreen script is unchanged since 2.4.1. neither
+2.6.0. the optional fullscreen script is unchanged since 2.4.1. neither
 script touches the custom charts or custom battles folders.
 
 shareable dlls
-- both are built from the 2.6.0 source with debug symbols disabled and no
+- both are built from the 2.6.1 source with debug symbols disabled and no
   git commit hash, so they contain no development-machine paths.
-- two clean builds of the source folder with -c Release gave the same
-  bytes for both dlls.
+- this package's source folder, built with -c Release, gave the same
+  bytes as the shipped dlls. the bytes depend on the files' line endings,
+  so build from the folder as it is, without converting them.
+- the source folder has all of the mod's code, including art\ and audio\.
+  2.6.0's left those two folders out, so it didn't build.
 
 gameplay coverage
 both loaders were tested in-game with qa builds: the same source plus test
@@ -47,6 +50,28 @@ the melonloader one in a separate copy of the game folder. every run took
 a snapshot of the player's plugin, settings and saves first, put that
 snapshot back afterwards, and checked that the .sav files hadn't changed.
 on melonloader, no run logged a "native->managed trampoline" error.
+for 2.6.1 (each fix with a test through the player's own path, also run on
+the old code first to show it catches the bug; both loaders unless noted):
+- pause-menu quit: 5 fights in a row, paused the way esc does and left
+  with the pause menu's exit button (one through its gameplay page). every
+  later fight had music and moving notes, and no options error was
+  logged. 2.6.0 failed at the second fight (no music).
+- timing, speed mod 170, 2d upscroll: steady note speed from the start;
+  in battles with #offset -2, -1.53, -0.2 (and +0.5 s on bepinex) the
+  first note came within 5 ms of where the chart editor puts it (2.6.0
+  ignored the offset, so its notes were that far off).
+  a first note at 0.2 s got a 1.32 s lead-in. bepinex also in 3d.
+- enemy attack opacity 50%: 12 of 12 attacks after a custom enemy's
+  health hit 0 faded (0 of 12 with 2.6.0's code); a game fight's death
+  still played before the results.
+- custom enemy art, 10 battles: defeat only when the enemy died at the end.
+- again from 2.6.0: set gear 228 of 228, level 233 of 233, dialogue in the
+  arcade, and the chart editor's test (6 runs on bepinex, 2 on
+  melonloader). bepinex also: the creator's .osz import (every check), the
+  loss and dialogue file runs, and the dialogue page (93 of 93).
+  melonloader also: the creator's art page.
+not re-run for 2.6.1: turn into frames and arcade card pictures (nothing
+they use changed).
 for 2.6.0:
 - custom battles in the main-menu arcade, in 4 and 5 lanes, with songs
   played to the end: scores went into ProdSlotN.score and the .sav files

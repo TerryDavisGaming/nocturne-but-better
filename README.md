@@ -6,7 +6,7 @@ it works on the base steam game, with melonloader, or with bepinex. YOU DON'T NE
 
 it started out as nocturne flat scroll. the download and its files still use that name, so upgrades from older versions keep working.
 
-[download for windows](https://github.com/TerryDavisGaming/nocturne-but-better/releases/download/v2.6.0/Nocturne-Flat-Scroll-2.6.0-Windows.zip) · [latest release](https://github.com/TerryDavisGaming/nocturne-but-better/releases/latest)
+[download for windows](https://github.com/TerryDavisGaming/nocturne-but-better/releases/download/v2.6.1/Nocturne-Flat-Scroll-2.6.1-Windows.zip) · [latest release](https://github.com/TerryDavisGaming/nocturne-but-better/releases/latest)
 
 use the release zip to install. github's source download does not include the plugin or loader payload.
 
@@ -285,6 +285,17 @@ close the game and run `uninstall.cmd`. this disables the mod for both loaders a
 
 ## what was tested
 
+version 2.6.1 was tested in-game on nocturne 1.0.1 with bepinex 6.0.0-be.788 and with melonloader 0.7.3, the same way as 2.6.0 below. each fix got a test that goes through the player's own path, and each test was also run on the old code first to show it catches the bug. on both loaders unless it says otherwise:
+
+- quitting from the pause menu: five fights in a row, each paused the way esc does and left with the pause menu's exit button, one of them through the pause menu's gameplay page. every later fight had its music and moving notes, and options > gameplay logged no errors. on 2.6.0 the same test stopped at the second fight, which had no music.
+- timing with speed mod at 170 in 2d upscroll: the notes moved at a steady speed from the start, and in battles with an `#OFFSET` of -2, -1.53 and -0.2 s (and +0.5 s on bepinex) the first note reached the receptors within 5 ms of where the chart editor puts it. 2.6.0 ignored the offset, so its notes were that far off the music, and a battle whose first note is on beat 0 started with notes already at the receptors. a battle whose first note is 0.2 s in started its notes 1.32 s before the song, and they scrolled in from the far end of the lane. bepinex also ran it in the default 3d view.
+- enemy attack opacity at 50%: 12 of 12 attacks after a custom enemy's health reached 0 faded (0 of 12 with 2.6.0's code), and the firefly fight's enemy still played its death before the results.
+- custom enemy art in the 10 test battles: the hurt picture when it was hit, and the defeat picture only when the enemy died at the end.
+- the 2.6.0 tests again: set gear 228 of 228 and the level 233 of 233; dialogue in the arcade; the chart editor's test (all six runs on bepinex, two on melonloader). on bepinex also the battle creator's .osz import with all its checks (its 0.3 s offset battle now started 1.64 s early and put its notes where the editor does), the loss and dialogue file runs, and the dialogue page's 93 of 93. on melonloader also the creator's art page.
+- no run changed a `.sav` file, and on melonloader no run logged a "native->managed trampoline" error.
+
+turn into frames and the arcade card pictures weren't run again for 2.6.1, since nothing they use changed.
+
 version 2.6.0 was tested in-game on nocturne 1.0.1 with bepinex 6.0.0-be.788 and with melonloader 0.7.3. the melonloader test ran in a separate copy of the game folder. every run saved the player's plugin, settings and saves first and put them back afterwards, and checked that the story's `.sav` files hadn't changed.
 
 custom battles, on both loaders unless it says otherwise:
@@ -301,7 +312,7 @@ custom battles, on both loaders unless it says otherwise:
 - the creator's dialogue page passed 93 of 93 checks: every tab, adding, copying, replying and undoing lines, the speaker picker with karma at the top and typing to jump, faces and sides, a new speaker with a picture, save and reopen, and the chart editor's dialogue lane. its preview put the portraits where the game does.
 - on melonloader, no run logged a "native->managed trampoline" error.
 
-installer checks covered both loaders, switching between them, upgrades from the published 2.1.2, 2.2.0, 2.4.1 and 2.5.0, and removal, all in test copies of the game files.
+installer checks covered both loaders, switching between them, upgrades from the published 2.1.2, 2.2.0, 2.4.1, 2.5.0 and 2.6.0, and removal, all in test copies of the game files.
 
 2.5.0's custom difficulties and chart editor were tested on both loaders. the custom charts page opened from the main menu and from the difficulty screen's custom entry. the editor was driven with real key presses and mouse clicks, and its firefly music matched a reference render to the sample. a chart saved in it played in the firefly battle instead of the game's chart, with its score kept apart. a pack was imported, exported and imported again, the real windows file pickers opened in front of the game, "write game charts" wrote 177 charts for 103 songs, and an `.sm` with no song was refused with a message saying how to name one. a chapter button turned gold with its sparkles once every card in the chapter showed theirs.
 
