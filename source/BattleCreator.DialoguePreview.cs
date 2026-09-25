@@ -409,6 +409,8 @@ internal static partial class BattleCreator
     {
         var play = dialoguePlay;
         if (play == null || draft == null) return;
+        // Typing changes the chosen line, so Play (which moves it on) stops.
+        if (typing != null) { StopDialoguePlay(); return; }
         bool advance = play.Advance || (clicks != null && clicks.leftButton.wasPressedThisFrame
                                          && RectTransformUtility.RectangleContainsScreenPoint(dialogueBox, clicks.position.ReadValue(), null));
         play.Advance = false;

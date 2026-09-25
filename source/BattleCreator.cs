@@ -469,8 +469,9 @@ internal static partial class BattleCreator
 
     private static void ShowPicker(Picker next)
     {
-        // A prompt or a list interrupts the song's preview.
+        // A prompt or a list interrupts the song's preview, and the dialogue's.
         StopPreview();
+        StopDialoguePlay();
         picker = next;
         jumpTyped = "";
         ShowScreen(Screen.Pick);

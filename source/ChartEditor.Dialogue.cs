@@ -237,6 +237,7 @@ internal static partial class ChartEditor
 
     private static void ClickDialogueRow(int row)
     {
+        if (typing != TextField.None) { Say("Press Enter to finish typing first (Esc cancels it).", 3f); return; }
         if (speakerChoices is { } choices)
         {
             int index = speakerFirst + row;
@@ -277,6 +278,8 @@ internal static partial class ChartEditor
     /// <summary>Whether the lines can change here; says why not when they can't.</summary>
     private static bool CuesEditable()
     {
+        // Typed text goes to the picked line once Enter takes it, so the lines wait until then.
+        if (typing != TextField.None) { Say("Press Enter to finish typing first (Esc cancels it).", 3f); return false; }
         if (dialogueLink is { ReadOnly: false }) return true;
         Say("These lines are only to look at here: open the chart from the Battle creator to change them.", 5f);
         return false;
