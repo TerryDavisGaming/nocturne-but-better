@@ -88,6 +88,8 @@ internal static class ChartSwap
                 // A custom battle has one melody, and its chart and score key are its own.
                 melodies = new Il2CppStructArray<int>(new[] { 0, 0 });
                 if (test != null) StartTestClock(test, ref startDelay);
+                // Its dialogue, before the game shows the ready prompt (which its first lines hold back).
+                BattleDialogue.Begin(PlayingBattle!, test, __instance);
                 return;
             }
             if (test != null)

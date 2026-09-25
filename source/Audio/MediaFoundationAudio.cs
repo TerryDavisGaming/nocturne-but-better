@@ -94,9 +94,11 @@ internal static class MediaFoundationAudio
         }
     }
 
-    internal static Exception Missing() => new NotSupportedException(
+    internal const string MissingMessage =
         "MP3, FLAC, M4A and WMA songs are decoded by Windows Media Foundation, which this copy of Windows doesn't have " +
-        "(Windows N editions need the Media Feature Pack); convert the song to .ogg or .wav");
+        "(Windows N editions need the Media Feature Pack); convert the song to .ogg or .wav";
+
+    internal static Exception Missing() => new NotSupportedException(MissingMessage);
 
     private static void Check(int hr, string step)
     {

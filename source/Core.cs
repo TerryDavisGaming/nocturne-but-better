@@ -300,6 +300,7 @@ internal static class ModSetup
         Run("Custom battles in the arcade", () => CustomBattles.Install(harmony));
         // Without it, custom-art battles look like their placeholders.
         Run("Custom enemy art", () => EnemyArt.Install(harmony));
+        Run("Custom battle dialogue", () => BattleDialogue.Install(harmony));
         Run("Battle gear and arcade consumables", () => BattleGear.Install(harmony));
         Run("Custom battle notes in the arcade", () => BattleNoticeArcade.Install(harmony));
         Run("Main menu arcade", () => ArcadeSession.Install(harmony));
@@ -421,6 +422,7 @@ internal static class LayoutDriver
         ChartEditor.Update();
         BattleCreator.Update();
         CustomMusic.Update();
+        BattleDialogue.Update();
         EnemyArt.LateUpdate();
         BattleGear.Update();
     }

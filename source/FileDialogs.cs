@@ -72,6 +72,7 @@ internal static class FileDialogs
         internal static string[] StepMania => new[] { "StepMania charts (*.sm, *.ssc)", "*.sm;*.ssc" };
         internal static string[] ChartPacks => new[] { "Nocturne But Better chart packs (*.nbbchart)", "*.nbbchart" };
         internal static string[] BattlePacks => new[] { "Nocturne But Better battles (*.nbbbattle)", "*.nbbbattle" };
+        internal static string[] OsuBeatmaps => new[] { "osu! beatmaps (*.osz)", "*.osz" };
         internal static string[] AllFiles => new[] { "All files", "*.*" };
 
         /// <summary>Several presets in one list, in order; the first is selected when the dialog opens.</summary>
@@ -100,8 +101,12 @@ internal static class FileDialogs
         internal static readonly Purpose EnemyGif = new("enemyart", PicturesFolder, Filters.Join(Filters.Gifs, Filters.AllFiles));
         internal static readonly Purpose EnemyVideo = new("enemyart", VideosFolder, Filters.Join(Filters.Videos, Filters.AllFiles));
         internal static readonly Purpose EnemySheet = new("enemyart", PicturesFolder, Filters.Join(Filters.SpriteSheets, Filters.AllFiles));
+        /// <summary>A dialogue speaker's pictures: PNG or JPEG, like the game decodes.</summary>
+        internal static readonly Purpose Portraits = new("portraits", PicturesFolder, Filters.Join(Filters.Pictures, Filters.AllFiles));
         /// <summary>For picking a whole song folder, like a StepMania song.</summary>
         internal static readonly Purpose SongFolders = new("songfolders", DownloadsFolder, Array.Empty<string>());
+        /// <summary>For an osu! beatmap set (.osz) to make a battle from; it's only ever read.</summary>
+        internal static readonly Purpose OsuBeatmaps = new("osz", DownloadsFolder, Filters.Join(Filters.OsuBeatmaps, Filters.AllFiles));
 
         internal Purpose(string key, Func<string> defaultFolder, string[] filter)
         {

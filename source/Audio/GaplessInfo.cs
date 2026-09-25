@@ -19,6 +19,9 @@ internal sealed class Mp3Info
     internal bool HasLame;          // encoder delay and padding are known
     internal long Frames = -1;      // audio frames after the header frame, if the tag says
     internal int Delay, Padding;
+    // The delay field where LAME's part of a Xing/Info header keeps it, whatever encoder name comes
+    // before it (osu!'s audio library reads it that way; see OsuAudio). 0 without that part.
+    internal int RawDelay;
     // iTunes' gapless comment in the ID3 tag (Apple's and Windows' encoders write it instead of a
     // LAME tag): the encoder delay and the original length.
     internal long SmpbPriming = -1, SmpbLength = -1;
@@ -145,6 +148,7 @@ internal sealed class Mp3Info
             // LAME's extension: a 9-byte encoder name, then the delay and padding 21 bytes in (12 bits each).
             if (q + 24 <= end)
             {
+                RawDelay = ((b[q + 21] << 16) | (b[q + 22] << 8) | b[q + 23]) >> 12;
                 Encoder = Encoding.ASCII.GetString(b, q, 9).TrimEnd('\0', ' ');
                 if (Encoder.StartsWith("LAME") || Encoder.StartsWith("Lavf") || Encoder.StartsWith("Lavc"))
                 {

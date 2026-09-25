@@ -21,6 +21,22 @@ internal static partial class ChartEditor
     private static bool testSkipReady;    // QA only: no Ready prompt
     private static string? testNotice;    // said instead of "Starting the test..."
 
+    // A battle's tests play its dialogue unless the Setup tab turns it off (to test notes without
+    // the talk); kept on this PC like the editor's keys.
+    private const string TestDialoguePref = "NocturneFlatScroll.EditorTestDialogue";
+    private static bool? testDialogue;
+
+    private static bool TestDialogue => testDialogue ??= PlayerPrefs.GetInt(TestDialoguePref, 1) != 0;
+
+    private static void ToggleTestDialogue()
+    {
+        bool on = !TestDialogue;
+        testDialogue = on;
+        PlayerPrefs.SetInt(TestDialoguePref, on ? 1 : 0);
+        PlayerPrefs.Save();
+        Say(on ? "Tests play the battle's dialogue." : "Tests play without the battle's dialogue.", 3f);
+    }
+
     // ---- starting ----------------------------------------------------------------------------
 
     private static void StartTest(bool fromStart)
@@ -210,6 +226,8 @@ internal static partial class ChartEditor
             Melody = 0,
             Difficulty = slot,
             T0 = t0,
+            // The Battle creator's Test buttons are there to see the dialogue, so it plays even with the setting off.
+            DialogueOn = TestDialogue || closeAfterTest,
             MusicName = source != null ? "the editor's music" : "the battle's file",
             Label = label,
             FirstRow = firstRow,
@@ -220,20 +238,23 @@ internal static partial class ChartEditor
     }
 
     /// <summary>
-    /// The battle's package with the test chart: its battle.json as the battle creator has it now
-    /// (saved or not), else the one on disk. Says why and returns null when neither loads.
+    /// The battle's package with the test chart: its battle.json and dialogue as the battle
+    /// creator has them now (saved or not), else the ones on disk. Says why and returns null when
+    /// neither loads.
     /// </summary>
     private static BattlePackage? TestPackage(BattleChartTarget target, string chartText)
     {
-        string? manifest = null;
+        string? manifest = null, dialogue = null;
         try { manifest = target.Manifest?.Invoke(); }
         catch (Exception ex) { ModLog.Error("Test play: the battle creator's battle.json couldn't be made, so the saved one is used: " + ex.Message); }
+        try { dialogue = target.DialogueJson?.Invoke(); }
+        catch (Exception ex) { ModLog.Error("Test play: the battle creator's dialogue couldn't be made, so the saved one is used: " + ex.Message); }
         if (manifest != null)
         {
-            try { return BattlePackage.Load(target.Folder, chartText, manifest, target.Lanes, target.AudioPath); }
+            try { return BattlePackage.Load(target.Folder, chartText, manifest, target.Lanes, target.AudioPath, dialogue); }
             catch (Exception ex) { ModLog.Info($"Test play: the battle creator's unsaved battle.json didn't load ({ex.Message}); the saved one is used."); }
         }
-        try { return BattlePackage.Load(target.Folder, chartText, null, target.Lanes, target.AudioPath); }
+        try { return BattlePackage.Load(target.Folder, chartText, null, target.Lanes, target.AudioPath, dialogue); }
         catch (Exception ex)
         {
             ModLog.Error($"Test play: the battle {target.Title} couldn't be loaded for a test: {ex}");
@@ -297,11 +318,15 @@ internal static partial class ChartEditor
 
     // ---- while it runs, and back ---------------------------------------------------------------
 
-    /// <summary>Called every frame while the editor is open. True while a test has the screen.</summary>
+    /// <summary>Called every frame while the editor is open. True while a test has the screen (or the editor closed after one).</summary>
     private static bool UpdateTest()
     {
         var outcome = TestPlay.TakeOutcome();
-        if (outcome != null) Returned(outcome);
+        if (outcome != null)
+        {
+            Returned(outcome);
+            if (!IsOpen) return true;
+        }
         switch (TestPlay.State)
         {
             case TestPlay.Phase.Starting:
@@ -316,8 +341,21 @@ internal static partial class ChartEditor
                 }
                 return true;
             default:
+                StartOpenTest();
                 return false;
         }
+    }
+
+    // The test OpenBattle was asked for, once the editor is on its chart with the music loaded.
+    private static void StartOpenTest()
+    {
+        if (openTest is not double at || screen != Screen.Edit || chart == null || loading != null) return;
+        openTest = null;
+        bool fromStart = at <= 0;
+        if (!fromStart) SeekTo(at);
+        StartTest(fromStart);
+        // It didn't start: the editor stays, with the reason in its status line.
+        if (!TestPlay.Active) closeAfterTest = false;
     }
 
     // The screen without reading keys or clicks.
@@ -330,9 +368,18 @@ internal static partial class ChartEditor
         DrawPanels(now);
     }
 
-    // The battle was left: the screen shows again, on the same frame the game turns black.
+    // The battle was left: the screen shows again, on the same frame the game turns black. An
+    // editor opened only for the test closes instead, and the battle creator shows again (unless
+    // the test never started: the editor then stays to say so).
     private static void Returned(TestPlay.Outcome outcome)
     {
+        if (closeAfterTest && !dirty && outcome.Started)
+        {
+            ModLog.Info("Chart editor: the test it was opened for is over, so it closes.");
+            Close();
+            return;
+        }
+        closeAfterTest = false;
         Ui.SetVisible(true);
         testHidden = false;
         inputFrom = Time.unscaledTime + 0.4f;

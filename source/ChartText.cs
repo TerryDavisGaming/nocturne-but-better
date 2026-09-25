@@ -228,6 +228,26 @@ internal sealed class ChartText
         return last;
     }
 
+    /// <summary>The first row with a note on the game's grid (192 rows a measure), or -1 when there is none.</summary>
+    internal static int FirstNoteRow(NoteBlock block)
+    {
+        const int rowsPerMeasure = 192;
+        int measure = 0;
+        foreach (var chunk in block.Notes.Split(','))
+        {
+            var rows = new List<string>();
+            foreach (var raw in chunk.Split('\n'))
+            {
+                string row = raw.Trim();
+                if (row.Length > 0) rows.Add(row);
+            }
+            for (int i = 0; i < rows.Count; i++)
+                if (rows[i].Any(c => c != '0')) return measure * rowsPerMeasure + (int)Math.Round(i * (double)rowsPerMeasure / rows.Count);
+            measure++;
+        }
+        return -1;
+    }
+
     /// <summary>
     /// A custom battle's blocks by the game's six difficulty slots, from each block's difficulty
     /// name in the game's own order (Edit plays as Beginner, Beginner as Novice, and so on up to

@@ -122,10 +122,27 @@ internal static class BattleChartFile
         if (offsetTag != null && !double.TryParse(offsetTag, NumberStyles.Float, CultureInfo.InvariantCulture, out offset))
             return $"#OFFSET \"{offsetTag}\" isn't a number";
         if (Math.Abs(offset) > LeadIn.MaxOffset) return $"#OFFSET is {offset.ToString("0.###", CultureInfo.InvariantCulture)} s; it can be at most {LeadIn.MaxOffset:0} s either way";
-        if (offset > 0.001) notices.Add("beat 0 comes before the song starts, so notes before 0:00 can't be played");
+        if (offset > 0.001 && NoteBeforeSongStart(parsed, slots, lanes)) notices.Add("beat 0 comes before the song starts, so notes before 0:00 can't be played");
         try { parsed.BuildPlayableSong(slots); }
         catch (InvalidDataException ex) { return ex.Message; }
         return null;
+    }
+
+    /// <summary>
+    /// Whether a charted slot's first note comes before the song starts (0:00 in the audio), where
+    /// it can't be played. Beat 0 before the song (a positive #OFFSET) is fine by itself.
+    /// </summary>
+    internal static bool NoteBeforeSongStart(ChartText chart, ChartText.NoteBlock?[] slots, int lanes)
+    {
+        var timing = new EditorChart(lanes);
+        timing.ReadTiming(chart);
+        foreach (var block in slots)
+        {
+            if (block == null) continue;
+            int row = ChartText.FirstNoteRow(block);
+            if (row >= 0 && timing.RowToSeconds(row) < -0.0005) return true;
+        }
+        return false;
     }
 
     /// <summary>

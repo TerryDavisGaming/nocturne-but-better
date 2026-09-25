@@ -110,6 +110,123 @@ internal static class BattleFiles
         });
     }
 
+    // ---- a new battle from an osu!mania beatmap (beta) -----------------------------------------
+
+    /// <summary>
+    /// Makes a battle from a .osz that <see cref="OszImport.Read"/> read, with the player's
+    /// choices: the song and the card copied out of the .osz under the battle's own names, the
+    /// chart, and battle.json. The chart is checked the way the battle loader and the chart editor
+    /// read it before anything is written, and the battle is loaded before it's moved into place,
+    /// so a failure leaves nothing behind. The .osz is only read. Returns the folder, the chart's
+    /// text, a line for the log, and each slot's note count (-1 when it has no chart).
+    /// </summary>
+    internal static (string Folder, string Chart, string Summary, int[] NoteCounts) CreateFromOsz(string root, OszPlan plan, OszChoices choices)
+    {
+        if (plan.Error != null || plan.Song == null) throw new InvalidDataException("the beatmap wasn't read");
+        var group = plan.Group(choices.Lanes) ?? throw new InvalidDataException($"the beatmap has no {choices.Lanes}K difficulty");
+        var info = new FileInfo(plan.SourcePath);
+        if (!info.Exists || info.Length != plan.SourceLength || info.LastWriteTimeUtc != plan.SourceWriteUtc) throw OszChanged();
+        var (text, counts) = OszConvert.Build(plan, choices);
+        if (counts.All(c => c < 0)) throw new InvalidDataException("give at least one difficulty a slot first");
+        long bytes = Encoding.UTF8.GetByteCount(text);
+        if (bytes > BattlePackage.MaxChartBytes)
+            throw new InvalidDataException($"the charts come to {(bytes / (1024.0 * 1024.0)).ToString("0.0", CultureInfo.InvariantCulture)} MB, and a battle holds at most {BattlePackage.MaxChartBytes / (1024 * 1024)} MB. Leave a difficulty out first");
+        string? problem = CheckOszChart(text, choices.Lanes, counts);
+        if (problem != null) throw OszBug("the converted chart didn't pass the battle checks", problem);
+
+        var song = plan.Song;
+        string title = plan.Title.Trim().Length > 0 ? plan.Title : "osu!mania beatmap";
+        string folder = Build(root, SafeFolderName(title), staging =>
+        {
+            using (var stream = OszImport.OpenRead(plan.SourcePath))
+            using (var zip = OpenOsz(stream))
+            {
+                CopyOszEntry(zip, song.EntryIndex, song.EntryName, song.Length, staging, song.FileName, BattlePackage.MaxAudioBytes);
+                if (plan.Card != null) CopyOszEntry(zip, plan.Card.EntryIndex, plan.Card.EntryName, plan.Card.Length, staging, plan.Card.FileName, BattlePackage.MaxImageBytes);
+            }
+            BattleDraft.WriteAtomic(Path.Combine(staging, "charts", "song.sm"), text);
+            var draft = BattleDraft.Create(staging, title, choices.Lanes, song.FileName, plan.Mapper);
+            draft.Artist = plan.Artist;
+            if (plan.Card != null)
+            {
+                draft.Card = plan.Card.FileName;
+                // A new battle's picture fills the card's square, as the creator's first picture does.
+                draft.SetCardKey(CardLayout.FitKey, System.Text.Json.Nodes.JsonValue.Create("fill"));
+            }
+            draft.PreviewStart = group.PreviewStart;
+            draft.SetSource("osu!mania", plan.SourceName, plan.BeatmapSetId, plan.Mapper, OszImport.Version);
+            draft.Save();
+            // The loader's own checks, as the arcade will read the battle.
+            var loaded = BattlePackage.Load(staging);
+            if (loaded.Problems.Count > 0) throw OszBug("the converted battle didn't pass the loader's checks", loaded.Problems[0]);
+            for (int s = 0; s < counts.Length; s++)
+                if ((loaded.Slots[s] != null) != (counts[s] >= 0)) throw OszBug("the converted battle didn't pass the loader's checks", $"{ChartText.GameDifficultyLabels[s]} isn't where it should be");
+        });
+
+        var parts = new List<string>();
+        for (int s = 0; s < counts.Length; s++)
+            if (counts[s] >= 0) parts.Add($"{ChartText.GameDifficultyLabels[s]} \"{choices.Slots[s]!.Name}\" {counts[s]} notes");
+        var speeds = choices.SpeedsFrom != null && group.Speeds.TryGetValue(choices.SpeedsFrom, out var chosen) ? chosen : group.BaseScrolls;
+        string summary = string.Join(", ", parts)
+            + (choices.SpeedsFrom != null
+                ? $"; {OszConvert.Count(speeds.Own.Count, "speed change", "speed changes")} from \"{choices.SpeedsFrom.Name}\""
+                : "; no speed changes")
+            + (speeds.Evening > 0 ? $" ({speeds.Evening} for stretched beats)" : "")
+            + (choices.LeaveOutOpening ? $"; the notes in the first {OszConvert.OpeningSeconds.ToString("0.#", CultureInfo.InvariantCulture)} s left out" : "")
+            + (choices.Lanes == 5 ? (choices.PlayerAttacks ? "; player attacks every 8 bars" : "; no player attacks") : "")
+            + (plan.Card != null ? $"; card {plan.Card.FileName}" : "; no card");
+        return (folder, text, summary, counts);
+    }
+
+    private static ZipArchive OpenOsz(FileStream stream)
+    {
+        try { return OszImport.OpenZip(stream); }
+        catch (OszRefused ex) { throw new InvalidDataException(ex.Message.TrimEnd('.')); }
+    }
+
+    private static InvalidDataException OszChanged() => new("the .osz changed since it was read. Choose it again");
+
+    private static InvalidDataException OszBug(string what, string problem) =>
+        new($"{what} ({problem}). This is a bug in the beta import; see the log");
+
+    /// <summary>
+    /// Checks an imported chart the way the loader and the chart editor read it: every chosen slot
+    /// plays with its notes, nothing is left over or noted, and every speed change reads back.
+    /// Returns what's wrong, or null.
+    /// </summary>
+    internal static string? CheckOszChart(string text, int lanes, int[] counts)
+    {
+        var parsed = ChartText.Parse(text);
+        var problems = new List<string>();
+        var slots = parsed.SongSlots(lanes, problems);
+        if (problems.Count > 0) return problems[0];
+        for (int s = 0; s < counts.Length; s++)
+            if ((slots[s] != null) != (counts[s] >= 0)) return $"{ChartText.GameDifficultyLabels[s]} isn't where it should be";
+        var notices = new List<string>();
+        string? check = BattleChartFile.Check(text, lanes, counts.Select(c => Math.Max(0, c)).ToArray(), notices);
+        if (check != null) return check;
+        if (notices.Count > 0) return notices[0];
+        string scrolls = parsed.GetTag("SCROLLS") ?? "";
+        int written = scrolls.Trim().Length == 0 ? 0 : scrolls.Split(',').Length;
+        if (ScrollSpeeds.Parse(scrolls).Count != written) return "a speed change doesn't read back";
+        return null;
+    }
+
+    // Copies one file out of the .osz under the battle's own name for it (never the zip's name).
+    private static void CopyOszEntry(ZipArchive zip, int index, string name, long length, string staging, string target, long max)
+    {
+        if (index < 0 || index >= zip.Entries.Count) throw OszChanged();
+        var entry = zip.Entries[index];
+        if (entry.FullName != name || entry.Length != length) throw OszChanged();
+        if (length > max) throw new InvalidDataException($"{Path.GetFileName(target)} is too big ({length / (1024 * 1024)} MB)");
+        string path = Path.GetFullPath(Path.Combine(staging, target.Replace('/', Path.DirectorySeparatorChar)));
+        if (!IsInside(path, staging)) throw new InvalidDataException($"\"{target}\" points outside the battle");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using var input = entry.Open();
+        using var output = File.Create(path);
+        CopyAtMost(input, output, length, Path.GetFileName(target));
+    }
+
     /// <summary>
     /// Fills a staging folder with <paramref name="fill"/>, then moves it to a free name in
     /// <paramref name="root"/>. A failure leaves nothing behind.
@@ -223,12 +340,12 @@ internal static class BattleFiles
     }
 
     /// <summary>
-    /// Of <paramref name="candidates"/> (paths inside the battle), the song, image and enemy art
-    /// files that the saved battle no longer names anywhere: not in battle.json, the enemy's file, a
-    /// JSON file they name (like the dialogue), or the chart's #MUSIC. Paths are compared as the
-    /// files they point at, so "audio/./a.ogg" and "audio/a.ogg" are the same file. Only files in
-    /// audio/, images/ and art/ are ever listed, and nothing is when a file that could name them
-    /// can't be read.
+    /// Of <paramref name="candidates"/> (paths inside the battle), the song, image, enemy art and
+    /// speaker picture files that the saved battle no longer names anywhere: not in battle.json,
+    /// the enemy's file, a JSON file they name (like the dialogue), or the chart's #MUSIC. Paths are
+    /// compared as the files they point at, so "audio/./a.ogg" and "audio/a.ogg" are the same file.
+    /// Only files in audio/, images/, art/ and portraits/ are ever listed, and nothing is when a
+    /// file that could name them can't be read.
     /// </summary>
     internal static List<string> Unreferenced(string folder, IEnumerable<string> candidates)
     {
@@ -258,7 +375,7 @@ internal static class BattleFiles
             string? full = FileIn(folder, candidate);
             if (full == null || used.Contains(full) || unused.Contains(full, StringComparer.OrdinalIgnoreCase)) continue;
             string inside = Path.GetRelativePath(folder, full).Replace('\\', '/');
-            if (!new[] { "audio/", "images/", "art/" }.Any(f => inside.StartsWith(f, StringComparison.OrdinalIgnoreCase))) continue;
+            if (!new[] { "audio/", "images/", "art/", "portraits/" }.Any(f => inside.StartsWith(f, StringComparison.OrdinalIgnoreCase))) continue;
             if (File.Exists(full)) unused.Add(full);
         }
         return unused;
@@ -474,7 +591,8 @@ internal static class BattleFiles
     /// <summary>
     /// The loader's problems with a battle, in the creator's words: the chart's as the Charts page
     /// says them (the difficulty tabs' names, lane counts), the enemy's as the Enemy page says it,
-    /// a beat 0 before the song as the Charts page's offset line says it, and game asset names like
+    /// a beat 0 before the song as the Charts page's offset line says it, the dialogue's as the
+    /// Dialogue page says them (the reader words each both ways), and game asset names like
     /// "EnemyData_Yako" as the enemy's name. The loader's own messages are made again from the
     /// same battle to find them; the rest stay as the loader words them.
     /// </summary>
@@ -503,6 +621,8 @@ internal static class BattleFiles
         // from 0 (the Timing tab's "-10 ms"). This is BattlePackage.Load's message for it.
         string offset = package.Offset.ToString("0.###", CultureInfo.InvariantCulture);
         string loaderOffset = $"#OFFSET is {offset} s, so beat 0 comes before the audio starts; notes in the chart's first {offset} s can't be played";
+        var dialogue = new Dictionary<string, string>();
+        foreach (var p in package.Dialogue.Problems) dialogue.TryAdd(p.Text, p.Plain);
 
         var words = new List<string>();
         bool chartDone = false;
@@ -523,6 +643,7 @@ internal static class BattleFiles
                 words.Add($"custom art needs an idle; until it has one, the enemy looks like {EnemyChoices.NameOf(look)}");
             else if (problem == scriptedBoss)
                 words.Add($"scripted bosses can't take custom art, so {EnemyChoices.NameOf(EnemyPlaceholders.Default)} fights instead (the Enemy page picks another)");
+            else if (dialogue.TryGetValue(problem, out var plain)) words.Add(plain);
             else words.Add(AssetName.Replace(problem, m => EnemyChoices.NameOf(m.Value)));
         }
         return words;
@@ -728,7 +849,8 @@ internal static class BattleFiles
         return string.Join("/", parts);
     }
 
-    // The loader's limits for each kind of file. Enemy art in art/ may be bigger than a card image.
+    // The loader's limits for each kind of file. Enemy art in art/ may be bigger than a card image,
+    // and a speaker's picture in portraits/ smaller.
     private static long LimitFor(string name)
     {
         string ext = Path.GetExtension(name).ToLowerInvariant();
@@ -736,14 +858,15 @@ internal static class BattleFiles
         {
             ".json" => BattlePackage.MaxJsonBytes,
             ".sm" or ".ssc" => BattlePackage.MaxChartBytes,
-            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" => name.StartsWith("art/", StringComparison.OrdinalIgnoreCase)
-                ? EnemyArtReader.MaxPictureBytes : BattlePackage.MaxImageBytes,
+            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" => name.StartsWith("art/", StringComparison.OrdinalIgnoreCase) ? EnemyArtReader.MaxPictureBytes
+                : name.StartsWith("portraits/", StringComparison.OrdinalIgnoreCase) ? DialogueReader.MaxPortraitBytes
+                : BattlePackage.MaxImageBytes,
             _ => BattlePackage.MaxAudioBytes,
         };
     }
 
     // A zip entry can say one size and hold more; stop at what it says.
-    private static void CopyAtMost(Stream input, Stream output, long max, string name)
+    internal static void CopyAtMost(Stream input, Stream output, long max, string name)
     {
         var buffer = new byte[81920];
         long copied = 0;
@@ -756,7 +879,7 @@ internal static class BattleFiles
         }
     }
 
-    private static string ReadEntryText(ZipArchiveEntry entry, long max)
+    internal static string ReadEntryText(ZipArchiveEntry entry, long max)
     {
         using var stream = entry.Open();
         using var copy = new MemoryStream();
