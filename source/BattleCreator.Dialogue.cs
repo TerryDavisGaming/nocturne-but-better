@@ -102,10 +102,13 @@ internal static partial class BattleCreator
         AddButton(p, Slot(0), y, w7, RowH, "Add line", AddDialogueLine, onLines);
         AddButton(p, Slot(1), y, w7, RowH, "Reply", ReplyToLine, lineChosen);
         AddButton(p, Slot(2), y, w7, RowH, "Copy", CopyDialogueLine, lineChosen);
+        // 18, so "Move down" fits in a seventh of the column.
         var up = AddButton(p, Slot(3), y, w7, RowH, "", () => MoveDialogueLine(-1), lineChosen);
         up.Text = () => dialogueTab == DialogueTab.During ? "Earlier" : "Move up";
+        up.Label.fontSize = 18;
         var down = AddButton(p, Slot(4), y, w7, RowH, "", () => MoveDialogueLine(1), lineChosen);
         down.Text = () => dialogueTab == DialogueTab.During ? "Later" : "Move down";
+        down.Label.fontSize = 18;
         // Also for an item that isn't a line (written by hand), which can only be deleted.
         AddButton(p, Slot(5), y, w7, RowH, "Delete", DeleteDialogueLine, () => onLines() && ChosenInList);
         AddButton(p, Slot(0), y, 2 * w7 + 8, RowH, "New speaker...", () => NewSpeaker(forLine: false), onSpeakers);
@@ -124,18 +127,19 @@ internal static partial class BattleCreator
         AddHeader(p, Col2, ref y2, Col2W, "Preview");
         BuildDialoguePreview(p, y2);
         y2 -= PreviewH + 8;
-        var play = AddButton(p, Col2, y2, 110, RowH, "", ToggleDialoguePlay, onLines);
+        // Widths for the labels: the menu font is monospaced, 13 units a letter at 20, 11 at 17.
+        var play = AddButton(p, Col2, y2, 80, RowH, "", ToggleDialoguePlay, onLines);
         play.Text = () => dialoguePlay != null ? "Stop" : "Play";
         play.Active = () => dialoguePlay != null;
-        var closeUp = AddButton(p, Col2 + 118, y2, 130, RowH, "Close up", () => dialogueCloseUp = !dialogueCloseUp, onLines);
+        var closeUp = AddButton(p, Col2 + 88, y2, 118, RowH, "Close up", () => dialogueCloseUp = !dialogueCloseUp, onLines);
         closeUp.Active = () => dialogueCloseUp;
         var speakerCloseUp = AddButton(p, Col2, y2, 130, RowH, "Close up", () => dialogueCloseUp = !dialogueCloseUp, onSpeakers);
         speakerCloseUp.Active = () => dialogueCloseUp;
-        var test = AddButton(p, Col2 + 256, y2, 190, RowH, "Test in a battle", () => TestDialogue(fromLine: false), () => onLines() && AnythingCharted());
-        test.Label.fontSize = 18;
-        var testLine = AddButton(p, Col2 + 454, y2, 186, RowH, "Test from this line", () => TestDialogue(fromLine: true),
+        var test = AddButton(p, Col2 + 214, y2, 190, RowH, "Test in a battle", () => TestDialogue(fromLine: false), () => onLines() && AnythingCharted());
+        test.Label.fontSize = 17;
+        var testLine = AddButton(p, Col2 + 412, y2, Col2W - 412, RowH, "Test from this line", () => TestDialogue(fromLine: true),
             () => lineChosen() && dialogueTab == DialogueTab.During && AnythingCharted() && ChosenTime() != null);
-        testLine.Label.fontSize = 18;
+        testLine.Label.fontSize = 17;
         y2 -= RowStep;
         BuildLineEditor(p, y2, lineChosen);
         BuildSpeakerEditor(p, y2, speakerChosen);
@@ -237,13 +241,13 @@ internal static partial class BattleCreator
         AddText(p, Col2, ref emptyY, Col2W, 50, () => "Only the one picture. Add expression... adds more faces, like angry or hurt.", 17,
             () => speakerChosen() && ChosenFaces().Count == 0);
         y -= FaceRowsVisible * FaceRowStep;
-        float q = (Col2W - 3 * 8) / 4f;
+        // Widths for the labels (the menu font is monospaced): "Add expression..." needs 188 at 17.
         Func<bool> faceChosen = () => speakerChosen() && chosenFace >= 0 && chosenFace < ChosenFaces().Count;
-        var add = AddButton(p, Col2, y, q, RowH, "Add expression...", AddSpeakerFace, speakerChosen);
+        var add = AddButton(p, Col2, y, 200, RowH, "Add expression...", AddSpeakerFace, speakerChosen);
         add.Label.fontSize = 17;
-        AddButton(p, Col2 + (q + 8), y, q, RowH, "Rename", () => StartTyping(FaceNameField), faceChosen);
-        AddButton(p, Col2 + 2 * (q + 8), y, q, RowH, "Picture...", ChooseFacePicture, faceChosen);
-        AddButton(p, Col2 + 3 * (q + 8), y, q, RowH, "Remove", RemoveSpeakerFace, faceChosen);
+        AddButton(p, Col2 + 208, y, 124, RowH, "Rename", () => StartTyping(FaceNameField), faceChosen);
+        AddButton(p, Col2 + 340, y, 160, RowH, "Picture...", ChooseFacePicture, faceChosen);
+        AddButton(p, Col2 + 508, y, Col2W - 508, RowH, "Remove", RemoveSpeakerFace, faceChosen);
         y -= RowStep;
 
         var side = AddButton(p, Col2, y, half, RowH, "", ToggleSpeakerSide, speakerChosen);
@@ -616,18 +620,20 @@ internal static partial class BattleCreator
 
     // Who answers the chosen line: the player, unless she said it. Then the last one before her
     // who isn't the player or the Narrator (in this section, else anywhere in the battle's lines),
-    // else the battle's first speaker of its own, else the Narrator.
+    // else the battle's first speaker of its own, else the Narrator. A speaker of the battle's own
+    // with her id (written by hand) takes her place, since that key wins over the game's Karma.
     private static string ReplySpeaker()
     {
-        if (!IsPlayer(ChosenSpeakerId)) return PlayerId;
+        string player = draft!.SpeakerKeys().FirstOrDefault(DialogueReader.IsPlayer) ?? PlayerId;
+        if (!DialogueReader.IsPlayer(ChosenSpeakerId)) return player;
         var section = ShownSection;
-        bool Other(string? id) => (id ?? "").Trim() is { Length: > 0 } s && !IsPlayer(s) && WhoIs(s) != Who.Narrator;
+        bool Other(string? id) => (id ?? "").Trim() is { Length: > 0 } s && !DialogueReader.IsPlayer(s) && WhoIs(s) != Who.Narrator;
         for (int r = lineRows.IndexOf(chosenLine) - 1; r >= 0; r--)
-            if (draft!.LineText(section, lineRows[r], "speaker") is { } id && Other(id)) return id.Trim();
+            if (draft.LineText(section, lineRows[r], "speaker") is { } id && Other(id)) return id.Trim();
         foreach (DialogueSection s in Enum.GetValues(typeof(DialogueSection)))
-            for (int i = 0; i < draft!.LineCount(s); i++)
+            for (int i = 0; i < draft.LineCount(s); i++)
                 if (draft.LineText(s, i, "speaker") is { } id && Other(id)) return id.Trim();
-        return draft!.SpeakerKeys().FirstOrDefault() ?? DialogueReader.Narrator;
+        return draft.SpeakerKeys().FirstOrDefault(k => !DialogueReader.IsPlayer(k)) ?? DialogueReader.Narrator;
     }
 
     // When a reply during the song goes. To a line that stops the song: in the same stop, right
@@ -635,10 +641,11 @@ internal static partial class BattleCreator
     private static (string, JsonNode?)[] ReplyWhen()
     {
         if (ChosenTime() is not double start) return NextWhen();
+        // The chosen line's own beat or time as written, not rounded: only lines at the very same time are one stop.
         if (ChosenStops())
-            return LineNumber("beat") is double at
-                ? new (string, JsonNode?)[] { ("beat", BattleDraft.ArtNumberNode(at)), ("time", null), ("pause", JsonValue.Create(true)) }
-                : new (string, JsonNode?)[] { ("time", BattleDraft.ArtNumberNode(start)), ("beat", null), ("pause", JsonValue.Create(true)) };
+            return LineNumber("beat") != null
+                ? new (string, JsonNode?)[] { ("beat", draft!.LineValueCopy(ShownSection, chosenLine, "beat")), ("time", null), ("pause", JsonValue.Create(true)) }
+                : new (string, JsonNode?)[] { ("time", draft!.LineValueCopy(ShownSection, chosenLine, "time")), ("beat", null), ("pause", JsonValue.Create(true)) };
         double shows = LineNumber("duration") is double d ? Math.Clamp(d, DialogueReader.MinDuration, DialogueReader.MaxDuration)
             : DialogueReader.LiveSeconds(DialogueReader.CleanText(LineValue("text"), out _));
         double beat = Math.Ceiling(Math.Round(dialogueTiming.SecondsToBeat(start + shows), 3));

@@ -1048,6 +1048,10 @@ internal sealed class BattleDraft
     /// <summary>A line's number (like "time" or "duration"), or null when it has none.</summary>
     internal double? LineNumber(DialogueSection section, int index, string key) => LineAt(section, index) is { } line ? GetNumber(line, key) : null;
 
+    /// <summary>A copy of a line's value exactly as written (null when it has none), for a new line that must match it.</summary>
+    internal JsonNode? LineValueCopy(DialogueSection section, int index, string key) =>
+        LineAt(section, index)?[key] is { } value ? JsonNode.Parse(value.ToJsonString(), NodeOptions) : null;
+
     /// <summary>Whether a line has a key set to true (like "pause").</summary>
     internal bool LineFlag(DialogueSection section, int index, string key) => LineAt(section, index) is { } line && Flag(line, key);
 
