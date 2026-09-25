@@ -487,15 +487,18 @@ internal static class CustomBattles
             try
             {
                 var bytes = package.Files.ReadAllBytes(package.CardPath, BattlePackage.MaxImageBytes);
-                var texture = CardImages.Decode(bytes, package.ScoreKey + "/card");
+                // Cards are kept for the session, so a big image is kept at the size the arcade needs.
+                var texture = CardImages.Decode(bytes, package.ScoreKey + "/card", CardImages.MaxCardSide, out float scale, out string? refused);
                 if (texture != null)
                 {
                     made.Add(texture);
-                    var sprite = CardImages.ToSprite(texture);
+                    var sprite = CardImages.ToSprite(texture, scale);
                     made.Add(sprite);
                     return (sprite, texture);
                 }
-                Note($"Custom battle {package.Title}: {package.CardPath} isn't a PNG or JPEG the game can read, so its card is plain for now.");
+                Note(refused != null
+                    ? $"Custom battle {package.Title}: {package.CardPath} {refused}, so its card is plain."
+                    : $"Custom battle {package.Title}: {package.CardPath} isn't a PNG or JPEG the game can read, so its card is plain for now.");
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException)
             {
@@ -515,9 +518,28 @@ internal static class CustomBattles
         private static bool looked;
         private static Sprite? placeholder;
 
-        /// <summary>A PNG or JPEG as a texture, or null when it can't be decoded.</summary>
-        internal static Texture2D? Decode(byte[] bytes, string name)
+        /// <summary>The longest side an arcade card is kept at; a bigger image is scaled down to it.</summary>
+        internal const int MaxCardSide = 1024;
+        /// <summary>A card image bigger than this on a side isn't decoded at all (8192 x 8192 is 256 MB while decoding).</summary>
+        internal const int MaxDecodeSide = 8192;
+        private static bool reportedScaling;
+
+        /// <summary>A PNG or JPEG as a texture at its own size, or null when it can't be decoded.</summary>
+        internal static Texture2D? Decode(byte[] bytes, string name) => Decode(bytes, name, 0, out _, out _);
+
+        /// <summary>
+        /// A PNG or JPEG as a texture, or null when it can't be decoded. The texture keeps no copy in
+        /// system memory (nothing reads its pixels back).
+        /// </summary>
+        /// <param name="maxSide">
+        /// When above 0, a bigger image is scaled down so neither side is over it, and one over
+        /// <see cref="MaxDecodeSide"/> isn't decoded (<paramref name="refused"/> says why).
+        /// </param>
+        /// <param name="scale">The texture's size over the image's: 1 unless it was scaled down.</param>
+        internal static Texture2D? Decode(byte[] bytes, string name, int maxSide, out float scale, out string? refused)
         {
+            scale = 1f;
+            refused = null;
             if (!looked)
             {
                 looked = true;
@@ -526,9 +548,15 @@ internal static class CustomBattles
                 else ModLog.Info("Custom battles: the game has no image decoder, so cards are plain.");
             }
             if (loadImage == null || bytes.Length == 0) return null;
+            if (maxSide > 0 && ImageSize.Read(bytes) is { } size && (size.Width > MaxDecodeSide || size.Height > MaxDecodeSide))
+            {
+                refused = $"is {size.Width} x {size.Height} pixels; a card can be at most {MaxDecodeSide} on a side";
+                return null;
+            }
             var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = name, hideFlags = HideFlags.HideAndDontSave };
             var data = new Il2CppStructArray<byte>(bytes);
-            bool loaded = loadImage(texture.Pointer, data.Pointer, 0) != 0;
+            // Not readable: the decoded pixels go to the graphics card and the copy in memory is freed.
+            bool loaded = loadImage(texture.Pointer, data.Pointer, 1) != 0;
             GC.KeepAlive(data);
             if (!loaded || texture.width < 1 || texture.height < 1)
             {
@@ -537,13 +565,100 @@ internal static class CustomBattles
             }
             texture.wrapMode = TextureWrapMode.Clamp;
             texture.filterMode = FilterMode.Bilinear;
+            if (maxSide > 0 && (texture.width > maxSide || texture.height > maxSide))
+            {
+                var smaller = ScaledDown(texture, maxSide);
+                if (smaller != null)
+                {
+                    scale = smaller.width / (float)texture.width;
+                    Object.Destroy(texture);
+                    texture = smaller;
+                }
+            }
             return texture;
         }
 
-        internal static Sprite ToSprite(Texture2D texture)
+        // Scales a texture down on the graphics card, halving it in steps so no pixels are skipped,
+        // and reads the result into a new texture. Null (and the full-size texture is used) if that fails.
+        private static Texture2D? ScaledDown(Texture2D source, int maxSide)
+        {
+            float factor = maxSide / (float)Math.Max(source.width, source.height);
+            int width = Math.Clamp((int)Math.Round(source.width * factor), 1, maxSide);
+            int height = Math.Clamp((int)Math.Round(source.height * factor), 1, maxSide);
+            RenderTexture? previous = null, current = null;
+            Texture2D? result = null;
+            try
+            {
+                previous = RenderTexture.active;
+                Texture from = source;
+                int w = source.width, h = source.height;
+                while (w / 2 >= width && h / 2 >= height)
+                {
+                    w /= 2;
+                    h /= 2;
+                    current = Blit(from, w, h, current);
+                    from = current;
+                }
+                current = Blit(from, width, height, current);
+                RenderTexture.active = current;
+                result = new Texture2D(width, height, TextureFormat.RGBA32, false) { name = source.name, hideFlags = HideFlags.HideAndDontSave };
+                result.ReadPixels(new Rect(0f, 0f, width, height), 0, 0, false);
+                // A copy that came out empty (nothing drawn) would leave the card blank; the full-size image is better.
+                if (Blank(result)) throw new InvalidOperationException("the scaled image came out empty");
+                // Uploaded, and the copy in memory freed.
+                result.Apply(false, true);
+                result.wrapMode = TextureWrapMode.Clamp;
+                result.filterMode = FilterMode.Bilinear;
+                return result;
+            }
+            catch (Exception ex)
+            {
+                if (result != null && result) Object.Destroy(result);
+                if (!reportedScaling)
+                {
+                    reportedScaling = true;
+                    ModLog.Error("Custom battles: scaling a card image down failed, so big cards keep their full size: " + ex);
+                }
+                return null;
+            }
+            finally
+            {
+                try
+                {
+                    RenderTexture.active = previous;
+                    if (current != null) RenderTexture.ReleaseTemporary(current);
+                }
+                catch { }
+            }
+        }
+
+        // Whether 64 pixels across the image are all fully transparent black.
+        private static bool Blank(Texture2D texture)
+        {
+            for (int y = 0; y < 8; y++)
+                for (int x = 0; x < 8; x++)
+                {
+                    var c = texture.GetPixel((2 * x + 1) * texture.width / 16, (2 * y + 1) * texture.height / 16);
+                    if (c.a > 0f || c.r > 0f || c.g > 0f || c.b > 0f) return false;
+                }
+            return true;
+        }
+
+        // One step: from into a new temporary render texture of the given size; the last step's is released.
+        private static RenderTexture Blit(Texture from, int width, int height, RenderTexture? last)
+        {
+            var next = RenderTexture.GetTemporary(width, height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Default);
+            next.filterMode = FilterMode.Bilinear;
+            Graphics.Blit(from, next);
+            if (last != null) RenderTexture.ReleaseTemporary(last);
+            return next;
+        }
+
+        /// <param name="scale">The texture's size over the image's, so a scaled-down card keeps the size the image would have.</param>
+        internal static Sprite ToSprite(Texture2D texture, float scale = 1f)
         {
             var sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f),
-                100f, 0u, SpriteMeshType.FullRect, Vector4.zero);
+                100f * scale, 0u, SpriteMeshType.FullRect, Vector4.zero);
             sprite.name = texture.name;
             sprite.hideFlags = HideFlags.HideAndDontSave;
             return sprite;
