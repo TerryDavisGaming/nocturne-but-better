@@ -463,12 +463,9 @@ internal static partial class BattleCreator
     /// </summary>
     private static bool OpenCharts(string folder, string chartPath, string audioPath, int lanes, string title, int slot, Action onClosed)
     {
-        // TRACK E MERGE: replace this body with
-        //     ChartEditor.OpenBattle(new BattleChartTarget(folder, chartPath, audioPath, lanes, title, onClosed), slot);
-        //     return ChartEditor.IsOpen;
-        Say("The chart editor for battles comes in the next build.", 5f);
-        ModLog.Info($"Battle creator: asked to chart {folder} ({SlotName(slot)}, {lanes} lanes, {chartPath}, {audioPath}); the chart editor for battles isn't in this build.");
-        return false;
+        // A failed open still calls onClosed (a frame later); ChartsClosed ignores it then.
+        ChartEditor.OpenBattle(new BattleChartTarget(folder, chartPath, audioPath, lanes, title, onClosed), slot);
+        return ChartEditor.IsOpen;
     }
 
     private static string SlotName(int slot) => slot >= 0 && slot < ChartText.GameDifficultyLabels.Length ? ChartText.GameDifficultyLabels[slot] : "any difficulty";
