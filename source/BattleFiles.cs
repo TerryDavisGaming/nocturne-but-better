@@ -283,6 +283,8 @@ internal static class BattleFiles
         internal bool Broken;
         /// <summary>The loader takes it (it has a chart and everything it needs), so the arcade lists it unless an earlier battle has its id.</summary>
         internal bool Loads;
+        /// <summary>What the battle sets for the player, like "set gear, level 12"; empty when it sets neither.</summary>
+        internal string Overrides = "";
     }
 
     /// <summary>
@@ -349,6 +351,7 @@ internal static class BattleFiles
             for (int s = 0; s < package.Slots.Length; s++)
                 if (package.Slots[s] != null) entry.Charted.Add(ChartText.GameDifficultyLabels[s]);
             entry.Problems.AddRange(package.Problems);
+            entry.Overrides = BattleNotice.Summary(package.Gear.IsSet, package.Level.Level);
             entry.Loads = true;
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or UnauthorizedAccessException)
@@ -373,6 +376,7 @@ internal static class BattleFiles
         if (draft.Title.Trim().Length > 0) entry.Title = draft.Title.Trim();
         entry.Artist = draft.Artist.Trim();
         entry.Lanes = draft.Lanes;
+        entry.Overrides = BattleNotice.Summary(draft.SetGear, draft.SetLevel ? draft.LevelValue : null);
         var summary = SummarizeChart(path, draft.ChartPath, entry.Lanes);
         for (int s = 0; s < summary.Notes.Length; s++)
             if (summary.Notes[s] >= 0) entry.Charted.Add(ChartText.GameDifficultyLabels[s]);
@@ -381,7 +385,8 @@ internal static class BattleFiles
             // The loader's own checks, as the arcade will see the battle.
             try
             {
-                entry.Problems.AddRange(BattlePackage.Load(path).Problems);
+                // The draft reads gear and level with the loader's words; each problem is listed once.
+                entry.Problems.AddRange(BattlePackage.Load(path).Problems.Where(p => !draft.Problems.Contains(p)));
                 entry.Loads = true;
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or UnauthorizedAccessException)

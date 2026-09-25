@@ -456,14 +456,8 @@ internal static class CustomBattles
         return info;
     }
 
-    private static string LoreText(BattlePackage package)
-    {
-        if (package.Lore.Length > 0) return package.Lore;
-        var lines = new List<string>();
-        if (package.Artist.Length > 0) lines.Add("Music by " + package.Artist);
-        if (package.Author.Length > 0) lines.Add("Chart by " + package.Author);
-        return string.Join("\n", lines);
-    }
+    /// <summary>A battle's lore, or who made its song and charts when it has none.</summary>
+    internal static string LoreText(BattlePackage package) => BattleNotice.Credits(package.Lore, package.Artist, package.Author);
 
     private static CustomMusic.Source MusicSource(BattlePackage package)
     {

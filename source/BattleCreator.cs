@@ -11,7 +11,7 @@ namespace NocturneFlatScroll;
 /// <summary>
 /// The battle creator: makes and edits the custom battles in the CustomBattles folder. It opens
 /// on a list of the battles (plus New, Import and Open folder); picking one opens its pages: info,
-/// song, charts, enemy, gear and dialogue. It looks and works like the chart editor (an
+/// song, charts, enemy, gear and level, and dialogue. It looks and works like the chart editor (an
 /// <see cref="EditorUi"/> drawn over the game, Windows file pickers, mouse or keyboard), and the
 /// game's menus underneath are locked while it is open (<see cref="EditorOverlay"/>). Charting
 /// hands over to the chart editor and comes back when it closes.
@@ -301,13 +301,15 @@ internal static partial class BattleCreator
         foreach (var e in entries)
         {
             string name = e.Artist.Length > 0 ? $"{e.Title} - {e.Artist}" : e.Title;
-            if (e.IsZip) lines.Add($"zip: {name}  (choose it to import and edit)");
+            // What the battle sets for the player, like "set gear, level 12".
+            string overrides = e.Overrides.Length > 0 ? "   " + e.Overrides : "";
+            if (e.IsZip) lines.Add($"zip: {name}  (choose it to import and edit){overrides}");
             else if (e.Broken) lines.Add($"{name}  (battle.json can't be read)");
             else
             {
                 string charted = e.Charted.Count > 0 ? string.Join(", ", e.Charted) : "not charted yet";
                 string problems = e.Problems.Count == 0 ? "" : e.Problems.Count == 1 ? "   1 problem" : $"   {e.Problems.Count} problems";
-                lines.Add($"{name}  ({e.Lanes} lanes; {charted}){problems}");
+                lines.Add($"{name}  ({e.Lanes} lanes; {charted}){overrides}{problems}");
             }
         }
         return lines;
