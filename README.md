@@ -98,7 +98,7 @@ ctrl+s saves it as a custom difficulty and PICKS IT FOR THAT SONG, so your next 
 
 a custom battle's charts save into the battle instead. in them, a five-lane battle's middle lane is labelled attack, with your own attack key under it, and dialogue lines said during the song get a lane of their own on the left. [charting and testing a battle](#charting-and-testing-a-battle) has the rest.
 
-saved charts go in the custom charts folder, under the song's name, as normal stepmania `.sm` files. you can also edit them in arrowvortex, stepmania, or a text editor: keep the `#NBBSONG` and `#NBBMELODY` lines at the top and the song's `#BPMS`. for the game's songs the game ignores `#OFFSET`, and so does the editor (a custom battle's `#OFFSET` counts; see [charting and testing a battle](#charting-and-testing-a-battle)). scroll speed changes are the standard `#SCROLLS` tag.
+saved charts go in the custom charts folder, under the song's name, as normal stepmania `.sm` files. you can also edit them in arrowvortex, stepmania, or a text editor: keep the `#NBBSONG` and `#NBBMELODY` lines at the top and the song's `#BPMS`. for the game's songs the game ignores `#OFFSET`, and so does the editor. a custom battle's `#OFFSET` counts, and so does a custom chart's when its own `#MUSIC` file plays (see [charting and testing a battle](#charting-and-testing-a-battle)). scroll speed changes are the standard `#SCROLLS` tag.
 
 ## custom battles
 
@@ -114,7 +114,7 @@ custom battles get a chapter after the game's own chapters, on a tab called cust
 
 selecting a battle shows a box under the score on the right: what the battle sets, if it sets anything (see [gear and level](#gear-and-level)), then its lore, or who made the song and the charts when it has none.
 
-the song plays through the mod's own player, without the game's audio engine, and the battle ends a beat after the last note. five-lane battles use the game's centred five-lane layout. custom battles never count towards achievements and give no xp. the arcade keeps their scores under each battle's id, which never changes, so a battle keeps its scores through edits and new titles.
+the song plays through the mod's own player, without the game's audio engine, and the battle ends a beat after the last note. when the first note comes early in the song, the notes start up to 3 s before the song, so they scroll in from the far end of the lane instead of showing up halfway down it. five-lane battles use the game's centred five-lane layout. custom battles never count towards achievements and give no xp. the arcade keeps their scores under each battle's id, which never changes, so a battle keeps its scores through edits and new titles.
 
 ### the battle creator
 
