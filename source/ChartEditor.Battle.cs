@@ -530,7 +530,7 @@ internal static partial class ChartEditor
     {
         var target = battle!;
         var sb = new StringBuilder();
-        sb.Append($"{Escape(target.Title)}: {target.Lanes} lanes{(target.Lanes == 5 ? "; the middle lane is the attack key (Space)" : "")}.\n");
+        sb.Append($"{Escape(target.Title)}: {target.Lanes} lanes{(target.Lanes == 5 ? $"; the middle lane is the attack key ({Escape(AttackKeyName())})" : "")}.\n");
         sb.Append($"Chart {Escape(target.ChartPath)}, song {Escape(target.AudioPath)}.\n\n");
         var tabs = ChartedTabs();
         var charted = Enumerable.Range(0, BattleChartFile.SlotCount).Where(s => tabs[s]).Select(s => $"{SlotName(s)} ({NoteCount(s)})").ToList();
