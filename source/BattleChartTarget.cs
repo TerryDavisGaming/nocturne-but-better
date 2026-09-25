@@ -27,6 +27,12 @@ internal sealed record BattleChartTarget(string Folder, string ChartPath, string
     internal Func<string?>? DialogueJson { get; init; }
 
     /// <summary>
+    /// The battle creator's lines during the song, which the chart editor shows and edits in the
+    /// creator's draft; null (a battle opened from its folder) shows battle.json's, read-only.
+    /// </summary>
+    internal DialogueLink? Dialogue { get; init; }
+
+    /// <summary>
     /// Reads what the editor needs from a battle folder's battle.json: the chart it names, the
     /// song (battle.json's "audio", else the chart's #MUSIC), the lanes (else those of the
     /// chart's first difficulty with notes, else 4) and the title. Nothing else is checked, so a
@@ -99,7 +105,7 @@ internal sealed record BattleChartTarget(string Folder, string ChartPath, string
 /// <summary>
 /// One line during the song as the chart editor edits it: the values it shows and changes, and
 /// the line as battle.json has it, so whatever else the line has is kept (see
-/// BattleDraft.SetDuringCues). This file has no Unity or game dependencies.
+/// BattleDraft.SetDuringCues).
 /// </summary>
 internal sealed class DialogueCue
 {
@@ -118,4 +124,28 @@ internal sealed class DialogueCue
     internal bool Pause;
 
     internal DialogueCue Copy() => (DialogueCue)MemberwiseClone();
+}
+
+/// <summary>
+/// The battle creator's lines during the song for the chart editor (see
+/// <see cref="BattleChartTarget.Dialogue"/>): the lines stay in the creator's draft of battle.json,
+/// so there is one copy. The editor sets them after each change, so a test uses them at once, and
+/// its Save saves the creator's battle too. Without <see cref="Set"/> they can only be looked at.
+/// </summary>
+internal sealed class DialogueLink
+{
+    /// <summary>The lines during the song, as the draft has them now.</summary>
+    internal Func<List<DialogueCue>> Get = () => new List<DialogueCue>();
+    /// <summary>Puts the editor's lines in the draft, in its order; null when they can't be changed.</summary>
+    internal Action<List<DialogueCue>>? Set;
+    /// <summary>The battle creator's Save (battle.json, and the dialogue's own file); true when it saved.</summary>
+    internal Func<bool>? Save;
+    /// <summary>The name a speaker shows as (the battle's own speaker's name, a game character's, "Narrator").</summary>
+    internal Func<string, string> NameOf = id => id;
+    /// <summary>Who the editor offers for a line: the battle's own speakers, the game characters it uses, the Narrator.</summary>
+    internal Func<List<(string Id, string Label)>> Speakers = () => new List<(string, string)>();
+    /// <summary>Opens a line (by its place in the list the editor set last) on the creator's Dialogue page once the editor closes.</summary>
+    internal Action<int>? ShowInCreator;
+
+    internal bool ReadOnly => Set == null;
 }

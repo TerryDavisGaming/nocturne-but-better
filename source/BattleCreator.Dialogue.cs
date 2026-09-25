@@ -862,11 +862,13 @@ internal static partial class BattleCreator
 
     /// <summary>
     /// The speaker picker's rows: New speaker..., the battle's own speakers, the game characters
-    /// its lines already use, the Narrator, then every game character with faces, A to Z.
+    /// its lines already use, the Narrator, then every game character with faces, A to Z. Without
+    /// <paramref name="all"/> (the chart editor's short list), only the middle three.
     /// </summary>
-    private static List<SpeakerChoice> SpeakerChoices()
+    private static List<SpeakerChoice> SpeakerChoices(bool all = true)
     {
-        var list = new List<SpeakerChoice> { new() { Label = "New speaker...", New = true } };
+        var list = new List<SpeakerChoice>();
+        if (all) list.Add(new SpeakerChoice { Label = "New speaker...", New = true });
         foreach (var key in draft!.SpeakerKeys()) list.Add(new SpeakerChoice { Label = $"{SpeakerName(key)} (yours)", Id = key });
         var used = new List<string>();
         foreach (DialogueSection section in Enum.GetValues(typeof(DialogueSection)))
@@ -876,8 +878,8 @@ internal static partial class BattleCreator
                     used.Add(FindGame(id)?.Id ?? id);
         foreach (var id in used) list.Add(new SpeakerChoice { Label = GameLabel(id), Id = id });
         list.Add(new SpeakerChoice { Label = "Narrator (no picture)", Id = DialogueReader.Narrator });
-        if (GameCharacters() is { } all)
-            foreach (var c in all.Where(c => c.Portrait).OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ThenBy(c => c.Id, StringComparer.Ordinal))
+        if (all && GameCharacters() is { } everyone)
+            foreach (var c in everyone.Where(c => c.Portrait).OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ThenBy(c => c.Id, StringComparer.Ordinal))
                 list.Add(new SpeakerChoice { Label = GameLabel(c.Id), Id = c.Id });
         return list;
     }
@@ -1397,6 +1399,40 @@ internal static partial class BattleCreator
         Say(lines == 0 ? $"Deleted {name}. Undo brings it back."
             : withLines ? $"Deleted {name} and {lines} line{(lines == 1 ? "" : "s")}. Undo brings them back."
             : $"Deleted {name}; the Narrator says its {lines} line{(lines == 1 ? "" : "s")}. Undo brings it back.", 5f);
+    }
+
+    // ---- the chart editor ------------------------------------------------------------------------
+
+    /// <summary>
+    /// The chart editor's hold on the draft's lines during the song (see DialogueLink): it shows
+    /// them, puts its changes in the draft, and its Save is this Save. Null when the dialogue
+    /// can't be changed (the editor then shows the saved lines to look at).
+    /// </summary>
+    private static DialogueLink? DialogueLinkFor(BattleDraft d)
+    {
+        if (d.DialogueLocked != null) return null;
+        return new DialogueLink
+        {
+            Get = () => draft == d ? d.DuringCues() : new List<DialogueCue>(),
+            Set = cues =>
+            {
+                if (draft == d && d.DialogueLocked == null) d.SetDuringCues(cues);
+            },
+            Save = () => draft == d && Save(),
+            NameOf = id => draft == d ? SpeakerLabel(id) : id,
+            Speakers = () => draft == d ? SpeakerChoices(all: false).Select(c => (c.Id, c.Label)).ToList() : new List<(string, string)>(),
+            ShowInCreator = index =>
+            {
+                if (draft != d) return;
+                // The line shows on the Dialogue page once the creator is back.
+                StopDialoguePlay();
+                dialogueTab = DialogueTab.During;
+                chosenLine = index;
+                followedRow = -1;
+                RefreshRows();
+                SetPage(Page.Dialogue);
+            },
+        };
     }
 
     // ---- tests -----------------------------------------------------------------------------------

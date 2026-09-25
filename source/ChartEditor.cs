@@ -73,6 +73,7 @@ internal static partial class ChartEditor
         EditorOverlay.Leave(OverlayOwner);
         exportDialog = null;
         typing = TextField.None;
+        EditorInput.EndText();
         keyMap.Rebinding = null;
         notePool.Clear();
         linePool.Clear();
@@ -87,6 +88,7 @@ internal static partial class ChartEditor
         var closedBattle = battle;
         if (closedBattle == null) return;
         battle = null;
+        ClearDialogue();
         openTest = null;
         closeAfterTest = false;
         closePrompt = false;

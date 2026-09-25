@@ -619,6 +619,7 @@ internal static partial class BattleCreator
         {
             Manifest = () => draft?.ManifestJson(),
             DialogueJson = () => draft?.DialogueJson(),
+            Dialogue = draft != null ? DialogueLinkFor(draft) : null,
         }, slot, test);
         return ChartEditor.IsOpen;
     }

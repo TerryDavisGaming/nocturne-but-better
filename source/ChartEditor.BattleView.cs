@@ -175,7 +175,10 @@ internal static partial class ChartEditor
         box.sizeDelta = new Vector2(760, 250);
         var text = MakeText("Text", box, 28, TextAlignmentOptions.Center);
         Place(text.rectTransform, new Vector2(0.5f, 1), new Vector2(0, -26), new Vector2(700, 110));
-        text.text = "Unsaved changes\n<size=70%><color=#9D92B4>Save the chart before closing?</color></size>";
+        // Dialogue line edits are already in the battle creator's draft, so they stay either way.
+        Ui.AddLiveText(text, () => "Unsaved changes\n<size=70%><color=#9D92B4>" +
+            (cuesChanged ? "Save the chart and battle.json before closing? The dialogue lines stay in the Battle creator either way." : "Save the chart before closing?") +
+            "</color></size>");
         var choices = new (string Label, string Key, Action Do)[]
         {
             ("Save", "Enter", PromptSave), ("Discard", "D", Close), ("Cancel", "Esc", () => closePrompt = false),
