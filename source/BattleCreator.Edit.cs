@@ -880,8 +880,11 @@ internal static partial class BattleCreator
             }
             // What the arcade's box and the card will say, from the same text as the arcade's.
             var input = BattleNoticeArcade.InputFor(draft);
-            string box = BattleNotice.Box(input, text => BattleNotice.FitsLines(text)) ?? "<color=#9D92B4>(nothing: the box stays hidden)</color>";
-            noticePreview = $"{box}\n\n<color=#9D92B4>On the battle's card:</color> {BattleNotice.Badge(input) ?? "no tag"}";
+            string? box = BattleNotice.Box(input, BattleNotice.FitsLines, out float size);
+            string shown = box == null ? "<color=#9D92B4>(nothing: the box stays hidden)</color>"
+                : size < BattleNotice.BoxFontSize ? box + "\n<color=#9D92B4>(in smaller text, so it all fits)</color>"
+                : box;
+            noticePreview = $"{shown}\n\n<color=#9D92B4>On the battle's card:</color> {BattleNotice.Badge(input) ?? "no tag"}";
             loreRoom = BattleNotice.LoreRoom(input);
         }
         catch (Exception ex) { ModLog.Error("Battle creator: working out the level page failed: " + ex); }

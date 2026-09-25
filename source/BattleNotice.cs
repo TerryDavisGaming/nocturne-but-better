@@ -9,8 +9,6 @@ internal sealed class NoticeInput
     internal bool GearSet;
     /// <summary>The set gear's item names in slot order (a consumable without its count, since it has one use per battle).</summary>
     internal List<string> Items = new();
-    /// <summary>How many of the six slots hold an item.</summary>
-    internal int FilledSlots;
     /// <summary>The set health upgrades, or null for the player's own.</summary>
     internal int? ExtraHealth;
     /// <summary>The level the battle plays at (kept within the game's levels), or null for the player's own.</summary>
@@ -34,12 +32,25 @@ internal static class BattleNotice
     internal static readonly GearSlot[] SlotOrder =
         { GearSlot.MainHand, GearSlot.Body, GearSlot.Head, GearSlot.OffHand, GearSlot.Amulet, GearSlot.Consumable };
 
-    /// <summary>The most a card's tag holds at its size.</summary>
-    internal const int BadgeMax = 21;
-    /// <summary>The box holds about this many lines above the arcade's footer.</summary>
+    /// <summary>
+    /// The most a card's tag holds at its size: its font is monospaced, and the QA pictures show 18 characters whole
+    /// ("Set gear &amp; level 5") and 19 cut ("Set gear &amp; level 12" showed as "Set gear &amp; level …").
+    /// </summary>
+    internal const int BadgeMax = 18;
+
+    /// <summary>The box's own font size in the arcade (its label's): the sizes here are in these points.</summary>
+    internal const float BoxFontSize = 7f;
+    /// <summary>The smallest the box's text shrinks to so that what a battle sets shows whole.</summary>
+    internal const float MinFontSize = 5f;
+    /// <summary>How much smaller each size the box tries is.</summary>
+    internal const float FontSizeStep = 0.25f;
+    /// <summary>At its own size the box holds 5 lines above the arcade's footer...</summary>
     internal const int BoxLines = 5;
-    /// <summary>About this many characters make a line of the box.</summary>
-    internal const int BoxLineChars = 52;
+    /// <summary>
+    /// ...of about 35 characters: the arcade draws the box in a monospaced font, 4.55 units a character at size 7,
+    /// in a line of 162.8 (measured in the QA pictures).
+    /// </summary>
+    internal const int BoxLineChars = 35;
 
     internal const string Ellipsis = "\u2026";
     private const string HeaderColor = "#EAE6F5";
@@ -62,7 +73,6 @@ internal static class BattleNotice
             if (string.IsNullOrWhiteSpace(shown)) continue;
             // No "x3" for a consumable's count: the game allows one consumable use per battle.
             input.Items.Add(shown!.Trim());
-            input.FilledSlots++;
         }
         if (gear.extraHealth is int health) input.ExtraHealth = Math.Clamp(health, 0, GearDefinition.MaxCount);
         return input;
@@ -82,81 +92,83 @@ internal static class BattleNotice
     // ---- the box ----------------------------------------------------------------------------------
 
     /// <summary>
-    /// The box's text (rich text): what the battle sets, then its lore. Null when there is nothing
-    /// to show. When it doesn't <paramref name="fits"/>, the lore is cut word by word (and left out
-    /// if not even a word fits), then the last line, then the gear list; what the battle sets and
-    /// its level always stay.
+    /// The box's text (rich text), and in <paramref name="size"/> the size it shows at (in the box's
+    /// points; <see cref="BoxFontSize"/> is its own). <paramref name="fits"/> says whether a text fits
+    /// the box at a size. What the battle sets always shows whole: at the box's own size when it fits,
+    /// else at the largest smaller size that fits, down to <see cref="MinFontSize"/>. Only when it
+    /// doesn't fit even then is its gear list cut from the end, with "…" (the other lines stay). The lore
+    /// follows at that size when there is room, cut word by word or left out. A battle that sets
+    /// nothing shows its lore alone at the box's own size. Null when there is nothing to show.
     /// </summary>
-    internal static string? Box(NoticeInput n, Func<string, bool> fits)
+    internal static string? Box(NoticeInput n, Func<string, float, bool> fits, out float size)
     {
-        bool level = n.Level != null, gear = n.GearSet;
-        string? header = level && gear ? "This battle sets your level and gear."
-            : level ? "This battle sets your level."
-            : gear ? "This battle sets your gear."
-            : null;
-        string? levelLine = level ? LevelLine(n.Level!.Value, n.YourLevel) : null;
-        string? footer = level && gear ? "Yours come back when it ends."
-            : level ? "Your own level comes back when it ends."
-            : gear ? "Your own gear comes back when it ends."
-            : null;
+        size = BoxFontSize;
         string lore = (n.Lore ?? "").Trim();
-        if (header == null && lore.Length == 0) return null;
-
-        string Compose(string? gearLine, string? last, string? loreText) =>
-            Join(header == null ? null : $"<color={HeaderColor}>{header}</color>", levelLine, gearLine, last, loreText);
-
-        string? fullGear = gear ? GearLine(n, n.Items.Count) : null;
-        string full = Compose(fullGear, footer, lore.Length > 0 ? lore : null);
-        if (fits(full)) return full;
-
-        // 1. The lore, word by word.
-        if (lore.Length > 0)
+        string? sets = Sets(n);
+        if (sets == null)
         {
-            string? cut = CutWords(lore, words => fits(Compose(fullGear, footer, words)));
-            if (cut != null) return Compose(fullGear, footer, cut);
-            if (header == null) return null;
-            string noLore = Compose(fullGear, footer, null);
-            if (fits(noLore)) return noLore;
+            if (lore.Length == 0) return null;
+            return fits(lore, BoxFontSize) ? lore : CutWords(lore, text => fits(text, BoxFontSize));
         }
-        // 2. The last line.
-        string noFooter = Compose(fullGear, null, null);
-        if (fits(noFooter) || !gear) return noFooter;
-        // 3. The gear list, from its end.
-        for (int shown = n.Items.Count - 1; shown >= 1; shown--)
+        float? whole = null;
+        foreach (float candidate in FontSizes())
         {
-            string shorter = Compose(GearLine(n, shown), null, null);
-            if (fits(shorter)) return shorter;
+            if (!fits(sets, candidate)) continue;
+            whole = candidate;
+            break;
         }
-        return Compose(n.Items.Count > 0 ? GearLine(n, 1) : fullGear, null, null);
+        if (whole is not float at)
+        {
+            // The last resort, at the smallest size: the gear list from its end.
+            size = MinFontSize;
+            for (int shown = n.Items.Count - 1; shown >= 1; shown--)
+            {
+                string shorter = Compose(n, shown);
+                if (fits(shorter, MinFontSize)) return shorter;
+            }
+            return Compose(n, Math.Min(1, n.Items.Count));
+        }
+        size = at;
+        if (lore.Length == 0) return sets;
+        string all = sets + "\n" + lore;
+        if (fits(all, at)) return all;
+        string? cut = CutWords(lore, words => fits(sets + "\n" + words, at));
+        return cut != null ? sets + "\n" + cut : sets;
     }
 
-    /// <summary>
-    /// About how many of the box's lines are left for the lore under what the battle sets, by the
-    /// estimate (<see cref="FitsLines"/>); 0 when what it sets fills the box.
-    /// </summary>
-    internal static int LoreRoom(NoticeInput n)
+    /// <summary>The box's whole text, as nothing trims it: what the battle sets, then all its lore. Null when there is nothing to show.</summary>
+    internal static string? Whole(NoticeInput n) => Box(n, (_, _) => true, out _);
+
+    /// <summary>What the battle sets, whole (rich text, no lore); null when it sets neither gear nor level.</summary>
+    internal static string? Sets(NoticeInput n) => n.GearSet || n.Level != null ? Compose(n, n.Items.Count) : null;
+
+    // The header, the level, the gear (the first `shown` items) and the last line.
+    private static string Compose(NoticeInput n, int shown)
     {
-        var notice = new NoticeInput
-        {
-            GearSet = n.GearSet, Items = n.Items, FilledSlots = n.FilledSlots, ExtraHealth = n.ExtraHealth, Level = n.Level, YourLevel = n.YourLevel
-        };
-        string? text = Box(notice, _ => true);
-        return Math.Max(0, BoxLines - (text == null ? 0 : CountLines(text, BoxLineChars)));
+        bool level = n.Level != null, gear = n.GearSet;
+        string header = level && gear ? "Sets your level and gear." : level ? "Sets your level." : "Sets your gear.";
+        string last = level && gear ? "Yours come back afterward." : level ? "Your level comes back afterward." : "Your gear comes back afterward.";
+        return Join($"<color={HeaderColor}>{header}</color>", level ? LevelLine(n.Level!.Value, n.YourLevel) : null, gear ? GearLine(n, shown) : null, last);
     }
 
     internal static string LevelLine(int level, int? yours) =>
         yours is not int own ? $"Level {level}."
-        : own == level ? $"Level {level} (the same as yours)."
-        : $"Level {level} (you're level {own}).";
+        : own == level ? $"Level {level} (same as yours)."
+        : $"Level {level} (yours: {own}).";
 
-    // All the items when shown == Items.Count; else the first ones and "…".
+    // All the items when shown == Items.Count, else the first ones and "…"; then the health upgrades when the battle sets them.
+    // The battle empties every slot it doesn't fill, so a list that leaves slots out says "only": without it, "Gear: Pool
+    // Noodle." reads as if only the weapon changed and the rest stayed yours.
     private static string GearLine(NoticeInput n, int shown)
     {
-        if (n.Items.Count == 0)
-            return "Gear: none. Every slot is empty." + (n.ExtraHealth is int h0 ? $" Health upgrades: {h0}." : "");
-        if (shown < n.Items.Count) return "Gear: " + string.Join(", ", n.Items.Take(Math.Max(1, shown))) + Ellipsis;
-        var line = new StringBuilder("Gear: ").Append(string.Join(", ", n.Items)).Append('.');
-        if (n.FilledSlots < SlotOrder.Length) line.Append(" Nothing else.");
+        var line = new StringBuilder("Gear: ");
+        if (n.Items.Count == 0) line.Append("none.");
+        else
+        {
+            if (n.Items.Count < SlotOrder.Length) line.Append("only ");
+            if (shown < n.Items.Count) line.Append(string.Join(", ", n.Items.Take(Math.Max(1, shown)))).Append(Ellipsis);
+            else line.Append(string.Join(", ", n.Items)).Append('.');
+        }
         if (n.ExtraHealth is int h) line.Append($" Health upgrades: {h}.");
         return line.ToString();
     }
@@ -187,11 +199,25 @@ internal static class BattleNotice
         return best;
     }
 
+    /// <summary>
+    /// About how many of the box's lines are left for the lore under what the battle sets, by the
+    /// estimate (<see cref="FitsLines"/>), at the size what it sets shows at; 0 when that fills the box.
+    /// </summary>
+    internal static int LoreRoom(NoticeInput n)
+    {
+        var notice = new NoticeInput { GearSet = n.GearSet, Items = n.Items, ExtraHealth = n.ExtraHealth, Level = n.Level, YourLevel = n.YourLevel };
+        string? text = Box(notice, FitsLines, out float size);
+        return text == null ? BoxLines : Math.Max(0, LinesAt(size) - CountLines(text, CharsAt(size)));
+    }
+
     // ---- the card and the creator's list ----------------------------------------------------------
 
-    /// <summary>The card's tag, like "Set gear &amp; level 12"; null when the battle sets neither.</summary>
+    /// <summary>
+    /// The card's tag, like "Set gear, level 12" (the creator's list row in its words); null when the battle sets
+    /// neither. Never longer than <see cref="BadgeMax"/>, so the level always shows.
+    /// </summary>
     internal static string? Badge(NoticeInput n) =>
-        n.GearSet && n.Level is int both ? $"Set gear & level {both}"
+        n.GearSet && n.Level is int both ? $"Set gear, level {both}"
         : n.GearSet ? "Set gear"
         : n.Level is int level ? $"Set level {level}"
         : null;
@@ -207,19 +233,30 @@ internal static class BattleNotice
 
     // ---- measuring ------------------------------------------------------------------------------------
 
+    /// <summary>The sizes the box tries, from its own down to the smallest.</summary>
+    internal static IEnumerable<float> FontSizes()
+    {
+        for (int k = 0; BoxFontSize - k * FontSizeStep >= MinFontSize - 0.001f; k++) yield return BoxFontSize - k * FontSizeStep;
+    }
+
     /// <summary>
-    /// The most the box's text may measure in the arcade: <see cref="BoxLines"/> lines, from how high
-    /// one line measures (its letters only) and how much each line after it adds (the font's line
-    /// height, gap included).
+    /// The most the box's text may measure in the arcade, whatever its size: <see cref="BoxLines"/> lines
+    /// at the box's own size, from how high one line measures (its letters only) and how much each line
+    /// after it adds (the font's line height, gap included).
     /// </summary>
     internal static float MostHeight(float oneLine, float lineStep) => oneLine + (BoxLines - 1) * lineStep + 0.5f;
 
+    /// <summary>About how many lines the box holds at a size: smaller text fits more lines in the same height.</summary>
+    internal static int LinesAt(float size) => (int)Math.Floor(BoxLines * BoxFontSize / size + 0.001f);
+
+    /// <summary>About how many characters make a line of the box at a size.</summary>
+    internal static int CharsAt(float size) => (int)Math.Floor(BoxLineChars * BoxFontSize / size + 0.001f);
+
     /// <summary>
-    /// Whether rich text fits in <paramref name="lines"/> lines of about <paramref name="width"/>
-    /// characters, word-wrapped: an estimate of the arcade's box for where the game's own text
-    /// measure isn't at hand (the battle creator's preview, and tests).
+    /// Whether rich text fits the box at a size, word-wrapped: an estimate of the arcade's box for
+    /// where the game's own text measure isn't at hand (the battle creator's preview, and tests).
     /// </summary>
-    internal static bool FitsLines(string text, int width = BoxLineChars, int lines = BoxLines) => CountLines(text, width) <= lines;
+    internal static bool FitsLines(string text, float size = BoxFontSize) => CountLines(text, CharsAt(size)) <= LinesAt(size);
 
     internal static int CountLines(string text, int width)
     {
