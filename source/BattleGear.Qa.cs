@@ -80,8 +80,8 @@ internal static partial class BattleGear
     /// <summary>The level the game's stat updates use now instead of the player's, or null.</summary>
     internal static int? QaLevelOverride => levelOverride;
 
-    /// <summary>Whether achievements are held back now (a set-gear or set-level battle, or a test play).</summary>
-    internal static bool QaHoldsAchievements => setBattle != null || swap != null || levelOverride != null || TestPlay.Active;
+    /// <summary>Whether achievements are held back now (a custom battle, or a test play).</summary>
+    internal static bool QaHoldsAchievements => HoldsAchievements;
 
     /// <summary>The level a battle asking for <paramref name="level"/> would play at, or null when the game's levels can't be read. Changes nothing.</summary>
     internal static int? QaClampLevel(int level) =>

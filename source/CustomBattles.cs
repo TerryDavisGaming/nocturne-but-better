@@ -81,7 +81,8 @@ internal static class CustomBattles
         var arcade = CustomBattlesArcade.Methods();
         harmony.Patch(showColumns, postfix: new HarmonyMethod(typeof(CustomBattles), nameof(ShowColumnsPostfix)));
         harmony.Patch(removeColumn, prefix: new HarmonyMethod(typeof(CustomBattles), nameof(RemoveColumnPrefix)));
-        harmony.Patch(combatEnded, prefix: new HarmonyMethod(typeof(CustomBattles), nameof(CombatEndedPrefix)));
+        harmony.Patch(combatEnded, prefix: new HarmonyMethod(typeof(CustomBattles), nameof(CombatEndedPrefix)),
+            postfix: new HarmonyMethod(typeof(CustomBattles), nameof(CombatEndedPostfix)));
         EndGuarded = true;
         CustomBattlesArcade.Install(harmony, arcade);
     }
@@ -625,13 +626,19 @@ internal static class CustomBattles
 
     // A custom battle is anyone's chart, so its battles don't count towards the game's (Steam)
     // achievements, which can't be taken back. The game checks them all when a battle ends. Nor
-    // does a test play from the chart editor, whatever song it is.
+    // does a test play from the chart editor, whatever song it is. A custom difficulty's battle
+    // is checked as usual, but with the song's own score key: its trophy ranks read every arcade
+    // song's scores through that key, and the custom difficulty's score isn't the song's.
     private static bool CombatEndedPrefix(CombatSummary summary)
     {
         try
         {
             bool testing = TestPlay.Active;
-            if (ChartSwap.PlayingBattle == null && !IsRuntimeName(summary?.EnemyId) && !testing) return true;
+            if (ChartSwap.PlayingBattle == null && !IsRuntimeName(summary?.EnemyId) && !testing)
+            {
+                if (ChartSwap.SuspendScoreKey()) Note("Custom difficulty: the achievement check reads the song's own scores, not this chart's.", error: false);
+                return true;
+            }
             Note(testing ? "Test play: test battles don't count towards achievements." : "Custom battles don't count towards achievements.", error: false);
             return false;
         }
@@ -640,6 +647,13 @@ internal static class CustomBattles
             ReportBattle(ex);
             return true;
         }
+    }
+
+    // The custom difficulty's key goes back for the results screen; ExitCombat puts the song's own back for good.
+    private static void CombatEndedPostfix()
+    {
+        try { ChartSwap.ResumeScoreKey(); }
+        catch (Exception ex) { ReportBattle(ex); }
     }
 
     private static void ReportBattle(Exception ex)
