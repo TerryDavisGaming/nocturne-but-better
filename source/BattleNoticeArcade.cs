@@ -8,9 +8,10 @@ namespace NocturneFlatScroll;
 
 /// <summary>
 /// Shows in the arcade what a custom battle sets for the player, before they start it. When a
-/// battle is selected, the box under the score on the right says so ("This battle sets your level
-/// and gear.", the level, the items), then shows the battle's lore; the game has that box (its
-/// lore box) but keeps it hidden, so it is shown for custom battles only. The battle's card gets a
+/// battle is selected, the box under the score on the right says so ("Sets your level and gear.",
+/// the level, the items), in smaller text when that is what it takes to show it all, then shows the
+/// battle's lore if there is room; the game has that box (its lore box) but keeps it hidden, so it
+/// is shown for custom battles only. The battle's card gets a
 /// short tag under its melody, like "Set gear &amp; level 12". The game reuses its score views and
 /// cards for every song, so both are hidden again for the game's own songs. The text comes from
 /// <see cref="BattleNotice"/>, as the battle creator's preview does.
@@ -26,6 +27,8 @@ internal static class BattleNoticeArcade
 
     // The boxes this turned on; only these are turned off again.
     private static readonly HashSet<IntPtr> ShownBoxes = new();
+    // Each box label's own font size, from before this first changed it (a long notice shows smaller).
+    private static readonly Dictionary<IntPtr, float> OwnSizes = new();
     private static readonly HashSet<string> Reported = new();
 
     /// <summary>Whether the box on the right shows what a battle sets.</summary>
@@ -104,10 +107,14 @@ internal static class BattleNoticeArcade
             }
             var battle = currentSong != null ? CustomBattles.Find(currentSong.songData) : null;
             var input = battle != null ? InputFor(battle.Package) : null;
-            if (input == null || BattleNotice.Box(input, _ => true) == null)
+            if (input == null || BattleNotice.Whole(input) == null)
             {
                 // A game song (the view is shared), or a battle with nothing to say.
-                if (ShownBoxes.Remove(box.Pointer) && box.activeSelf) box.SetActive(false);
+                if (ShownBoxes.Remove(box.Pointer))
+                {
+                    if (box.activeSelf) box.SetActive(false);
+                    if (OwnSizes.TryGetValue(label.Pointer, out float before)) label.fontSize = before;
+                }
                 return;
             }
             // On first, so the text measures the way it will draw.
@@ -119,13 +126,26 @@ internal static class BattleNoticeArcade
             label.raycastTarget = false;
             var image = box.GetComponent<Image>();
             if (image) image.raycastTarget = false;
-            label.text = BattleNotice.Box(input, Fitter(label)) ?? "";
+            float own = OwnSize(label);
+            string text = BattleNotice.Box(input, Fitter(label, own), out float size) ?? "";
+            label.fontSize = own * size / BattleNotice.BoxFontSize;
+            label.text = text;
         }
         catch (Exception ex) { Report(ex); }
     }
 
-    // Whether a text fits the box above the arcade's footer: as high as its lines at the label's own size.
-    private static Func<string, bool> Fitter(TMP_Text label)
+    private static float OwnSize(TMP_Text label)
+    {
+        if (OwnSizes.TryGetValue(label.Pointer, out float own)) return own;
+        own = label.fontSize;
+        if (!(own > 0f)) own = BattleNotice.BoxFontSize;
+        OwnSizes[label.Pointer] = own;
+        return own;
+    }
+
+    // Whether a text fits the box above the arcade's footer at a size (in the notice's points, where
+    // BattleNotice.BoxFontSize is the label's own size): no higher than the box's lines at the label's own size.
+    private static Func<string, float, bool> Fitter(TMP_Text label, float own)
     {
         try
         {
@@ -134,18 +154,24 @@ internal static class BattleNoticeArcade
             float width = label.rectTransform.rect.width;
             width = width < 100f ? DefaultWidth : Math.Min(width, DefaultWidth);
             // One line is only as high as its letters; each line after it adds the font's whole line
-            // height, gap included (at the box's size 7: 6.4 and 8.4), so both are measured.
+            // height, gap included, so both are measured, at the label's own size: smaller text fits more
+            // lines in the same room.
+            label.fontSize = own;
             float one = label.GetPreferredValues("Ag", 1000f, 0f).y;
             float step = label.GetPreferredValues("Ag\nAg", 1000f, 0f).y - one;
             if (one > 0f && step > 0f)
             {
                 float most = BattleNotice.MostHeight(one, step);
-                return text => label.GetPreferredValues(text, width, 0f).y <= most;
+                return (text, size) =>
+                {
+                    label.fontSize = own * size / BattleNotice.BoxFontSize;
+                    return label.GetPreferredValues(text, width, 0f).y <= most;
+                };
             }
             Note("Arcade notice: the box's text measures 0 high, so its size is estimated.");
         }
         catch (Exception ex) { Note("Arcade notice: the box's text can't be measured, so its size is estimated: " + ex.Message); }
-        return text => BattleNotice.FitsLines(text);
+        return BattleNotice.FitsLines;
     }
 
     // ---- the card's tag --------------------------------------------------------------------------------
