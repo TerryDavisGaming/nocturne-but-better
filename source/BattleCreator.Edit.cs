@@ -100,7 +100,7 @@ internal static partial class BattleCreator
         try
         {
             charts = BattleFiles.SummarizeChart(draft.Folder, draft.ChartPath, draft.Lanes);
-            summary = BattleFiles.Read(draft.Folder);
+            summary = BattleFiles.Read(draft.Folder, GameCheck);
         }
         catch (Exception ex)
         {
@@ -572,7 +572,7 @@ internal static partial class BattleCreator
             OpenBattle(imported.Folder);
             if (imported.zipStays)
                 Say($"Imported, but {Path.GetFileName(zip)} couldn't be moved, so the arcade plays the zip instead of this folder. Move the zip out of the battles folder.", 10f);
-            else Say(imported.NewId ? "Imported. A battle with the same id was already here, so this copy has its own id." : "Imported.", 6f);
+            else Say(imported.NewId ? "Imported as a separate battle: the same battle was already here, and the arcade shows both." : "Imported.", 6f);
         });
     }
 
