@@ -359,15 +359,18 @@ internal sealed class BattleDraft
 
     internal string EnemyMode => GetString(enemy, "mode").Trim();
 
-    /// <summary>The game enemy the battle's enemy is copied from (an EnemyData asset name); empty means Mantis.</summary>
+    /// <summary>
+    /// The game enemy the battle's enemy is copied from (an EnemyData asset name); empty means
+    /// Mantis. A custom-art enemy fights like it and keeps its custom art.
+    /// </summary>
     internal string Placeholder
     {
         get => GetString(enemy, "placeholder").Trim();
         set
         {
-            if (Placeholder == value && EnemyMode.Equals("placeholder", StringComparison.OrdinalIgnoreCase)) return;
+            if (Placeholder == value && EnemyMode.Length > 0) return;
             CheckEnemy();
-            EnemySet("mode", "placeholder");
+            if (EnemyMode.Length == 0) EnemySet("mode", "placeholder");
             EnemySet("placeholder", value.Trim());
         }
     }

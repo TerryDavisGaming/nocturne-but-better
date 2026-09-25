@@ -367,7 +367,9 @@ internal static partial class BattleCreator
         const Page p = Page.Enemy;
         float y = 0;
         AddHeader(p, 0, ref y, Col1W, "Enemy");
-        AddChoice(p, 0, ref y, Col1W, "Looks like", () => Escape(EnemyChoices.NameOf(draft?.Placeholder)), ChooseEnemy);
+        var looks = AddChoice(p, 0, ref y, Col1W, "Looks like", () => Escape(EnemyChoices.NameOf(draft?.Placeholder)), ChooseEnemy);
+        // A custom-art enemy only fights like the game enemy.
+        looks.Text = () => $"<color=#9D92B4>{(CustomArtEnemy() ? "Fights like" : "Looks like")}</color><pos=32%>{Escape(EnemyChoices.NameOf(draft?.Placeholder))}";
         AddToggle(p, 0, ref y, Col1W, () => $"Advanced bosses: {((draft?.Advanced ?? false) ? "on" : "off")}", () => draft?.Advanced ?? false, ToggleAdvanced);
         AddField(p, 0, ref y, Col1W, EnemyNameField);
         AddHeader(p, 0, ref y, Col1W, "Stats (blank keeps the enemy's own)");
@@ -376,7 +378,7 @@ internal static partial class BattleCreator
         PlaceTop(art, 0, y, Col1W, RowH);
         var artText = MakeText("CustomArtText", art, 18, TextAlignmentOptions.Center);
         artText.color = DimText;
-        artText.text = "Custom art (images and videos): coming later";
+        artText.text = "Custom art (pictures, GIFs, sheets, videos): set in battle.json for now";
         Stretch(artText.rectTransform, 12, 0, 12, 0);
         y -= RowStep;
         var warning = AddText(p, 0, ref y, Col1W, 60, EnemyWarning, 17);
@@ -535,13 +537,15 @@ internal static partial class BattleCreator
         return string.Join("\n", charts.Problems.Take(6).Select(p => "- " + Escape(p)));
     }
 
+    private static bool CustomArtEnemy() => draft?.EnemyMode.Equals("custom", StringComparison.OrdinalIgnoreCase) == true;
+
     private static string EnemyWarning()
     {
         if (draft == null) return "";
         if (draft.EnemyLocked != null) return Escape(draft.EnemyLocked);
         string? problem = EnemyChoices.Problem(draft.Placeholder, draft.Advanced);
         if (problem != null) return Escape(problem);
-        if (draft.EnemyMode.Equals("custom", StringComparison.OrdinalIgnoreCase)) return "This enemy is set to custom art, which comes later; it plays as its placeholder for now.";
+        if (CustomArtEnemy()) return "This enemy uses its own art from battle.json, and fights like the enemy picked above.";
         return EnemyChoices.IsAdvanced(draft.Placeholder) ? "Advanced bosses are built around scripted fights and may not play well here." : "";
     }
 
