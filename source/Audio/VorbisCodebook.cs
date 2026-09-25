@@ -50,7 +50,8 @@ internal sealed class VorbisCodebook
     }
 
     /// <summary>Parses a standard Vorbis I codebook from a setup header.</summary>
-    internal static VorbisCodebook Read(VorbisBitReader br)
+    /// <param name="vectorRoom">How many vector values the setup still allows; a bigger VQ table is refused before it's made.</param>
+    internal static VorbisCodebook Read(VorbisBitReader br, long vectorRoom)
     {
         if (br.ReadHeader(24) != 0x564342) throw new InvalidDataException("a Vorbis codebook has a bad sync pattern");
         var cb = new VorbisCodebook
@@ -78,6 +79,8 @@ internal sealed class VorbisCodebook
             }
         }
         cb.LookupType = (int)br.ReadHeader(4);
+        if ((cb.LookupType == 1 || cb.LookupType == 2) && (long)cb.Entries * cb.Dimensions > vectorRoom)
+            throw new InvalidDataException("the Vorbis setup's tables are too large");
         if (cb.LookupType == 1 || cb.LookupType == 2) cb.ReadLookup(br);
         else if (cb.LookupType != 0) throw new InvalidDataException("a Vorbis codebook has a bad lookup type");
         cb.Build(lengths);

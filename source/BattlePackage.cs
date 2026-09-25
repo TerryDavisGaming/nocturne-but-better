@@ -40,7 +40,14 @@ internal sealed class PackageFiles
     internal static string? SafeName(string name)
     {
         name = name.Replace('\\', '/').Trim();
-        if (name.Length == 0 || name.Contains("..") || name.StartsWith("/") || name.Contains(':')) return null;
+        if (name.Length == 0 || name.StartsWith("/") || name.Contains(':')) return null;
+        // Control characters can't be in a Windows name (a NUL makes paths throw).
+        foreach (char c in name)
+            if (c < ' ') return null;
+        // A ".." part climbs out of the package; a name like "Oops!...I Did It Again.wav" is fine.
+        // Windows drops dots and spaces at the end of a part, so a part made only of them is out too.
+        foreach (var part in name.Split('/'))
+            if (part.Length > 0 && part != "." && part.Trim('.', ' ').Length == 0) return null;
         return name;
     }
 
@@ -393,8 +400,10 @@ internal sealed class BattlePackage
     internal PackageFiles Files = null!;
     /// <summary>The folder or .nbbbattle file.</summary>
     internal string Location = "";
-    /// <summary>Changes when any file the song uses changes.</summary>
+    /// <summary>Changes when the package moves or any file the song uses changes.</summary>
     internal string Fingerprint = "";
+    // The files the fingerprint stamps, so it can be checked again without loading the package.
+    private string[] stampedFiles = Array.Empty<string>();
 
     internal ChartText Chart = new();
     /// <summary>The authored chart for each of the game's six difficulty slots, or null.</summary>
@@ -429,6 +438,10 @@ internal sealed class BattlePackage
         else if (File.Exists(path) && path.EndsWith(Extension, StringComparison.OrdinalIgnoreCase)) files = OpenZip(path);
         else throw new FileNotFoundException("not a battle folder or " + Extension + " file", path);
 
+        // Each file is stamped before it's read, so one that changes while loading is loaded again next time.
+        var stamped = new List<(string Name, string Stamp)>();
+        void Stamp(string name) => stamped.Add((name, files.Stamp(name)));
+        Stamp(ManifestName);
         var manifest = JsonSerializer.Deserialize<BattleManifest>(manifestJson ?? files.ReadAllText(ManifestName, MaxJsonBytes), JsonOptions)
             ?? throw new InvalidDataException(ManifestName + " is empty");
         if (manifest.format > FormatVersion) throw new InvalidDataException($"made for a newer version (format {manifest.format})");
@@ -447,17 +460,16 @@ internal sealed class BattlePackage
             Artist = Clean(manifest.artist),
             Author = Clean(manifest.author),
             Lore = (manifest.lore ?? "").Trim(),
-            PreviewStart = Math.Max(0, manifest.previewStart ?? 0),
             DialoguePath = manifest.dialogue == null ? null : PackageFiles.SafeName(manifest.dialogue)
         };
         if (song.Title.Length == 0) song.Title = Path.GetFileNameWithoutExtension(path.TrimEnd('\\', '/'));
-        var stamps = new List<string> { files.Stamp(ManifestName) };
+        song.PreviewStart = Math.Max(0, Finite(manifest.previewStart, "\"previewStart\"", song.Problems) ?? 0);
 
         // The chart holds every difficulty.
         song.ChartPath = PackageFiles.SafeName(manifest.chart ?? DefaultChart)
             ?? throw new InvalidDataException("\"chart\" must be a file inside the package");
+        if (chartText == null) Stamp(song.ChartPath);
         song.Chart = ChartText.Parse(chartText ?? files.ReadAllText(song.ChartPath, MaxChartBytes));
-        if (chartText == null) stamps.Add(files.Stamp(song.ChartPath));
         song.Lanes = lanes ?? manifest.lanes ?? InferLanes(song.Chart);
         if (song.Lanes != 4 && song.Lanes != 5) throw new InvalidDataException($"\"lanes\" must be 4 or 5, not {song.Lanes}");
         song.Slots = song.Chart.SongSlots(song.Lanes, song.Problems);
@@ -476,21 +488,30 @@ internal sealed class BattlePackage
         string audioName = audio ?? manifest.audio ?? song.Chart.GetTag("MUSIC") ?? "";
         song.AudioPath = PackageFiles.SafeName(audioName) ?? throw new InvalidDataException("the song names no audio file (\"audio\" in " + ManifestName + ")");
         if (!files.Exists(song.AudioPath)) throw new InvalidDataException($"the audio file {song.AudioPath} is missing");
-        stamps.Add(files.Stamp(song.AudioPath));
+        Stamp(song.AudioPath);
 
         if (!string.IsNullOrWhiteSpace(manifest.card))
         {
             var card = PackageFiles.SafeName(manifest.card!);
             if (card == null) song.Problems.Add("\"card\" must be a file inside the package");
-            else if (!files.Exists(card)) song.Problems.Add($"the card image {card} is missing");
             else
             {
-                song.CardPath = card;
-                stamps.Add(files.Stamp(card));
+                // A missing card is stamped too, so the battle is built again when it turns up.
+                Stamp(card);
+                if (!files.Exists(card)) song.Problems.Add($"the card image {card} is missing");
+                else song.CardPath = card;
             }
         }
 
-        song.Enemy = ReadEnemy(manifest.enemy, files, song.Problems, stamps);
+        song.Enemy = ReadEnemy(manifest.enemy, files, song.Problems, Stamp);
+        if (song.Enemy.stats is EnemyStats stats)
+        {
+            stats.hp = Finite(stats.hp, "the enemy's \"hp\"", song.Problems);
+            stats.damage = Finite(stats.damage, "the enemy's \"damage\"", song.Problems);
+            stats.passiveEnergyCharge = Finite(stats.passiveEnergyCharge, "the enemy's \"passiveEnergyCharge\"", song.Problems);
+            stats.energyChargeOnMiss = Finite(stats.energyChargeOnMiss, "the enemy's \"energyChargeOnMiss\"", song.Problems);
+            stats.attackWindupTime = Finite(stats.attackWindupTime, "the enemy's \"attackWindupTime\"", song.Problems);
+        }
         string requested = song.Enemy.placeholder ?? "";
         if ("custom".Equals(song.Enemy.mode?.Trim(), StringComparison.OrdinalIgnoreCase))
         {
@@ -504,8 +525,31 @@ internal sealed class BattlePackage
         song.Gear = ReadGear(manifest.gear, song.Problems);
         song.Level = LevelDefinition.Read(manifest.level, song.Problems);
 
-        song.Fingerprint = string.Join("|", stamps);
+        song.stampedFiles = stamped.Select(s => s.Name).ToArray();
+        song.Fingerprint = FingerprintOf(path, stamped.Select(s => s.Stamp));
         return song;
+    }
+
+    // Numbers may be written as strings, and the JSON reader then takes "NaN" and "Infinity" too;
+    // those count as left out.
+    private static double? Finite(double? value, string name, List<string> problems)
+    {
+        if (value is not double number || double.IsFinite(number)) return value;
+        problems.Add($"{name} is {number.ToString(CultureInfo.InvariantCulture)}, which can't be used, so it's left out");
+        return null;
+    }
+
+    // Where the package is counts too: a battle moved or renamed on disk keeps its files' times.
+    private static string FingerprintOf(string location, IEnumerable<string> stamps) => location + "|" + string.Join("|", stamps);
+
+    /// <summary>
+    /// Whether the package is still where it was loaded from, with the same files, so loading it
+    /// again would give the same package. It only looks at the files' sizes and times.
+    /// </summary>
+    internal bool Unchanged()
+    {
+        try { return FingerprintOf(Location, stampedFiles.Select(Files.Stamp)) == Fingerprint; }
+        catch (Exception) { return false; }
     }
 
     // The items themselves are checked against the game's database when the battle starts.
@@ -560,7 +604,7 @@ internal sealed class BattlePackage
         throw new InvalidDataException(folders.Count == 0 ? "no " + ManifestName + " in it" : "more than one " + ManifestName + " in it");
     }
 
-    private static EnemyDefinition ReadEnemy(JsonElement enemy, PackageFiles files, List<string> problems, List<string> stamps)
+    private static EnemyDefinition ReadEnemy(JsonElement enemy, PackageFiles files, List<string> problems, Action<string> stamp)
     {
         try
         {
@@ -570,7 +614,7 @@ internal sealed class BattlePackage
                     return enemy.Deserialize<EnemyDefinition>(JsonOptions) ?? new EnemyDefinition();
                 case JsonValueKind.String:
                     string path = PackageFiles.SafeName(enemy.GetString() ?? "") ?? throw new InvalidDataException("\"enemy\" must be a file inside the package");
-                    stamps.Add(files.Stamp(path));
+                    stamp(path);
                     return JsonSerializer.Deserialize<EnemyDefinition>(files.ReadAllText(path, MaxJsonBytes), JsonOptions) ?? new EnemyDefinition();
                 case JsonValueKind.Undefined:
                 case JsonValueKind.Null:
@@ -589,22 +633,28 @@ internal sealed class BattlePackage
     /// <summary>
     /// Every battle package in a folder: folders with battle.json (at most two levels down, so battles
     /// can be grouped) and .nbbbattle files. A package that doesn't load is reported and skipped;
-    /// of two packages with the same id, the first by path is used.
+    /// of two packages with the same id, the first by path is used. A package in
+    /// <paramref name="known"/> (by location) whose files haven't changed is kept as it is rather
+    /// than read and checked again.
     /// </summary>
-    internal static List<BattlePackage> Scan(string root, Action<string> report)
+    internal static List<BattlePackage> Scan(string root, Action<string> report, IReadOnlyDictionary<string, BattlePackage>? known = null)
     {
         var found = new List<BattlePackage>();
         var ids = new Dictionary<string, string>();
         foreach (var path in Candidates(root, 0, report))
         {
             BattlePackage song;
-            try { song = Load(path); }
-            catch (Exception ex)
+            if (known != null && known.TryGetValue(path, out var had) && had.Unchanged()) song = had;
+            else
             {
-                // One broken package must not hide the others.
-                bool expected = ex is InvalidDataException or IOException or JsonException or UnauthorizedAccessException;
-                report($"Skipping custom battle {path}: {(expected ? ex.Message : ex.ToString())}");
-                continue;
+                try { song = Load(path); }
+                catch (Exception ex)
+                {
+                    // One broken package must not hide the others.
+                    bool expected = ex is InvalidDataException or IOException or JsonException or UnauthorizedAccessException;
+                    report($"Skipping custom battle {path}: {(expected ? ex.Message : ex.ToString())}");
+                    continue;
+                }
             }
             if (ids.TryGetValue(song.Id, out var first))
             {
@@ -644,31 +694,28 @@ internal sealed class BattlePackage
 
 /// <summary>
 /// Where a song file sits on the battle's clock. The battle starts the music at clock time -0.1 s
-/// or a moment later, so the file must already be playing there: silence is added before it
-/// when its first sample comes later. The clock is the song file's own time (the game applies
-/// the chart's #OFFSET to the notes itself), so a song's first sample is at 0.
+/// or a moment later, and the player starts a little before that, so it must be able to play
+/// from there: it plays silence before the file's first sample when that comes later. The clock
+/// is the song file's own time (the game applies the chart's #OFFSET to the notes itself), so a
+/// song's first sample is at 0.
 /// </summary>
 internal static class LeadIn
 {
-    /// <summary>How much of the clock before 0 the file covers.</summary>
-    internal const double StartMargin = 0.25;
+    /// <summary>How much of the clock before 0 the player covers.</summary>
+    internal const double StartMargin = 0.5;
     /// <summary>A bigger #OFFSET is a mistake rather than a lead-in.</summary>
     internal const double MaxOffset = 600;
 
     /// <summary>
-    /// Interleaved stereo with enough silence in front that clock time -StartMargin is in the
-    /// file, and the clock time of its new first sample. <paramref name="origin"/> is the clock
-    /// time of the file's first sample.
+    /// How much silence the player needs before a file whose first sample is at clock time
+    /// <paramref name="origin"/>, so that it can play from clock time -StartMargin. Nothing is
+    /// copied for it: the player treats times before the file as silence.
     /// </summary>
-    internal static (short[] Stereo, double Origin) Pad(short[] stereo, int rate, double origin)
+    internal static double Before(double origin)
     {
-        if (rate <= 0) throw new ArgumentOutOfRangeException(nameof(rate));
         double seconds = origin + StartMargin;
-        if (seconds <= 0) return (stereo, origin);
+        if (!(seconds > 0)) return 0;
         if (seconds > MaxOffset + StartMargin) throw new InvalidDataException($"#OFFSET {origin:0.###} s is too long a lead-in");
-        int frames = (int)Math.Ceiling(seconds * rate);
-        var padded = new short[stereo.Length + frames * 2];
-        Array.Copy(stereo, 0, padded, frames * 2, stereo.Length);
-        return (padded, origin - frames / (double)rate);
+        return seconds;
     }
 }

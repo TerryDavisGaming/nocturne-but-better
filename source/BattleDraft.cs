@@ -795,8 +795,8 @@ internal sealed class BattleDraft
         if (v.TryGetValue(out int i)) return i;
         if (v.TryGetValue(out float f)) return f;
         if (v.TryGetValue(out decimal m)) return (double)m;
-        // The loader also takes numbers written as strings.
-        if (v.TryGetValue(out string? s) && double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out d)) return d;
+        // The loader also takes numbers written as strings, but not "NaN" or "Infinity".
+        if (v.TryGetValue(out string? s) && double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out d) && double.IsFinite(d)) return d;
         return null;
     }
 
