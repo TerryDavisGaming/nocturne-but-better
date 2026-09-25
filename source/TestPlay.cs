@@ -127,7 +127,8 @@ internal static class TestPlay
     // ---- starting --------------------------------------------------------------------------------
 
     /// <summary>Whether a test can start now, and if not, why (for the status line).</summary>
-    internal static bool CanStart(out string why)
+    /// <param name="battle">The test is of a custom battle's chart, which the Battle creator opens (not the chart editor's song list).</param>
+    internal static bool CanStart(out string why, bool battle = false)
     {
         why = "";
         if (!Available)
@@ -149,7 +150,9 @@ internal static class TestPlay
         }
         if (!title)
         {
-            why = "Test works from the title screen. Open the chart editor from Options there.";
+            why = battle
+                ? "Test works from the title screen. Open the Battle creator from Options there."
+                : "Test works from the title screen. Open the chart editor from Options there.";
             return false;
         }
         // The game's main menu is already there under its startup intro. Unreadable, the intro
@@ -225,7 +228,7 @@ internal static class TestPlay
     /// <summary>Starts the battle for a test, as the arcade menu would start one. False with a reason when it can't.</summary>
     internal static bool Start(Run next, out string why)
     {
-        if (!CanStart(out why)) return false;
+        if (!CanStart(out why, next.Kind == Kind.Battle)) return false;
         prevDifficulty = ArcadeUtility.Difficulty;
         try
         {

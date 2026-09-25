@@ -10,8 +10,8 @@ namespace NocturneFlatScroll;
 /// </summary>
 internal sealed record BattleChartTarget(string Folder, string ChartPath, string AudioPath, int Lanes, string Title, Action? Closed)
 {
-    /// <summary>The chart file on disk.</summary>
-    internal string ChartFullPath => FullPath(ChartPath);
+    /// <summary>The chart file on disk. Throws when its name isn't one the editor may write (see <see cref="ChartNameProblem"/>).</summary>
+    internal string ChartFullPath => ChartNameProblem(ChartPath) is { } bad ? throw new InvalidDataException(bad) : FullPath(ChartPath);
 
     /// <summary>
     /// battle.json as the battle creator would save it now, so a test play uses its unsaved
@@ -35,11 +35,52 @@ internal sealed record BattleChartTarget(string Folder, string ChartPath, string
         ChartText? sm = files.Exists(chart) ? ChartText.Parse(files.ReadAllText(chart, BattlePackage.MaxChartBytes)) : null;
         string audio = PackageFiles.SafeName(manifest.audio ?? sm?.GetTag("MUSIC") ?? "")
             ?? throw new InvalidDataException("the battle names no song file (\"audio\" in " + BattlePackage.ManifestName + ")");
+        string? enemyFile = manifest.enemy.ValueKind == JsonValueKind.String ? manifest.enemy.GetString() : null;
+        if (ChartFileProblem(folder, chart, ("song", audio), ("card image", manifest.card), ("enemy file", enemyFile), ("dialogue", manifest.dialogue)) is { } bad)
+            throw new InvalidDataException(bad);
         int lanes = manifest.lanes ?? sm?.Blocks.FirstOrDefault(ChartText.HasNotes)?.Lanes ?? 4;
         if (lanes != 4 && lanes != 5) throw new InvalidDataException($"\"lanes\" must be 4 or 5, not {lanes}");
         string title = (manifest.title ?? "").Trim();
         if (title.Length == 0) title = Path.GetFileName(folder.TrimEnd('\\', '/'));
         return new BattleChartTarget(folder, chart, audio, lanes, title, closed);
+    }
+
+    /// <summary>
+    /// Why the chart editor and the battle creator can't write the chart file battle.json's "chart"
+    /// names, or null when they can: it must be an .sm file inside the battle whose name has no
+    /// control characters (so never battle.json, a song or an image), and not a file the battle
+    /// uses for something else (<paramref name="others"/>: what it is, and its name in
+    /// battle.json), like an enemy file named .sm. Chart text written over any of them would
+    /// break the battle.
+    /// </summary>
+    internal static string? ChartFileProblem(string folder, string chart, params (string What, string? Name)[] others)
+    {
+        if (ChartNameProblem(chart) is { } bad) return bad;
+        string? full = FullIn(folder, chart);
+        if (full == null) return "the chart file must be inside the battle's folder";
+        foreach (var (what, name) in others)
+            if (!string.IsNullOrWhiteSpace(name) && string.Equals(FullIn(folder, name!), full, StringComparison.OrdinalIgnoreCase))
+                return $"the chart file {chart.Trim()} is also the battle's {what}";
+        return null;
+    }
+
+    /// <summary>The part of <see cref="ChartFileProblem"/> that needs only the chart's name.</summary>
+    internal static string? ChartNameProblem(string chart)
+    {
+        string? name = PackageFiles.SafeName(chart);
+        if (name == null) return "the chart file must be inside the battle's folder";
+        if (name.Any(char.IsControl)) return "the chart's file name has characters a file name can't have";
+        if (!name.EndsWith(".sm", StringComparison.OrdinalIgnoreCase)) return $"the chart file {name} isn't an .sm file";
+        return null;
+    }
+
+    // The full path of a name inside the battle, or null when it isn't one.
+    private static string? FullIn(string folder, string name)
+    {
+        string? safe = PackageFiles.SafeName(name);
+        if (safe == null || safe.Any(char.IsControl)) return null;
+        try { return Path.GetFullPath(Path.Combine(folder, safe.Replace('/', Path.DirectorySeparatorChar))).TrimEnd('\\', '/'); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException) { return null; }
     }
 
     private string FullPath(string name) =>

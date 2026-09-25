@@ -349,19 +349,26 @@ internal static partial class ChartEditor
                     EventsEdited();
                 }
                 break;
+            // A comma works as the decimal point too ("0,5"), unless it could be a thousands separator (NumberText).
             case TextField.ScrollSpeed:
-                if (double.TryParse(typed.Trim().TrimStart('x', 'X'), NumberStyles.Float, CultureInfo.InvariantCulture, out double ratio) && ratio > 0) SetScrollHere(ratio);
-                else Say("That isn't a speed; use a number like 0.5, 1 or 2", 3f);
+            {
+                var read = NumberText.Parse(typed.Trim().TrimStart('x', 'X'), out double ratio, out string either);
+                if (read == NumberText.Result.Number && ratio > 0) SetScrollHere(ratio);
+                else Say(NumberText.Question(read, either) ?? "That isn't a speed; use a number like 0.5, 1 or 2", 4f);
                 break;
+            }
             case TextField.Bpm:
             case TextField.BpmChange:
-                if (double.TryParse(typed.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double bpm) && bpm >= BattleTiming.MinBpm && bpm <= BattleTiming.MaxBpm)
+            {
+                var read = NumberText.Parse(typed, out double bpm, out string either);
+                if (read == NumberText.Result.Number && bpm >= BattleTiming.MinBpm && bpm <= BattleTiming.MaxBpm)
                 {
                     if (typing == TextField.Bpm) SetSectionBpm(bpm);
                     else AddTempoChange(bpm);
                 }
-                else Say($"That isn't a tempo; use a number from {BattleTiming.MinBpm:0} to {BattleTiming.MaxBpm:0}, like 120", 3f);
+                else Say(NumberText.Question(read, either) ?? $"That isn't a tempo; use a number from {BattleTiming.MinBpm:0} to {BattleTiming.MaxBpm:0}, like 120", 4f);
                 break;
+            }
         }
         typing = TextField.None;
         if (Ui.Message.StartsWith("Type")) Say("", 0f);

@@ -41,6 +41,8 @@ internal sealed class BattleDraft
     private bool enemyAttached, enemyChanged;
     private GearDefinition gear;
     private GearDefinition? lastSetGear;
+    // The set health upgrades while the player's own are picked, so picking "set" again brings them back.
+    private int? lastExtraHealth;
     private LevelDefinition level;
     // The set level while the player's own is picked, so picking "set" again brings it back.
     private int? lastSetLevel;
@@ -113,7 +115,7 @@ internal sealed class BattleDraft
                     problems.Add($"{enemyFile} is missing; saving an enemy change writes a new one");
                     enemy = new JsonObject(NodeOptions);
                 }
-                catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or UnauthorizedAccessException)
+                catch (Exception ex) when (IsFileProblem(ex))
                 {
                     // The file is there: it is never saved over, so nothing in it is lost.
                     locked = $"{enemyFile} can't be read ({ex.Message}). Fix it by hand, then open the battle again. Until then the enemy can't be changed here.";
@@ -167,6 +169,7 @@ internal sealed class BattleDraft
     internal void Save()
     {
         PruneInfoBoxes();
+        DropConsumableCount();
         Directory.CreateDirectory(Folder);
         if (enemyFile != null && enemyChanged && EnemyLocked == null)
             WriteAtomic(Path.Combine(Folder, enemyFile.Replace('/', Path.DirectorySeparatorChar)), enemy.ToJsonString(WriteOptions) + "\n");
@@ -187,6 +190,8 @@ internal sealed class BattleDraft
 
     private void UpdateChartMusic(string audio)
     {
+        // Only a chart file of its own is written: never battle.json, the song, the card or the enemy's file.
+        if (ChartFileProblem() != null) return;
         string? chart = PackageFiles.SafeName(ChartPath);
         if (chart == null) return;
         string path = Path.Combine(Folder, chart.Replace('/', Path.DirectorySeparatorChar));
@@ -288,7 +293,7 @@ internal sealed class BattleDraft
             if (chart != null)
                 chartMusic = (ChartText.Parse(ReadText(Path.Combine(Folder, chart.Replace('/', Path.DirectorySeparatorChar)), BattlePackage.MaxChartBytes)).GetTag("MUSIC") ?? "").Trim();
         }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException) { }
+        catch (Exception ex) when (IsFileProblem(ex)) { }
         return chartMusic;
     }
 
@@ -316,6 +321,13 @@ internal sealed class BattleDraft
         }
     }
 
+    /// <summary>
+    /// Why the Charts page can't edit the chart file battle.json names, or null when it can (see
+    /// BattleChartTarget.ChartFileProblem): an .sm file of its own, not the song, card or enemy file.
+    /// </summary>
+    internal string? ChartFileProblem() => BattleChartTarget.ChartFileProblem(Folder, ChartPath,
+        ("song", EffectiveAudio), ("card image", Card), ("enemy file", enemyFile), ("dialogue", GetString(root, "dialogue")));
+
     private int? inferredLanes;
 
     /// <summary>
@@ -342,13 +354,16 @@ internal sealed class BattleDraft
             foreach (var block in parsed.Blocks)
                 if (ChartText.HasNotes(block)) return block.Lanes;
         }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException) { }
+        catch (Exception ex) when (IsFileProblem(ex)) { }
         return 4;
     }
 
     // ---- the enemy ----------------------------------------------------------------------------------
 
-    /// <summary>The enemy's own name; empty shows the placeholder's.</summary>
+    /// <summary>
+    /// The enemy's name. The battle shows it only as the title of the battle's own info boxes that
+    /// have no title of their own; nothing else in the game shows an enemy's name.
+    /// </summary>
     internal string EnemyName
     {
         get => GetString(enemy, "name");
@@ -462,7 +477,94 @@ internal sealed class BattleDraft
         EnemyTouched();
     }
 
-    // Boxes with neither text would show as empty boxes in the battle, so they aren't saved.
+    /// <summary>The lines of a box's text the battle shows (the game's box stops there).</summary>
+    internal const int InfoMaxLines = 3;
+
+    /// <summary>
+    /// About how many characters fit on one line of the battle's info box: its font has letters of
+    /// one width, and 33 of them fill a line in the game (1.0.1, seen in battle screenshots).
+    /// </summary>
+    internal const int InfoLineChars = 33;
+
+    /// <summary>
+    /// About how many lines a box's text takes in the battle: each of its lines, wrapped at spaces
+    /// the way the box wraps it (a word longer than a line is broken). 0 for no text.
+    /// </summary>
+    internal static int InfoTextLines(string? text)
+    {
+        string clean = CleanText(text);
+        if (clean.Length == 0) return 0;
+        int lines = 0;
+        foreach (var line in clean.Split('\n'))
+        {
+            lines++;
+            int used = 0;
+            foreach (var word in line.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int length = word.Length;
+                if (used > 0 && used + 1 + length <= InfoLineChars)
+                {
+                    used += 1 + length;
+                    continue;
+                }
+                if (used > 0) lines++;
+                // A word longer than a line runs onto the next ones.
+                while (length > InfoLineChars)
+                {
+                    lines++;
+                    length -= InfoLineChars;
+                }
+                used = length;
+            }
+        }
+        return lines;
+    }
+
+    /// <summary>How many lines a box's text takes, for the typing hint: "about 2 of 3 lines", or "about 4 lines: the battle shows 3".</summary>
+    internal static string InfoLinesText(string? text)
+    {
+        int lines = InfoTextLines(text);
+        return lines > InfoMaxLines
+            ? $"about {lines} lines: the battle shows {InfoMaxLines}"
+            : $"about {lines} of {InfoMaxLines} lines";
+    }
+
+    /// <summary>
+    /// The end of the creator's typing hint for a text with a limit: how much of it is used
+    /// ("42 / 99", and "full" at the limit, where typing stops), then <paramref name="measure"/>
+    /// when there is one (like <see cref="InfoLinesText"/>).
+    /// </summary>
+    internal static string TypingCount(int length, int max, string? measure)
+    {
+        string count = length >= max ? $"{max} / {max}, full" : $"{length} / {max}";
+        return "   " + count + (string.IsNullOrEmpty(measure) ? "" : ", " + measure);
+    }
+
+    /// <summary>
+    /// What the battle won't show of the battle's own info boxes, for the creator: a box with a
+    /// title but no text (the game hides a box without text), and text longer than the box's lines.
+    /// </summary>
+    internal List<string> InfoBoxNotes()
+    {
+        var notes = new List<string>();
+        if (!OwnInfo) return notes;
+        for (int i = 0; i < EnemyPlaceholders.MaxInfoBoxes; i++)
+        {
+            var (title, description) = InfoBox(i);
+            if (description.Trim().Length == 0)
+            {
+                if (title.Trim().Length > 0) notes.Add($"Box {i + 1} has a title but no text, so the battle doesn't show it.");
+                continue;
+            }
+            int lines = InfoTextLines(description);
+            if (lines > InfoMaxLines) notes.Add($"Box {i + 1}'s text takes about {lines} lines; the battle shows the first {InfoMaxLines}.");
+        }
+        return notes;
+    }
+
+    // Boxes with neither text never show in the battle (the game hides a box without text), so
+    // they aren't saved. A box with only a title is kept, so what was typed isn't lost; the
+    // creator points it out (InfoBoxNotes).
     private void PruneInfoBoxes()
     {
         if (enemy["info"] is not JsonArray boxes) return;
@@ -522,9 +624,6 @@ internal sealed class BattleDraft
     /// <summary>The item id in a slot of the set gear, or null when the slot is empty.</summary>
     internal string? GearItem(GearSlot slot) => gear.IsSet ? gear.ItemFor(slot) : null;
 
-    /// <summary>How many of the consumable the battle gives (1 to 99), when it gives one.</summary>
-    internal int ConsumableCount => gear.consumable?.count is int count ? Math.Clamp(count, 1, GearDefinition.MaxCount) : 1;
-
     /// <summary>Health upgrades for the battle, or null for the player's own.</summary>
     internal int? ExtraHealth => gear.IsSet ? gear.extraHealth : null;
 
@@ -557,17 +656,25 @@ internal sealed class BattleDraft
             case GearSlot.Head: gear.head = id; break;
             case GearSlot.OffHand: gear.offHand = id; break;
             case GearSlot.Amulet: gear.amulet = id; break;
-            default: gear.consumable = id == null ? null : new GearConsumable { item = id, count = ConsumableCount }; break;
+            // No count: the game allows one consumable use per battle, so a count does nothing (see DropConsumableCount).
+            default: gear.consumable = id == null ? null : new GearConsumable { item = id }; break;
         }
         WriteGear();
     }
 
-    internal void SetConsumableCount(int count)
+    /// <summary>
+    /// Leaves out the set consumable's count, from an earlier creator or a battle.json written by
+    /// hand: the game allows one consumable use per battle, so the count does nothing in play, and
+    /// the creator doesn't show it. Saving the battle drops it, so it isn't left where no one can
+    /// see or change it (and a count the loader would clamp stops being a problem).
+    /// </summary>
+    private void DropConsumableCount()
     {
-        count = Math.Clamp(count, 1, GearDefinition.MaxCount);
-        if (gear.consumable == null || gear.consumable.count == count) return;
-        gear.consumable.count = count;
-        WriteGear();
+        if (!gear.IsSet || gear.consumable?.count == null) return;
+        gear.consumable.count = null;
+        // Only the count goes; the rest of "gear" is saved as it was, keys the creator doesn't know too.
+        if (root["gear"] is JsonObject saved && saved["consumable"] is JsonObject consumable && consumable.Remove("count")) changes++;
+        else WriteGear();
     }
 
     internal void SetExtraHealth(int? count)
@@ -577,6 +684,21 @@ internal sealed class BattleDraft
         if (gear.extraHealth == value) return;
         gear.extraHealth = value;
         WriteGear();
+    }
+
+    /// <summary>
+    /// Health upgrades set for this battle (true) or the player's own (false). Setting them starts
+    /// at the number set before (until the creator closes), else at 0.
+    /// </summary>
+    internal void SetExtraHealthMode(bool set)
+    {
+        if (set == (ExtraHealth != null)) return;
+        if (set) SetExtraHealth(lastExtraHealth ?? 0);
+        else
+        {
+            lastExtraHealth = ExtraHealth;
+            SetExtraHealth(null);
+        }
     }
 
     // The keys come from GearDefinition itself, so they're exactly what BattlePackage reads.
@@ -750,6 +872,14 @@ internal sealed class BattleDraft
             throw new InvalidDataException($"{name} has {key} twice (letter case doesn't make two keys different)");
         }
     }
+
+    /// <summary>
+    /// Whether an exception is trouble with one battle's files: one that can't be read or isn't
+    /// valid, or a name in battle.json that can't be a path (a control character in it makes .NET
+    /// throw ArgumentException). Such a battle shows the problem, and the others still list.
+    /// </summary>
+    internal static bool IsFileProblem(Exception ex) =>
+        ex is IOException or InvalidDataException or JsonException or UnauthorizedAccessException or ArgumentException or NotSupportedException;
 
     internal static string ReadText(string path, long maxBytes)
     {

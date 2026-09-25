@@ -264,7 +264,7 @@ internal static partial class BattleCreator
         try
         {
             // Folders first, by title; zips (which are imported to be edited) after them.
-            entries = BattleFiles.List(Root)
+            entries = BattleFiles.List(Root, GameCheck)
                 .OrderBy(e => e.IsZip)
                 .ThenBy(e => e.Title, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
@@ -303,12 +303,12 @@ internal static partial class BattleCreator
             string name = e.Artist.Length > 0 ? $"{e.Title} - {e.Artist}" : e.Title;
             // What the battle sets for the player, like "set gear, level 12".
             string overrides = e.Overrides.Length > 0 ? "   " + e.Overrides : "";
-            if (e.IsZip) lines.Add($"zip: {name}  (choose it to import and edit){overrides}");
+            string problems = e.Problems.Count == 0 ? "" : e.Problems.Count == 1 ? "   1 problem" : $"   {e.Problems.Count} problems";
+            if (e.IsZip) lines.Add($"zip: {name}  ({(e.Loads ? "choose it to import and edit" : "the arcade skips it")}){overrides}{problems}");
             else if (e.Broken) lines.Add($"{name}  (battle.json can't be read)");
             else
             {
                 string charted = e.Charted.Count > 0 ? string.Join(", ", e.Charted) : "not charted yet";
-                string problems = e.Problems.Count == 0 ? "" : e.Problems.Count == 1 ? "   1 problem" : $"   {e.Problems.Count} problems";
                 lines.Add($"{name}  ({e.Lanes} lanes; {charted}){overrides}{problems}");
             }
         }
@@ -333,9 +333,16 @@ internal static partial class BattleCreator
         int i = index - ActionRows;
         if (i < 0 || i >= entries.Count) return "";
         var e = entries[i];
-        if (e.IsZip) return "A zip can't be edited as it is. Choose it to unpack it into a battle folder you can edit.";
+        string more = e.Problems.Count > 1 ? $" (and {e.Problems.Count - 1} more)" : "";
+        if (e.IsZip)
+        {
+            const string unpack = "Choose it to unpack it into a battle folder you can edit.";
+            if (e.Problems.Count == 0) return "A zip can't be edited as it is. " + unpack;
+            // A zip the loader refuses is left out of the arcade, which only says why in the log.
+            return (e.Loads ? "Problem: " : "The arcade skips it: ") + e.Problems[0] + more + ".  " + unpack;
+        }
         if (e.Problems.Count > 0)
-            return (e.Broken ? "Can't open it: " : "Problem: ") + e.Problems[0] + (e.Problems.Count > 1 ? $" (and {e.Problems.Count - 1} more)" : "");
+            return (e.Broken ? "Can't open it: " : "Problem: ") + e.Problems[0] + more + (e.CopyOf != null ? ".  Choose it to make it a separate battle." : "");
         return "Click a battle to edit it, or Up/Down and Enter.  F5 reads the folder again.";
     }
 
@@ -352,7 +359,71 @@ internal static partial class BattleCreator
         var e = entries[i];
         if (e.IsZip) AskImportZip(e.Path, e.Title);
         else if (e.Broken) Say("battle.json can't be read: " + (e.Problems.FirstOrDefault() ?? "unknown problem"), 6f);
+        else if (e.CopyOf != null) AskSeparate(e.Path, e.Title, e.CopyOf);
         else OpenBattle(e.Path);
+    }
+
+    /// <summary>
+    /// A battle folder copied in Explorer has the same battle id as the original, and the arcade
+    /// shows only the one it finds first: this gives the other one an id of its own, or opens it
+    /// as it is.
+    /// </summary>
+    private static void AskSeparate(string folder, string title, string original)
+    {
+        string other = Path.GetFileName(original);
+        ShowPicker(new Picker
+        {
+            Heading = $"\"{title}\" has the same battle id as {other}",
+            Rows = { "Make it a separate battle", "Edit it as it is" },
+            Hint = i => i == 0
+                ? $"Gives it a battle id of its own, so the arcade shows both. The scores so far stay with {other}.  Esc goes back."
+                : $"Opens it as it is. The arcade keeps showing only {other}.  Esc goes back.",
+            Choose = i =>
+            {
+                if (i == 1) { OpenBattle(folder); return; }
+                try { BattleFiles.MakeSeparate(folder); }
+                catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
+                {
+                    ModLog.Error($"Battle creator: giving {folder} a battle id of its own failed: {ex.Message}");
+                    Say("It couldn't be made a separate battle: " + ex.Message, 7f);
+                    ShowScreen(Screen.List);
+                    return;
+                }
+                ModLog.Info($"Battle creator: gave {folder} a battle id of its own (it had the id of {original}).");
+                Rescan();
+                SelectInList(folder);
+                OpenBattle(folder);
+                Say("It is a separate battle now: the arcade shows both.", 5f);
+                RefreshArcade();
+            },
+            Back = () => ShowScreen(Screen.List),
+        });
+    }
+
+    // The game's chart reader must take a battle's chart, or the arcade skips the battle
+    // (CustomBattles.CheckChart). Answers are kept by the battle's files, so the list asks the
+    // game once per version of a chart. A reader that fails gives no answer, not a problem.
+    private static readonly Dictionary<string, string?> gameChecks = new();
+
+    private static string? GameCheck(BattlePackage package)
+    {
+        string key = package.Location + "|" + package.Fingerprint;
+        if (gameChecks.TryGetValue(key, out var known)) return known;
+        string? problem = null;
+        try
+        {
+            var built = NotesLoaderSM.Instance.LoadFromText(package.PlayableText);
+            if (built == null || built.steps == null || built.steps.Count == 0 || built.timingData == null)
+                problem = "the game's chart reader finds nothing playable in its chart";
+        }
+        catch (Exception ex)
+        {
+            ModLog.Error($"Battle creator: the game's chart reader couldn't check {package.Location}: {ex.Message}");
+            return null;
+        }
+        if (gameChecks.Count >= 500) gameChecks.Clear();
+        gameChecks[key] = problem;
+        return problem;
     }
 
     /// <summary>Puts the list's cursor on a battle folder.</summary>
@@ -440,6 +511,12 @@ internal static partial class BattleCreator
         string? chart = PackageFiles.SafeName(draft.ChartPath);
         string? audio = PackageFiles.SafeName(draft.EffectiveAudio);
         if (chart == null || audio == null) { Say("The battle needs a chart file and a song first.", 4f); return; }
+        // Saving writes chart text to the file battle.json's "chart" names, so it must be an .sm file of its own.
+        if (draft.ChartFileProblem() is { } bad)
+        {
+            Say($"The chart can't be edited here: {bad}. In battle.json, \"chart\" has to name an .sm file of its own.", 8f);
+            return;
+        }
         handedOver = true;
         handOverFrame = Time.frameCount;
         bool opened;
