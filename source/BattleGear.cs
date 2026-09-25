@@ -38,6 +38,8 @@ internal static partial class BattleGear
     private static Swap? swap;
     // The set-gear battle running now, even when its gear couldn't be set.
     private static CustomBattles.Battle? setBattle;
+    // The custom battle running now, whatever its gear: no custom battle counts towards achievements.
+    private static CustomBattles.Battle? customBattle;
     // An arcade battle has started and not been left yet.
     private static bool inBattle;
     private static readonly HashSet<string> Reported = new();
@@ -129,12 +131,14 @@ internal static partial class BattleGear
             if (swap != null) Restore("a new battle started", backstop: true);
             if (levelOverride != null) ClearLevel("a new battle started", backstop: true);
             setBattle = null;
+            customBattle = null;
             inBattle = ArcadeUtility.IsRunning;
             if (!inBattle) return;
             // The player's own gear and level.
             Dump("battle start");
             var battle = combatOptions != null ? CustomBattles.Find(combatOptions.Song) : null;
             if (battle == null) return;
+            customBattle = battle;
             // Before the gear, so the swap's stat update has the battle's level too.
             bool leveled = SetLevel(battle);
             if (!battle.Package.Gear.IsSet)
@@ -185,6 +189,7 @@ internal static partial class BattleGear
             bool ended = inBattle, swapped = swap != null;
             inBattle = false;
             setBattle = null;
+            customBattle = null;
             // The level first, so the restore's stat update uses the player's own level.
             if (levelOverride != null) ClearLevel("the battle ended", backstop: false);
             if (swapped) Restore("the battle ended", backstop: false);
@@ -373,11 +378,11 @@ internal static partial class BattleGear
 
     // ---- backstops -------------------------------------------------------------------------------
 
-    // Something of a set-gear or set-level battle is still in: its inventory, its level, or its
-    // holds on achievements and item use.
-    private static bool Pending => swap != null || setBattle != null || usingConsumable || levelOverride != null;
+    // Something of a custom battle is still in: its inventory, its level, or its holds on
+    // achievements and item use.
+    private static bool Pending => swap != null || setBattle != null || customBattle != null || usingConsumable || levelOverride != null;
 
-    /// <summary>Ends what's left of a set-gear or set-level battle when no arcade battle can be running any more.</summary>
+    /// <summary>Ends what's left of a custom battle when no arcade battle can be running any more.</summary>
     internal static void Backstop(string reason)
     {
         if (!Pending) return;
@@ -388,7 +393,7 @@ internal static partial class BattleGear
         catch (Exception ex) { Report(ex); }
     }
 
-    /// <summary>Called every frame; cheap unless a set-gear or set-level battle is running or wasn't ended.</summary>
+    /// <summary>Called every frame; cheap unless a custom battle is running or wasn't ended.</summary>
     internal static void Update()
     {
         if (Pending) Backstop("the arcade isn't running any more");
@@ -397,8 +402,9 @@ internal static partial class BattleGear
     /// <summary>Puts the player's level and gear back and lifts the battle's holds on achievements and item use.</summary>
     private static void EndBattle(string reason)
     {
-        var battle = setBattle;
+        var battle = setBattle ?? customBattle;
         setBattle = null;
+        customBattle = null;
         usingConsumable = false;
         inBattle = false;
         if (levelOverride != null) ClearLevel(reason, backstop: true);
@@ -433,18 +439,21 @@ internal static partial class BattleGear
 
     // ---- achievements ------------------------------------------------------------------------------
 
-    // The game checks achievements on many events, not only at a battle's end; none of them may
-    // count the battle's gear or level as the player's (the game has a "level 20" achievement).
-    // A test play from the chart editor counts for none.
+    // The game checks achievements on many events, not only at a battle's end (a riposte unlocks
+    // one mid-battle); a custom battle counts for none of them, and neither may its gear or level
+    // count as the player's (the game has a "level 20" achievement). A test play from the chart
+    // editor counts for none either.
+    private static bool HoldsAchievements =>
+        setBattle != null || swap != null || levelOverride != null || customBattle != null || ChartSwap.CurrentBattle != null || TestPlay.Active;
+
     private static bool UnlockAchievementPrefix(string achievementId)
     {
         try
         {
-            bool testing = TestPlay.Active;
-            if (setBattle == null && swap == null && levelOverride == null && !testing) return true;
-            Note(testing
+            if (!HoldsAchievements) return true;
+            Note(TestPlay.Active
                 ? $"Test play: held back achievement {achievementId}."
-                : $"Battle gear: held back achievement {achievementId}: custom battles that set your gear or level don't count towards achievements.", error: false);
+                : $"Custom battle: held back achievement {achievementId}: custom battles don't count towards achievements.", error: false);
             return false;
         }
         catch (Exception ex)

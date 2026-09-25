@@ -35,13 +35,20 @@ internal static partial class ChartEditor
     private static readonly List<BattleChartTarget> closedBattles = new();
     private static int closedFrame;
 
+    // A test asked for on opening (see OpenBattle), and whether the editor closes when it ends.
+    private static double? openTest;
+    private static bool closeAfterTest;
+
     /// <summary>
     /// Opens the editor on a custom battle's chart, at a difficulty slot (0 Beginner to 5 Zen) or,
     /// with -1, the first one that has notes. <see cref="BattleChartTarget.Closed"/> runs once
     /// after the editor has closed, however it closes (also when it fails to open), on the frame
     /// after, so the key or click that closed the editor can't reach the screen that shows again.
+    /// With <paramref name="test"/> (the battle creator's Test buttons), a test starts as soon as
+    /// the music has loaded, from that many seconds in (0: from the start), and the editor closes
+    /// itself when the test ends; a test that can't start leaves the editor open, saying why.
     /// </summary>
-    internal static void OpenBattle(BattleChartTarget target, int slot = -1)
+    internal static void OpenBattle(BattleChartTarget target, int slot = -1, double? test = null)
     {
         if (IsOpen)
         {
@@ -56,7 +63,9 @@ internal static partial class ChartEditor
             BuildCanvas();
             EditorOverlay.Enter(OverlayOwner);
             StartBattle(target, slot);
-            ModLog.Info($"Chart editor opened for the custom battle {target.Title} ({target.ChartFullPath}), {target.Lanes} lanes.");
+            openTest = test;
+            closeAfterTest = test != null;
+            ModLog.Info($"Chart editor opened for the custom battle {target.Title} ({target.ChartFullPath}), {target.Lanes} lanes{(test != null ? ", to test it" : "")}.");
         }
         catch (Exception ex)
         {
@@ -122,6 +131,7 @@ internal static partial class ChartEditor
 
         LoadBattleEvents(source);
         LoadTiming(source);
+        LoadDialogue(target);
         title = target.Title;
         author = "";
         dirty = false;
@@ -312,12 +322,15 @@ internal static partial class ChartEditor
 
     /// <summary>
     /// Says what a tempo or beat 0 change did. Notes sit on beats, so on every difficulty they
-    /// move with them; events are at times in seconds, so they stay where they were.
+    /// move with them, and so do dialogue lines placed on beats; events are at times in seconds,
+    /// so they stay where they were, and so do dialogue lines placed at times.
     /// </summary>
     private static void SayTiming(string what)
     {
-        if (!ChartedTabs().Any(c => c)) { Say(what, 3f); return; }
-        Say(what + ". The notes on every difficulty moved with the beats" + (events.Count > 0 ? "; events keep their times." : "."), 6f);
+        bool notes = ChartedTabs().Any(c => c), lines = cues.Any(c => c.Beat != null);
+        if (!notes && !lines) { Say(what, 3f); return; }
+        string moved = notes && lines ? "The notes on every difficulty and the dialogue lines on beats" : notes ? "The notes on every difficulty" : "The dialogue lines on beats";
+        Say($"{what}. {moved} moved with the beats{(events.Count > 0 ? "; events keep their times." : ".")}", 6f);
     }
 
     /// <summary>Moves every beat (and the notes on them) later against the music; earlier when negative.</summary>
@@ -420,7 +433,8 @@ internal static partial class ChartEditor
             string charted = string.Join(", ", Enumerable.Range(0, BattleChartFile.SlotCount).Where(s => counts[s] > 0).Select(SlotName));
             foreach (var notice in notices) ModLog.Info($"Battle chart {target.Title}: {notice}.");
             ModLog.Info($"Chart editor saved the battle chart {path}: {charted}.");
-            Say(notices.Count > 0 ? $"Saved {charted}. Note: {notices[0]}." : $"Saved {charted} to {target.ChartPath}.", notices.Count > 0 ? 7f : 4f);
+            string lines = SaveDialogue();
+            Say((notices.Count > 0 ? $"Saved {charted}. Note: {notices[0]}." : $"Saved {charted} to {target.ChartPath}.") + lines, notices.Count > 0 || lines.Length > 0 ? 7f : 4f);
             return true;
         }
         catch (Exception ex)
@@ -531,7 +545,7 @@ internal static partial class ChartEditor
     {
         var target = battle!;
         var sb = new StringBuilder();
-        sb.Append($"{Escape(target.Title)}: {target.Lanes} lanes{(target.Lanes == 5 ? "; the middle lane is the attack key (Space)" : "")}.\n");
+        sb.Append($"{Escape(target.Title)}: {target.Lanes} lanes{(target.Lanes == 5 ? $"; the middle lane is the attack key ({Escape(AttackKeyName())})" : "")}.\n");
         sb.Append($"Chart {Escape(target.ChartPath)}, song {Escape(target.AudioPath)}.\n\n");
         var tabs = ChartedTabs();
         var charted = Enumerable.Range(0, BattleChartFile.SlotCount).Where(s => tabs[s]).Select(s => $"{SlotName(s)} ({NoteCount(s)})").ToList();
@@ -563,7 +577,7 @@ internal static partial class ChartEditor
         sb.Append($"The ms buttons move every beat against the music. Keys: {KeysFor(EditorAction.BeatsEarlier)} / {KeysFor(EditorAction.BeatsLater)} 1 ms, " +
             $"{KeysFor(EditorAction.BeatsEarlier10)} / {KeysFor(EditorAction.BeatsLater10)} 10 ms.\n");
         // Notes sit on beats; events sit at times in seconds.
-        sb.Append("Tempo and beat changes move the notes on every difficulty; events keep their times.\n");
+        sb.Append("Tempo and beat changes move the notes on every difficulty, and dialogue lines on beats move with them; events keep their times.\n");
         sb.Append($"<color=#EAE6F5>Scroll speed</color> {(scrolls.Count == 0 ? "normal throughout" : $"{scrolls.Count} changes")}   <color=#EAE6F5>Bookmarks</color> {bookmarks.Count}");
         return sb.ToString();
     }

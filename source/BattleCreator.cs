@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using UnityEngine;
+using UnityEngine.UI;
 using static NocturneFlatScroll.EditorInput;
 using static NocturneFlatScroll.EditorUi;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
@@ -11,7 +12,7 @@ namespace NocturneFlatScroll;
 /// <summary>
 /// The battle creator: makes and edits the custom battles in the CustomBattles folder. It opens
 /// on a list of the battles (plus New, New from an osu!mania beatmap (beta), Import and Open
-/// folder); picking one opens its pages: info, song, charts, enemy, gear and level, and
+/// folder); picking one opens its pages: info, song, charts, enemy, art, gear and level, and
 /// dialogue. It looks and works like the chart editor (an
 /// <see cref="EditorUi"/> drawn over the game, Windows file pickers, mouse or keyboard), and the
 /// game's menus underneath are locked while it is open (<see cref="EditorOverlay"/>). Charting
@@ -56,6 +57,7 @@ internal static partial class BattleCreator
             ui = new EditorUi("NocturneButBetter Battle Creator");
             Ui.BuildList();
             BuildListBack();
+            BuildPickerFace();
             BuildEdit();
             EditorOverlay.Enter(OverlayOwner);
             ignoreKeysFrame = Time.frameCount;
@@ -77,10 +79,15 @@ internal static partial class BattleCreator
     private static void Close()
     {
         StopPreview();
+        StopArtPreview(true);
+        StopDialoguePreview(true);
         ClearCardPreview();
         EndTyping();
         ui?.Destroy();
         ui = null;
+        pickerFaceBox = null;
+        pickerFace = null;
+        pickerFaceNote = null;
         // Gives the cursor back; the menus come back once the key that closed the creator is let go.
         EditorOverlay.Leave(OverlayOwner);
         draft = null;
@@ -146,6 +153,8 @@ internal static partial class BattleCreator
         clicksFrom = Time.unscaledTime + ClickDelay;
         Ui.ListPanel!.gameObject.SetActive(next != Screen.Edit);
         editPanel!.gameObject.SetActive(next == Screen.Edit);
+        // A picker with a picture shows it again on its first update.
+        if (pickerFaceBox) pickerFaceBox!.gameObject.SetActive(false);
     }
 
     /// <summary>
@@ -268,7 +277,7 @@ internal static partial class BattleCreator
         try
         {
             // Folders first, by title; zips (which are imported to be edited) after them.
-            entries = BattleFiles.List(Root)
+            entries = BattleFiles.List(Root, GameCheck)
                 .OrderBy(e => e.IsZip)
                 .ThenBy(e => e.Title, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
@@ -307,12 +316,12 @@ internal static partial class BattleCreator
             string name = e.Artist.Length > 0 ? $"{e.Title} - {e.Artist}" : e.Title;
             // What the battle sets for the player, like "set gear, level 12".
             string overrides = e.Overrides.Length > 0 ? "   " + e.Overrides : "";
-            if (e.IsZip) lines.Add($"zip: {name}  (choose it to import and edit){overrides}");
+            string problems = e.Problems.Count == 0 ? "" : e.Problems.Count == 1 ? "   1 problem" : $"   {e.Problems.Count} problems";
+            if (e.IsZip) lines.Add($"zip: {name}  ({(e.Loads ? "choose it to import and edit" : "the arcade skips it")}){overrides}{problems}");
             else if (e.Broken) lines.Add($"{name}  (battle.json can't be read)");
             else
             {
                 string charted = e.Charted.Count > 0 ? string.Join(", ", e.Charted) : "not charted yet";
-                string problems = e.Problems.Count == 0 ? "" : e.Problems.Count == 1 ? "   1 problem" : $"   {e.Problems.Count} problems";
                 lines.Add($"{name}  ({e.Lanes} lanes; {charted}){overrides}{problems}");
             }
         }
@@ -346,9 +355,16 @@ internal static partial class BattleCreator
         int i = index - ActionRows;
         if (i < 0 || i >= entries.Count) return "";
         var e = entries[i];
-        if (e.IsZip) return "A zip can't be edited as it is. Choose it to unpack it into a battle folder you can edit.";
+        string more = e.Problems.Count > 1 ? $" (and {e.Problems.Count - 1} more)" : "";
+        if (e.IsZip)
+        {
+            const string unpack = "Choose it to unpack it into a battle folder you can edit.";
+            if (e.Problems.Count == 0) return "A zip can't be edited as it is. " + unpack;
+            // A zip the loader refuses is left out of the arcade, which only says why in the log.
+            return (e.Loads ? "Problem: " : "The arcade skips it: ") + e.Problems[0] + more + ".  " + unpack;
+        }
         if (e.Problems.Count > 0)
-            return (e.Broken ? "Can't open it: " : "Problem: ") + e.Problems[0] + (e.Problems.Count > 1 ? $" (and {e.Problems.Count - 1} more)" : "");
+            return (e.Broken ? "Can't open it: " : "Problem: ") + e.Problems[0] + more + (e.CopyOf != null ? ".  Choose it to make it a separate battle." : "");
         return "Click a battle to edit it, or Up/Down and Enter.  F5 reads the folder again.";
     }
 
@@ -366,7 +382,71 @@ internal static partial class BattleCreator
         var e = entries[i];
         if (e.IsZip) AskImportZip(e.Path, e.Title);
         else if (e.Broken) Say("battle.json can't be read: " + (e.Problems.FirstOrDefault() ?? "unknown problem"), 6f);
+        else if (e.CopyOf != null) AskSeparate(e.Path, e.Title, e.CopyOf);
         else OpenBattle(e.Path);
+    }
+
+    /// <summary>
+    /// A battle folder copied in Explorer has the same battle id as the original, and the arcade
+    /// shows only the one it finds first: this gives the other one an id of its own, or opens it
+    /// as it is.
+    /// </summary>
+    private static void AskSeparate(string folder, string title, string original)
+    {
+        string other = Path.GetFileName(original);
+        ShowPicker(new Picker
+        {
+            Heading = $"\"{title}\" has the same battle id as {other}",
+            Rows = { "Make it a separate battle", "Edit it as it is" },
+            Hint = i => i == 0
+                ? $"Gives it a battle id of its own, so the arcade shows both. The scores so far stay with {other}.  Esc goes back."
+                : $"Opens it as it is. The arcade keeps showing only {other}.  Esc goes back.",
+            Choose = i =>
+            {
+                if (i == 1) { OpenBattle(folder); return; }
+                try { BattleFiles.MakeSeparate(folder); }
+                catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
+                {
+                    ModLog.Error($"Battle creator: giving {folder} a battle id of its own failed: {ex.Message}");
+                    Say("It couldn't be made a separate battle: " + ex.Message, 7f);
+                    ShowScreen(Screen.List);
+                    return;
+                }
+                ModLog.Info($"Battle creator: gave {folder} a battle id of its own (it had the id of {original}).");
+                Rescan();
+                SelectInList(folder);
+                OpenBattle(folder);
+                Say("It is a separate battle now: the arcade shows both.", 5f);
+                RefreshArcade();
+            },
+            Back = () => ShowScreen(Screen.List),
+        });
+    }
+
+    // The game's chart reader must take a battle's chart, or the arcade skips the battle
+    // (CustomBattles.CheckChart). Answers are kept by the battle's files, so the list asks the
+    // game once per version of a chart. A reader that fails gives no answer, not a problem.
+    private static readonly Dictionary<string, string?> gameChecks = new();
+
+    private static string? GameCheck(BattlePackage package)
+    {
+        string key = package.Location + "|" + package.Fingerprint;
+        if (gameChecks.TryGetValue(key, out var known)) return known;
+        string? problem = null;
+        try
+        {
+            var built = NotesLoaderSM.Instance.LoadFromText(package.PlayableText);
+            if (built == null || built.steps == null || built.steps.Count == 0 || built.timingData == null)
+                problem = "the game's chart reader finds nothing playable in its chart";
+        }
+        catch (Exception ex)
+        {
+            ModLog.Error($"Battle creator: the game's chart reader couldn't check {package.Location}: {ex.Message}");
+            return null;
+        }
+        if (gameChecks.Count >= 500) gameChecks.Clear();
+        gameChecks[key] = problem;
+        return problem;
     }
 
     /// <summary>Puts the list's cursor on a battle folder.</summary>
@@ -386,16 +466,82 @@ internal static partial class BattleCreator
         internal Action<int> Choose = _ => { };
         internal Action Back = () => { };
         internal int Index;
+        /// <summary>Typing letters jumps to the first row that starts with them (for long lists).</summary>
+        internal bool Jump;
+        /// <summary>A picture beside the list for the highlighted row (null shows none), and a line under it.</summary>
+        internal Func<int, Sprite?>? Face;
+        internal Func<int, string>? FaceNote;
     }
 
     private static Picker? picker;
+    // What has been typed to jump in the list, and when last (a pause starts it over).
+    private static string jumpTyped = "";
+    private static float jumpAt;
+    private static RectTransform? pickerFaceBox;
+    private static Image? pickerFace;
+    private static TMP_Text? pickerFaceNote;
 
     private static void ShowPicker(Picker next)
     {
-        // A prompt or a list interrupts the song's preview.
+        // A prompt or a list interrupts the song's preview, and the dialogue's.
         StopPreview();
+        StopDialoguePlay();
         picker = next;
+        jumpTyped = "";
         ShowScreen(Screen.Pick);
+    }
+
+    // The picture beside a picker's list, right of its box (the list's box is 1200 wide, so the
+    // canvas has room at any window shape).
+    private static void BuildPickerFace()
+    {
+        pickerFaceBox = MakeImage("FaceBox", Ui.ListPanel!, PanelColor).rectTransform;
+        Place(pickerFaceBox, new Vector2(0.5f, 0.5f), new Vector2(780, 60), new Vector2(320, 440));
+        pickerFace = MakeImage("Face", pickerFaceBox, Color.white);
+        pickerFace.preserveAspect = true;
+        PlaceTop(pickerFace.rectTransform, 10, -10, 300, 300);
+        pickerFaceNote = MakeText("Note", pickerFaceBox, 18, TextAlignmentOptions.Top);
+        pickerFaceNote.color = DimText;
+        PlaceTop(pickerFaceNote.rectTransform, 12, -318, 296, 112);
+        pickerFaceBox.gameObject.SetActive(false);
+    }
+
+    private static void DrawPickerFace(Picker p)
+    {
+        bool show = p.Face != null;
+        if (pickerFaceBox!.gameObject.activeSelf != show) pickerFaceBox.gameObject.SetActive(show);
+        if (!show) return;
+        Sprite? face = null;
+        string note;
+        // The picture is only a help: if it fails, the list still works.
+        try
+        {
+            face = p.Face!(p.Index);
+            note = p.FaceNote?.Invoke(p.Index) ?? "";
+        }
+        catch (Exception ex)
+        {
+            if (!reportedPickerFace) ModLog.Error("Battle creator: the picture beside the list failed: " + ex);
+            reportedPickerFace = true;
+            note = "";
+        }
+        if (pickerFace!.sprite != face) pickerFace.sprite = face;
+        if (pickerFace.enabled != (face != null)) pickerFace.enabled = face != null;
+        pickerFaceNote!.text = Escape(note);
+    }
+
+    private static bool reportedPickerFace;
+
+    // Typing letters jumps to the first row that starts with them; a pause of a second starts over.
+    private static void TypeJump(InputKeyboard keyboard, Picker p)
+    {
+        if (Time.unscaledTime > jumpAt + 1f) jumpTyped = "";
+        string before = jumpTyped;
+        if (!TypeInto(keyboard, ref jumpTyped, 24) || jumpTyped == before) return;
+        jumpAt = Time.unscaledTime;
+        if (jumpTyped.Trim().Length == 0) return;
+        int row = p.Rows.FindIndex(r => r.StartsWith(jumpTyped, StringComparison.OrdinalIgnoreCase));
+        if (row >= 0) p.Index = row;
     }
 
     /// <summary>Back to the battle's pages when one is open, else to the list.</summary>
@@ -413,6 +559,7 @@ internal static partial class BattleCreator
         if (live && Pressed(keyboard, Key.Escape)) { picker = null; p.Back(); return; }
         int before = p.Index;
         if (live) p.Index = MoveInList(keyboard, p.Index, p.Rows.Count);
+        if (live && p.Jump) TypeJump(keyboard, p);
         // A message shows where the hint goes; moving to another row brings back that row's hint.
         if (p.Index != before && Ui.MessageShowing) Ui.ClearMessage();
         bool chosen = Chosen(keyboard, p.Rows.Count, ref p.Index);
@@ -425,7 +572,11 @@ internal static partial class BattleCreator
             return;
         }
         string hint = Ui.MessageShowing ? Ui.Message : p.Hint(p.Index);
+        if (p.Jump && jumpTyped.Trim().Length > 0 && Time.unscaledTime <= jumpAt + 1f) hint = $"Jump: {jumpTyped}   " + hint;
         Ui.DrawList(Escape(p.Heading), Escape(hint), p.Rows, p.Index);
+        DrawPickerFace(p);
+        // Only the highlighted row's faces stay loaded (see FacesOf).
+        if (p.Face != null) ReleaseUnwantedFaces();
     }
 
     /// <summary>A yes or no prompt, with the cursor on no.</summary>
@@ -449,18 +600,30 @@ internal static partial class BattleCreator
     private static bool handedOver;
     private static int handOverFrame;
 
-    /// <summary>Opens the battle's chart in the chart editor, on a difficulty slot (0 to 5) or -1 for its choice.</summary>
-    private static void EditCharts(int slot)
+    /// <summary>
+    /// Opens the battle's chart in the chart editor, on a difficulty slot (0 to 5) or -1 for its
+    /// choice. With <paramref name="test"/>, the editor starts a test at once (from that many
+    /// seconds in, or from the start at 0) and closes itself when the test ends.
+    /// </summary>
+    private static void EditCharts(int slot, double? test = null)
     {
         if (draft == null || !FinishTyping()) return;
         StopPreview();
+        StopArtPreview(false);
+        StopDialoguePreview(false);
         string? chart = PackageFiles.SafeName(draft.ChartPath);
         string? audio = PackageFiles.SafeName(draft.EffectiveAudio);
         if (chart == null || audio == null) { Say("The battle needs a chart file and a song first.", 4f); return; }
+        // Saving writes chart text to the file battle.json's "chart" names, so it must be an .sm file of its own.
+        if (draft.ChartFileProblem() is { } bad)
+        {
+            Say($"The chart can't be edited here: {bad}. In battle.json, \"chart\" has to name an .sm file of its own.", 8f);
+            return;
+        }
         handedOver = true;
         handOverFrame = Time.frameCount;
         bool opened;
-        try { opened = OpenCharts(draft.Folder, chart, audio, draft.Lanes, draft.Title, slot, ChartsClosed); }
+        try { opened = OpenCharts(draft.Folder, chart, audio, draft.Lanes, draft.Title, slot, ChartsClosed, test); }
         catch (Exception ex)
         {
             opened = false;
@@ -473,18 +636,24 @@ internal static partial class BattleCreator
             return;
         }
         Ui.SetVisible(false);
-        ModLog.Info($"Battle creator: opened the chart of {draft.Folder} in the chart editor ({SlotName(slot)}).");
+        ModLog.Info($"Battle creator: opened the chart of {draft.Folder} in the chart editor ({SlotName(slot)})" +
+                    (test is double at ? $" to test it from {(at > 0 ? DialogueReader.Clock(at) : "the start")}." : "."));
     }
 
     /// <summary>
     /// Hands the battle's chart to the chart editor; true when it opened. The editor calls
     /// <paramref name="onClosed"/> when it closes, and the creator shows again.
     /// </summary>
-    private static bool OpenCharts(string folder, string chartPath, string audioPath, int lanes, string title, int slot, Action onClosed)
+    private static bool OpenCharts(string folder, string chartPath, string audioPath, int lanes, string title, int slot, Action onClosed, double? test)
     {
         // A failed open still calls onClosed (a frame later); ChartsClosed ignores it then. A test
-        // play from the editor uses the battle as it is here, saved or not.
-        ChartEditor.OpenBattle(new BattleChartTarget(folder, chartPath, audioPath, lanes, title, onClosed) { Manifest = () => draft?.ManifestJson() }, slot);
+        // play from the editor uses the battle as it is here, saved or not, dialogue too.
+        ChartEditor.OpenBattle(new BattleChartTarget(folder, chartPath, audioPath, lanes, title, onClosed)
+        {
+            Manifest = () => draft?.ManifestJson(),
+            DialogueJson = () => draft?.DialogueJson(),
+            Dialogue = draft != null ? DialogueLinkFor(draft) : null,
+        }, slot, test);
         return ChartEditor.IsOpen;
     }
 

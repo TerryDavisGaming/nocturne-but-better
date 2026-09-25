@@ -10,14 +10,27 @@ namespace NocturneFlatScroll;
 /// </summary>
 internal sealed record BattleChartTarget(string Folder, string ChartPath, string AudioPath, int Lanes, string Title, Action? Closed)
 {
-    /// <summary>The chart file on disk.</summary>
-    internal string ChartFullPath => FullPath(ChartPath);
+    /// <summary>The chart file on disk. Throws when its name isn't one the editor may write (see <see cref="ChartNameProblem"/>).</summary>
+    internal string ChartFullPath => ChartNameProblem(ChartPath) is { } bad ? throw new InvalidDataException(bad) : FullPath(ChartPath);
 
     /// <summary>
     /// battle.json as the battle creator would save it now, so a test play uses its unsaved
     /// changes (title, enemy, gear); null, or no function, reads the file.
     /// </summary>
     internal Func<string?>? Manifest { get; init; }
+
+    /// <summary>
+    /// The dialogue as the battle creator has it now (its JSON object), so a test play uses its
+    /// unsaved lines even when battle.json keeps them in a file of their own; null, or no
+    /// function, uses battle.json's (from <see cref="Manifest"/>) or the file it names.
+    /// </summary>
+    internal Func<string?>? DialogueJson { get; init; }
+
+    /// <summary>
+    /// The battle creator's lines during the song, which the chart editor shows and edits in the
+    /// creator's draft; null (a battle opened from its folder) shows battle.json's, read-only.
+    /// </summary>
+    internal DialogueLink? Dialogue { get; init; }
 
     /// <summary>
     /// Reads what the editor needs from a battle folder's battle.json: the chart it names, the
@@ -35,6 +48,10 @@ internal sealed record BattleChartTarget(string Folder, string ChartPath, string
         ChartText? sm = files.Exists(chart) ? ChartText.Parse(files.ReadAllText(chart, BattlePackage.MaxChartBytes)) : null;
         string audio = PackageFiles.SafeName(manifest.audio ?? sm?.GetTag("MUSIC") ?? "")
             ?? throw new InvalidDataException("the battle names no song file (\"audio\" in " + BattlePackage.ManifestName + ")");
+        string? enemyFile = manifest.enemy.ValueKind == JsonValueKind.String ? manifest.enemy.GetString() : null;
+        string? dialogueFile = manifest.dialogue.ValueKind == JsonValueKind.String ? manifest.dialogue.GetString() : null;
+        if (ChartFileProblem(folder, chart, ("song", audio), ("card image", manifest.card), ("enemy file", enemyFile), ("dialogue", dialogueFile)) is { } bad)
+            throw new InvalidDataException(bad);
         int lanes = manifest.lanes ?? sm?.Blocks.FirstOrDefault(ChartText.HasNotes)?.Lanes ?? 4;
         if (lanes != 4 && lanes != 5) throw new InvalidDataException($"\"lanes\" must be 4 or 5, not {lanes}");
         string title = (manifest.title ?? "").Trim();
@@ -42,7 +59,95 @@ internal sealed record BattleChartTarget(string Folder, string ChartPath, string
         return new BattleChartTarget(folder, chart, audio, lanes, title, closed);
     }
 
+    /// <summary>
+    /// Why the chart editor and the battle creator can't write the chart file battle.json's "chart"
+    /// names, or null when they can: it must be an .sm file inside the battle whose name has no
+    /// control characters (so never battle.json, a song or an image), and not a file the battle
+    /// uses for something else (<paramref name="others"/>: what it is, and its name in
+    /// battle.json), like an enemy file named .sm. Chart text written over any of them would
+    /// break the battle.
+    /// </summary>
+    internal static string? ChartFileProblem(string folder, string chart, params (string What, string? Name)[] others)
+    {
+        if (ChartNameProblem(chart) is { } bad) return bad;
+        string? full = FullIn(folder, chart);
+        if (full == null) return "the chart file must be inside the battle's folder";
+        foreach (var (what, name) in others)
+            if (!string.IsNullOrWhiteSpace(name) && string.Equals(FullIn(folder, name!), full, StringComparison.OrdinalIgnoreCase))
+                return $"the chart file {chart.Trim()} is also the battle's {what}";
+        return null;
+    }
+
+    /// <summary>The part of <see cref="ChartFileProblem"/> that needs only the chart's name.</summary>
+    internal static string? ChartNameProblem(string chart)
+    {
+        string? name = PackageFiles.SafeName(chart);
+        if (name == null) return "the chart file must be inside the battle's folder";
+        if (name.Any(char.IsControl)) return "the chart's file name has characters a file name can't have";
+        if (!name.EndsWith(".sm", StringComparison.OrdinalIgnoreCase)) return $"the chart file {name} isn't an .sm file";
+        return null;
+    }
+
+    // The full path of a name inside the battle, or null when it isn't one.
+    private static string? FullIn(string folder, string name)
+    {
+        string? safe = PackageFiles.SafeName(name);
+        if (safe == null || safe.Any(char.IsControl)) return null;
+        try { return Path.GetFullPath(Path.Combine(folder, safe.Replace('/', Path.DirectorySeparatorChar))).TrimEnd('\\', '/'); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException) { return null; }
+    }
+
     private string FullPath(string name) =>
         Path.Combine(Folder, (PackageFiles.SafeName(name) ?? throw new InvalidDataException($"\"{name}\" must be a file inside the battle folder"))
             .Replace('/', Path.DirectorySeparatorChar));
+}
+
+/// <summary>
+/// One line during the song as the chart editor edits it: the values it shows and changes, and
+/// the line as battle.json has it, so whatever else the line has is kept (see
+/// BattleDraft.SetDuringCues).
+/// </summary>
+internal sealed class DialogueCue
+{
+    /// <summary>The line as written (a JSON object).</summary>
+    internal string Json = "{}";
+    internal string Speaker = "";
+    internal string? Expression;
+    /// <summary>The line's own name tag, shown but not changed here.</summary>
+    internal string? Name;
+    internal string Text = "";
+    /// <summary>When it plays: seconds on the song's clock, or a beat (which wins when both are set).</summary>
+    internal double? Time, Beat;
+    /// <summary>Seconds on screen; null works it out from the text.</summary>
+    internal double? Duration;
+    /// <summary>The song stops for this line.</summary>
+    internal bool Pause;
+    /// <summary>Its place in the draft's list of lines during the song (as read, or as the editor last set them); -1 when the draft doesn't have it yet.</summary>
+    internal int Place = -1;
+
+    internal DialogueCue Copy() => (DialogueCue)MemberwiseClone();
+}
+
+/// <summary>
+/// The battle creator's lines during the song for the chart editor (see
+/// <see cref="BattleChartTarget.Dialogue"/>): the lines stay in the creator's draft of battle.json,
+/// so there is one copy. The editor sets them after each change, so a test uses them at once, and
+/// its Save saves the creator's battle too. Without <see cref="Set"/> they can only be looked at.
+/// </summary>
+internal sealed class DialogueLink
+{
+    /// <summary>The lines during the song, as the draft has them now.</summary>
+    internal Func<List<DialogueCue>> Get = () => new List<DialogueCue>();
+    /// <summary>Puts the editor's lines in the draft, in its order; null when they can't be changed.</summary>
+    internal Action<List<DialogueCue>>? Set;
+    /// <summary>The battle creator's Save (battle.json, and the dialogue's own file); null when it saved, else why it didn't.</summary>
+    internal Func<string?>? Save;
+    /// <summary>The name a speaker shows as (the battle's own speaker's name, a game character's, "Narrator").</summary>
+    internal Func<string, string> NameOf = id => id;
+    /// <summary>Who the editor offers for a line: the battle's own speakers, the game characters it uses, the Narrator.</summary>
+    internal Func<List<(string Id, string Label)>> Speakers = () => new List<(string, string)>();
+    /// <summary>Opens a line (by its <see cref="DialogueCue.Place"/>; -1 for none) on the creator's Dialogue page once the editor closes.</summary>
+    internal Action<int>? ShowInCreator;
+
+    internal bool ReadOnly => Set == null;
 }

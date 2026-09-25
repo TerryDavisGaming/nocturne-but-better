@@ -159,6 +159,15 @@ internal sealed class EditorUi
         return image;
     }
 
+    /// <summary>A picture drawn straight from a texture (a part of it, with uvRect), like the creator's art preview.</summary>
+    internal static RawImage MakeRawImage(string name, Transform parent)
+    {
+        var rect = MakeRect(name, parent);
+        var image = rect.gameObject.AddComponent<RawImage>();
+        image.raycastTarget = false;
+        return image;
+    }
+
     internal static TMP_Text MakeText(string name, Transform parent, float size, TextAlignmentOptions align)
     {
         var rect = MakeRect(name, parent);

@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace NocturneFlatScroll;
 
@@ -92,12 +91,7 @@ internal sealed class ChartText
             if (start < 0) break;
             int colon = s.IndexOf(':', start);
             if (colon < 0) break;
-            // Like StepMania, a value ends at ';' or where a new line starts another tag, so one
-            // missing ';' doesn't swallow the next tag.
-            int end = s.IndexOf(';', colon);
-            if (end < 0) end = s.Length;
-            var next = NextTag.Match(s, colon);
-            if (next.Success && next.Index < end) end = next.Index;
+            int end = ValueEnd(s, colon + 1);
             string key = s.Substring(start + 1, colon - start - 1).Trim();
             string value = s.Substring(colon + 1, end - colon - 1);
             i = end < s.Length && s[end] == ';' ? end + 1 : end;
@@ -120,19 +114,39 @@ internal sealed class ChartText
         return chart;
     }
 
-    private static readonly Regex NextTag = new(@"\n[ \t]*#", RegexOptions.Compiled);
+    /// <summary>
+    /// Where a tag's value that starts at <paramref name="from"/> ends. Like StepMania, a value ends
+    /// at ';' or at the line break before a line that starts another tag ('#' after spaces or
+    /// tabs), so one missing ';' doesn't swallow the next tag. It only looks as far as that end, so
+    /// reading a file takes one pass however it's laid out.
+    /// </summary>
+    private static int ValueEnd(string s, int from)
+    {
+        for (int k = from; k < s.Length; k++)
+        {
+            char c = s[k];
+            if (c == ';') return k;
+            if (c != '\n') continue;
+            int j = k + 1;
+            while (j < s.Length && (s[j] == ' ' || s[j] == '\t')) j++;
+            if (j < s.Length && s[j] == '#') return k;
+        }
+        return s.Length;
+    }
 
     /// <summary>Throws with a readable reason when a block can't be played.</summary>
-    internal void Validate(int blockIndex)
+    /// <param name="plain">Words for the battle creator, without StepMania's names (see <see cref="SongSlots"/>).</param>
+    internal void Validate(int blockIndex, bool plain = false)
     {
         var block = Blocks[blockIndex];
         int lanes = block.Lanes;
-        if (lanes == 0) throw new InvalidDataException($"\"{block.DisplayName}\" has an unknown chart type ({block.StepsType})");
+        if (lanes == 0)
+            throw new InvalidDataException(plain ? $"\"{block.DisplayName}\" isn't a 4- or 5-lane chart" : $"\"{block.DisplayName}\" has an unknown chart type ({block.StepsType})");
         string? bpms = GetTag("BPMS");
         var first = bpms?.Split(',')[0].Split('=');
         if (first == null || first.Length != 2 || !double.TryParse(first[1].Trim(), System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out double bpm) || !(bpm > 0))
-            throw new InvalidDataException("the chart has no usable #BPMS");
+            throw new InvalidDataException(plain ? "the chart has no BPM (set it on the chart editor's Timing page)" : "the chart has no usable #BPMS");
         int rows = 0;
         foreach (var raw in block.Notes.Split('\n'))
         {
@@ -239,9 +253,11 @@ internal sealed class ChartText
     /// name in the game's own order (Edit plays as Beginner, Beginner as Novice, and so on up to
     /// Challenge as Zen). Blocks without notes are skipped, so an editor's empty difficulties don't
     /// count. A block that can't be played, has the wrong lane count or repeats a slot is left
-    /// out, with the reason added to <paramref name="problems"/>.
+    /// out, with the reason added to <paramref name="problems"/>: in StepMania's words for the log,
+    /// or with <paramref name="plain"/>, in the battle creator's (the difficulty tabs' names, lane
+    /// counts instead of "dance-single" and "pump-single"). The slots are the same either way.
     /// </summary>
-    internal NoteBlock?[] SongSlots(int lanes, List<string> problems)
+    internal NoteBlock?[] SongSlots(int lanes, List<string> problems, bool plain = false)
     {
         var slots = new NoteBlock?[GameDifficultyNames.Length];
         for (int i = 0; i < Blocks.Count; i++)
@@ -251,20 +267,26 @@ internal sealed class ChartText
             int slot = SlotOf(block.Difficulty);
             if (slot < 0)
             {
-                problems.Add($"\"{block.DisplayName}\" has the difficulty \"{block.Difficulty}\", which isn't one of {string.Join(", ", GameDifficultyNames)}");
+                problems.Add(plain
+                    ? $"\"{block.DisplayName}\" has a difficulty the game doesn't have (\"{block.Difficulty}\"), so it never plays"
+                    : $"\"{block.DisplayName}\" has the difficulty \"{block.Difficulty}\", which isn't one of {string.Join(", ", GameDifficultyNames)}");
                 continue;
             }
             if (block.Lanes != lanes)
             {
-                problems.Add($"\"{block.DisplayName}\" is {block.StepsType}, but the song has {lanes} lanes ({(lanes == 5 ? "pump-single" : "dance-single")})");
+                problems.Add(!plain ? $"\"{block.DisplayName}\" is {block.StepsType}, but the song has {lanes} lanes ({(lanes == 5 ? "pump-single" : "dance-single")})"
+                    : block.Lanes == 0 ? $"\"{block.DisplayName}\" isn't a 4- or 5-lane chart, so it never plays"
+                    : $"\"{block.DisplayName}\" is a {block.Lanes}-lane chart, but the battle has {lanes} lanes, so it never plays");
                 continue;
             }
             if (slots[slot] != null)
             {
-                problems.Add($"\"{block.DisplayName}\" is a second {block.Difficulty.Trim()} chart; the first one plays");
+                problems.Add(plain
+                    ? $"\"{block.DisplayName}\" is a second {GameDifficultyLabels[slot]} chart; the first one plays"
+                    : $"\"{block.DisplayName}\" is a second {block.Difficulty.Trim()} chart; the first one plays");
                 continue;
             }
-            try { Validate(i); }
+            try { Validate(i, plain); }
             catch (InvalidDataException ex)
             {
                 problems.Add(ex.Message);

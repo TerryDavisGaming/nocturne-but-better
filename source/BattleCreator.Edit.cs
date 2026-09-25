@@ -14,7 +14,6 @@ internal static partial class BattleCreator
 {
     // The chart editor's remembered name for charts, used as a new battle's charter.
     private const string AuthorPref = "NocturneFlatScroll.EditorAuthor.v1";
-    private const int MaxExtraHealth = 20;
 
     private static BattleDraft? draft;
     private static BattleFiles.ChartSummary? charts;
@@ -30,11 +29,13 @@ internal static partial class BattleCreator
     {
         BattleDraft loaded;
         try { loaded = BattleDraft.Load(folder); }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
         {
             Say("It can't be opened: " + ex.Message, 6f);
             return;
         }
+        StopArtPreview(true);
+        StopDialoguePreview(true);
         draft = loaded;
         touched.Clear();
         RefreshBattleInfo();
@@ -60,12 +61,12 @@ internal static partial class BattleCreator
             Hint = i => i switch
             {
                 0 => "Saves the changes, then goes back to the list.",
-                1 => "Goes back to the list without the changes. Songs and images added since the last save go to the Recycle Bin.",
+                1 => "Goes back to the list without the changes. Songs, images, art and speakers' pictures added since the last save go to the Recycle Bin.",
                 _ => "Keeps editing.",
             },
             Choose = i =>
             {
-                if (i == 0) { if (Save()) CloseBattle(); else BackFromPicker(); }
+                if (i == 0) { if (Save(leaving: true)) CloseBattle(); else BackFromPicker(); }
                 else if (i == 1)
                 {
                     ModLog.Info($"Battle creator: left {d.Folder} without saving.");
@@ -81,9 +82,11 @@ internal static partial class BattleCreator
     {
         string? folder = draft?.Folder;
         StopPreview();
+        StopArtPreview(true);
+        StopDialoguePreview(true);
         ClearCardPreview();
         EndTyping();
-        CleanUnused();
+        CleanUnused(leaving: true);
         draft = null;
         song = null;
         audioLoad = null;
@@ -101,7 +104,10 @@ internal static partial class BattleCreator
         try
         {
             charts = BattleFiles.SummarizeChart(draft.Folder, draft.ChartPath, draft.Lanes);
-            summary = BattleFiles.Read(draft.Folder);
+            RefreshDialogueChart();
+            if (PackageFiles.SafeName(draft.ChartPath) != null && draft.ChartFileProblem() is { } chartFile)
+                charts.Problems.Insert(0, chartFile + "; it can't be edited here");
+            summary = BattleFiles.Read(draft.Folder, GameCheck);
         }
         catch (Exception ex)
         {
@@ -120,6 +126,8 @@ internal static partial class BattleCreator
         // A click anywhere finishes the field being typed in (clicking it again starts it again).
         // A value the field refuses stays open with the reason showing, and the click does nothing else.
         if (typing != null && clicks != null && clicks.leftButton.wasPressedThisFrame && !Busy && !CommitTyping()) clicks = null;
+        // The Dialogue page's rows follow the draft before they're drawn.
+        if (page == Page.Dialogue) RefreshDialogue();
         Ui.UpdateButtons(clicks);
         if (!IsOpen || screen != Screen.Edit || draft == null) return;
         if (Live && !Busy)
@@ -127,12 +135,16 @@ internal static partial class BattleCreator
             if (typing != null) UpdateTyping(keyboard);
             else if (!HandleEditKeys(keyboard)) return;
         }
+        if (page == Page.Art) UpdateArtPage(Live && !Busy ? clicks : null);
+        if (page == Page.Dialogue) UpdateDialoguePage(Live && !Busy ? clicks : null);
         DrawEdit();
     }
 
     /// <returns>False when the edit screen closed.</returns>
     private static bool HandleEditKeys(InputKeyboard k)
     {
+        // While the Dialogue page plays its preview, Enter goes on and Esc stops it.
+        if (HandleDialoguePlayKeys(k)) return true;
         if (Pressed(k, Key.Escape))
         {
             RequestBack();
@@ -145,6 +157,8 @@ internal static partial class BattleCreator
             SetPage(Pages[(i + (Shift(k) ? Pages.Length - 1 : 1)) % Pages.Length].Page);
             return true;
         }
+        if (HandleArtKeys(k)) return true;
+        if (HandleDialogueKeys(k)) return true;
         var shown = VisibleControls();
         if (Pressed(k, Key.DownArrow)) focus = shown.Count == 0 ? -1 : Math.Min(shown.Count - 1, focus + 1);
         if (Pressed(k, Key.UpArrow)) focus = shown.Count == 0 ? -1 : Math.Max(0, focus - 1);
@@ -164,13 +178,23 @@ internal static partial class BattleCreator
         internal Func<string>? Empty;
         internal int Max = 80;
         internal bool MultiLine;
+        /// <summary>Tall and wrapped like a multi-line text, but one line: Enter ends it (a line of dialogue).</summary>
+        internal bool Wrap;
+        internal bool Tall => MultiLine || Wrap;
         internal string Hint = "Type, then Enter. Esc cancels.";
         /// <summary>A part of the enemy, which can't change while the enemy's file can't be read.</summary>
         internal bool Enemy;
+        /// <summary>More for the typing hint, worked out from what is typed (like how many lines it takes).</summary>
+        internal Func<string, string>? Measure;
+        /// <summary>Letters that typing leaves out, and what it says when one is typed.</summary>
+        internal char[]? Refused;
+        internal string RefusedText = "";
     }
 
     private static TextField? typing;
     private static string typed = "";
+    // Until when the typing hint says a letter was left out.
+    private static float refusedUntil;
 
     private static void StartTyping(TextField field)
     {
@@ -179,17 +203,20 @@ internal static partial class BattleCreator
         if (field.Enemy && !EnemyEditable()) return;
         typing = field;
         typed = field.Get();
+        refusedUntil = 0;
         BeginText();
         SayTypingHint();
     }
 
-    // The hint while typing; the long texts also show how much of them is used.
+    // The hint while typing. The long texts, and those with a measure (like the info boxes' lines),
+    // also show how much of them is used, so it's clear why typing stops at the limit.
     private static void SayTypingHint()
     {
         var field = typing;
         if (field == null) return;
         string hint = field.MultiLine ? "Type, then Enter. Shift+Enter starts a new line. Esc cancels." : field.Hint;
-        if (field.Max >= 100) hint += $"   {typed.Length} / {field.Max}";
+        if (Time.unscaledTime < refusedUntil) hint = field.RefusedText + "  " + hint;
+        if (field.Max >= 100 || field.Measure != null) hint += BattleDraft.TypingCount(typed.Length, field.Max, field.Measure?.Invoke(typed));
         Say(hint, 3600f);
     }
 
@@ -208,7 +235,15 @@ internal static partial class BattleCreator
             }
             return;
         }
-        if (TypeText(k, ref typed, field.Max)) SayTypingHint();
+        if (TypeText(k, ref typed, field.Max))
+        {
+            if (field.Refused is { } refused && typed.IndexOfAny(refused) >= 0)
+            {
+                typed = new string(typed.Where(c => Array.IndexOf(refused, c) < 0).ToArray());
+                refusedUntil = Time.unscaledTime + 4f;
+            }
+            SayTypingHint();
+        }
         if (enter) CommitTyping();
     }
 
@@ -253,13 +288,16 @@ internal static partial class BattleCreator
 
     private static string Num(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
 
-    /// <summary>A typed number, or null when nothing was typed. A comma works as the decimal point too.</summary>
+    /// <summary>
+    /// A typed number, or null when nothing was typed. A comma works as the decimal point too, but
+    /// one that could be a thousands separator ("1,500") is asked about, not guessed (NumberText).
+    /// </summary>
     private static double? ParseNumber(string text, double min, double max, string what)
     {
-        text = text.Trim().Replace(',', '.');
-        if (text.Length == 0) return null;
-        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) || double.IsNaN(value) || double.IsInfinity(value))
-            throw new InvalidDataException($"{what} has to be a number, like {Num(Math.Max(min, 1))}.");
+        var result = NumberText.Parse(text, out double value, out string either);
+        if (result == NumberText.Result.Empty) return null;
+        if (NumberText.Question(result, either) is { } question) throw new InvalidDataException($"{what}: {question}");
+        if (result != NumberText.Result.Number) throw new InvalidDataException($"{what} has to be a number, like {Num(Math.Max(min, 1))}.");
         if (value < min || value > max) throw new InvalidDataException($"{what} has to be between {Num(min)} and {Num(max)}.");
         return value;
     }
@@ -320,14 +358,17 @@ internal static partial class BattleCreator
         Hint = "Type the time in seconds, like 42.5, then Enter. Esc cancels.",
     };
 
+    // The battle shows the name only as the title of its own info boxes that have none, so the
+    // field sits with them on the Enemy page and shows only while the battle has its own boxes.
     private static readonly TextField EnemyNameField = new()
     {
-        Label = "Name",
+        Label = "Enemy name",
         Max = 60,
         Enemy = true,
         Get = () => draft?.EnemyName ?? "",
         Set = text => draft!.EnemyName = text,
-        Empty = () => $"{EnemyChoices.NameOf(draft?.Placeholder)} (the enemy's own name)",
+        Empty = () => "(none)",
+        Hint = "Type, then Enter. It is the title of a box that has no title of its own. Esc cancels.",
     };
 
     // The loader's limits for each stat.
@@ -351,8 +392,9 @@ internal static partial class BattleCreator
         Hint = "Type a number, then Enter. Leave it empty for the enemy's own. Esc cancels.",
     }).ToArray();
 
-    // In the battle, a box without a title shows the enemy's own Name (not the placeholder's), or
-    // no title when it has none. A box shows when it has a title or a text.
+    // In the battle, a box without a title shows the Enemy name (not the placeholder's), or no
+    // title when there is none. The game only shows a box that has a text, and at most 3 lines of
+    // it (BattleDraft.InfoBoxNotes says when a box won't show as typed).
     private static readonly TextField[] InfoTitleFields = Enumerable.Range(0, EnemyPlaceholders.MaxInfoBoxes).Select(i => new TextField
     {
         Label = $"Box {i + 1} title",
@@ -360,24 +402,31 @@ internal static partial class BattleCreator
         Enemy = true,
         Get = () => draft?.InfoBox(i).Title ?? "",
         Set = text => draft!.SetInfoBox(i, text, null),
-        Empty = () => draft?.EnemyName is { Length: > 0 } name ? $"(empty: shows the Name, {name})" : "(empty: no title)",
+        Empty = () => draft?.EnemyName is { Length: > 0 } name ? $"(empty: shows the enemy name, {name})" : "(empty: no title)",
     }).ToArray();
 
+    // About three lines of the box's width; the typing hint says how much of that is used
+    // ("42 / 99, about 2 of 3 lines").
     private static readonly TextField[] InfoTextFields = Enumerable.Range(0, EnemyPlaceholders.MaxInfoBoxes).Select(i => new TextField
     {
         Label = $"Box {i + 1} text",
-        Max = 300,
+        Max = BattleDraft.InfoMaxLines * BattleDraft.InfoLineChars,
         MultiLine = true,
         Enemy = true,
         Get = () => draft?.InfoBox(i).Description ?? "",
         Set = text => draft!.SetInfoBox(i, null, text),
-        Empty = () => "(empty)",
+        Empty = () => "(empty: the battle doesn't show this box)",
+        Measure = BattleDraft.InfoLinesText,
     }).ToArray();
 
     // ---- saving ----------------------------------------------------------------------------------
 
-    private static bool Save()
+    // Why the last save failed, for the chart editor's status line (the creator is hidden then).
+    private static string? saveProblem;
+
+    private static bool Save(bool leaving = false)
     {
+        saveProblem = null;
         if (draft == null || !FinishTyping()) return false;
         try
         {
@@ -388,10 +437,11 @@ internal static partial class BattleCreator
         {
             // Whatever went wrong, the creator stays open with the changes still in it.
             ModLog.Error("Battle creator: saving failed: " + ex);
+            saveProblem = ex.Message;
             Say("Saving failed: " + ex.Message, 7f);
             return false;
         }
-        CleanUnused();
+        CleanUnused(leaving);
         RefreshBattleInfo();
         RefreshArcade();
         Say("Saved.", 2.5f);
@@ -407,13 +457,24 @@ internal static partial class BattleCreator
         catch (Exception ex) { ModLog.Error("Battle creator: updating the arcade's battles failed: " + ex.Message); }
     }
 
-    /// <summary>Sends the songs and images that the saved battle no longer uses to the Recycle Bin, in the background.</summary>
-    private static void CleanUnused()
+    /// <summary>
+    /// Sends the songs, images and art that the saved battle no longer uses to the Recycle Bin, in
+    /// the background. A speaker's picture the dialogue's Undo can still bring back stays until
+    /// the battle is left (<paramref name="leaving"/>).
+    /// </summary>
+    private static void CleanUnused(bool leaving = false)
     {
         // One at a time: whatever is left waits for the next save or for leaving the battle.
         if (draft == null || touched.Count == 0 || cleanup != null) return;
         var candidates = touched.ToList();
         touched.Clear();
+        if (!leaving)
+        {
+            var undoable = draft.DialogueUndoTexts();
+            touched.AddRange(candidates.Where(undoable.Contains));
+            candidates.RemoveAll(undoable.Contains);
+            if (candidates.Count == 0) return;
+        }
         string folder = draft.Folder;
         IntPtr owner = gameWindow;
         cleanup = OnShellThread(() =>
@@ -450,7 +511,7 @@ internal static partial class BattleCreator
         var (moved, kept) = task.Result;
         foreach (var path in moved) ModLog.Info($"Battle creator: moved {path} to the Recycle Bin (the battle doesn't use it any more).");
         foreach (var path in kept) ModLog.Info($"Battle creator: left {path} in the battle's folder; the battle doesn't use it any more.");
-        if (kept.Count > 0) Say("Songs or images the battle doesn't use any more stay in its folder: Windows can't put them in the Recycle Bin.", 6f);
+        if (kept.Count > 0) Say("Songs, images or art the battle doesn't use any more stay in its folder: Windows can't put them in the Recycle Bin.", 6f);
     }
 
     // ---- new battles, imports and exports ------------------------------------------------------------
@@ -463,8 +524,11 @@ internal static partial class BattleCreator
             ShowPicker(new Picker
             {
                 Heading = $"{Path.GetFileNameWithoutExtension(path)}: how many lanes?",
-                Rows = { "4 lanes (D F J K)", "5 lanes (D F Space J K; the middle lane attacks)" },
-                Hint = _ => "This can't change later. For the other number of lanes, make another battle.  Esc goes back.",
+                Rows = { "4 lanes", "5 lanes: the middle lane is played with the Attack key" },
+                Hint = i => (i == 0
+                    ? "Played with the lane keys (D F J K by default)."
+                    : "In 5 lanes the player's own attacks are off: the enemy only takes damage from Player attack events, added on the chart editor's Events tab.") +
+                    " This can't change later; for the other number of lanes, make another battle.  Esc goes back.",
                 Choose = i => CreateBattle(path, i == 0 ? 4 : 5),
                 Back = () => ShowScreen(Screen.List),
             });
@@ -553,7 +617,7 @@ internal static partial class BattleCreator
             OpenBattle(imported.Folder);
             if (imported.zipStays)
                 Say($"Imported, but {Path.GetFileName(zip)} couldn't be moved, so the arcade plays the zip instead of this folder. Move the zip out of the battles folder.", 10f);
-            else Say(imported.NewId ? "Imported. A battle with the same id was already here, so this copy has its own id." : "Imported.", 6f);
+            else Say(imported.NewId ? "Imported as a separate battle: the same battle was already here, and the arcade shows both." : "Imported.", 6f);
         });
     }
 
@@ -595,6 +659,8 @@ internal static partial class BattleCreator
         {
             ModLog.Info($"Battle creator: moved {folder} to the Recycle Bin.");
             StopPreview();
+            StopArtPreview(true);
+            StopDialoguePreview(true);
             ClearCardPreview();
             touched.Clear();
             draft = null;
@@ -719,9 +785,15 @@ internal static partial class BattleCreator
     {
         if (draft == null || !FinishTyping()) return;
         var d = draft;
-        Run(FileDialogs.Open(FileDialogs.Purpose.Images, "Choose the battle's card image"), "Choose an image in the window that opened...", path =>
+        Run(FileDialogs.Open(FileDialogs.Purpose.CardImages, "Choose the battle's card image"), "Choose an image in the window that opened...", path =>
         {
             if (path == null || draft != d) return;
+            // Cards show PNG and JPEG images only; anything else isn't copied in.
+            if (!BattleFiles.IsCardImage(path))
+            {
+                Say($"{Path.GetFileName(path)} isn't a PNG or JPEG image, and cards only show those. Choose a .png or .jpg file.", 7f);
+                return;
+            }
             var (card, copied) = BattleFiles.AddFile(d.Folder, path, "images", BattlePackage.MaxImageBytes);
             if (copied) touched.Add(card);
             if (d.Card != null && !d.Card.Equals(card, StringComparison.OrdinalIgnoreCase)) touched.Add(d.Card);
@@ -747,22 +819,37 @@ internal static partial class BattleCreator
     {
         if (draft == null || !FinishTyping() || !EnemyEditable()) return;
         var d = draft;
-        var list = EnemyChoices.List(d.Advanced);
+        // Scripted bosses can't take custom art, so a custom-art enemy picks from the others.
+        var list = EnemyChoices.List(d.Advanced && !d.CustomArt);
         string current = EnemyChoices.Normalize(d.Placeholder);
+        var rows = list.Select(c => c.Advanced ? c.Name + "  (advanced boss)" : c.Name).ToList();
+        int index = list.FindIndex(c => c.Asset.Equals(current, StringComparison.OrdinalIgnoreCase));
+        // An enemy the list leaves out (an advanced boss while they're off or the art is custom, or one
+        // it doesn't know) gets a row of its own on top, where the list opens, so opening it to look changes nothing.
+        int keep = index < 0 ? 1 : 0;
+        if (keep == 1) rows.Insert(0, EnemyChoices.NameOf(current) + "  (current)");
         ShowPicker(new Picker
         {
-            Heading = "The enemy: which game enemy stands in",
-            Rows = list.Select(c => c.Advanced ? c.Name + "  (advanced boss)" : c.Name).ToList(),
-            Hint = i => i >= 0 && i < list.Count ? EnemyHint(list[i]) : "",
-            Index = Math.Max(0, list.FindIndex(c => c.Asset.Equals(current, StringComparison.OrdinalIgnoreCase))),
+            Heading = d.CustomArt ? "The enemy: which game enemy it fights like" : "The enemy: which game enemy stands in",
+            Rows = rows,
+            Hint = i => i < keep
+                ? (KeptEnemyProblem(d, current) ?? "The enemy it is now.") + "  Esc goes back."
+                : i - keep >= 0 && i - keep < list.Count ? EnemyHint(list[i - keep]) : "",
+            Index = index + keep,
             Choose = i =>
             {
-                d.Placeholder = list[i].Asset;
+                if (i >= keep) d.Placeholder = list[i - keep].Asset;
                 BackFromPicker();
             },
             Back = BackFromPicker,
         });
     }
+
+    // Why the kept row's enemy isn't in the list: custom art never takes a scripted boss, whatever Advanced bosses says.
+    private static string? KeptEnemyProblem(BattleDraft d, string current) =>
+        d.CustomArt && EnemyChoices.IsAdvanced(current)
+            ? $"Scripted bosses can't take custom art, so {EnemyChoices.NameOf(EnemyPlaceholders.Default)} fights instead. Pick another enemy below."
+            : EnemyChoices.Problem(current, d.Advanced);
 
     private static string EnemyHint(EnemyChoice c) =>
         $"Its own stats: HP {Num(c.Hp)}, damage {Num(c.Damage)}, energy per miss {Num(c.EnergyChargeOnMiss)}, passive energy {Num(c.PassiveEnergyCharge)}." +
@@ -849,8 +936,11 @@ internal static partial class BattleCreator
             }
             // What the arcade's box and the card will say, from the same text as the arcade's.
             var input = BattleNoticeArcade.InputFor(draft);
-            string box = BattleNotice.Box(input, text => BattleNotice.FitsLines(text)) ?? "<color=#9D92B4>(nothing: the box stays hidden)</color>";
-            noticePreview = $"{box}\n\n<color=#9D92B4>On the battle's card:</color> {BattleNotice.Badge(input) ?? "no tag"}";
+            string? box = BattleNotice.Box(input, BattleNotice.FitsLines, out float size);
+            string shown = box == null ? "<color=#9D92B4>(nothing: the box stays hidden)</color>"
+                : size < BattleNotice.BoxFontSize ? box + "\n<color=#9D92B4>(in smaller text, so it all fits)</color>"
+                : box;
+            noticePreview = $"{shown}\n\n<color=#9D92B4>On the battle's card:</color> {BattleNotice.Badge(input) ?? "no tag"}";
             loreRoom = BattleNotice.LoreRoom(input);
         }
         catch (Exception ex) { ModLog.Error("Battle creator: working out the level page failed: " + ex); }
@@ -881,16 +971,29 @@ internal static partial class BattleCreator
         if (GearCatalog.All.Count == 0) { Say("The game's items aren't loaded yet, so they can't be listed now. Try again after loading a save.", 6f); return; }
         var d = draft;
         var items = GearCatalog.ForSlot(slot, showTestItems);
-        var current = GearCatalog.Find(d.GearItem(slot));
+        string? currentId = d.GearItem(slot);
+        var current = GearCatalog.Find(currentId);
+        var rows = new List<string> { "(empty)" };
+        rows.AddRange(items.Select(i => i.Debug ? i.Name + "  (test item)" : i.Name));
+        int index = current == null ? -1 : items.FindIndex(i => i.Id == current.Id);
+        // An item the list leaves out (a test item while they're hidden, or one the game doesn't
+        // have) gets a row of its own after "(empty)", where the list opens, so opening it to look
+        // changes nothing.
+        int keep = currentId != null && index < 0 ? 1 : 0;
+        if (keep == 1)
+            rows.Insert(1, current != null ? current.Name + (current.Debug ? "  (test item, current)" : "  (current)") : $"unknown item {currentId}  (current)");
         ShowPicker(new Picker
         {
             Heading = $"{GearCatalog.LabelOf(slot)} for this battle",
-            Rows = new[] { "(empty)" }.Concat(items.Select(i => i.Debug ? i.Name + "  (test item)" : i.Name)).ToList(),
-            Hint = i => i <= 0 || i > items.Count ? "Nothing in this slot.  Esc goes back." : ItemHint(items[i - 1]),
-            Index = current == null ? 0 : items.FindIndex(i => i.Id == current.Id) + 1,
+            Rows = rows,
+            Hint = i => i <= 0 ? "Nothing in this slot.  Esc goes back."
+                : i <= keep ? (current != null ? ItemHint(current) : $"The game has no item \"{currentId}\", so the battle leaves this slot empty.  Esc goes back.")
+                : i - keep <= items.Count ? ItemHint(items[i - keep - 1]) : "",
+            Index = currentId == null ? 0 : keep == 1 ? 1 : index + 1,
             Choose = i =>
             {
-                d.SetGearItem(slot, i == 0 ? null : items[i - 1].Id);
+                if (i == 0) d.SetGearItem(slot, null);
+                else if (i > keep) d.SetGearItem(slot, items[i - keep - 1].Id);
                 RefreshGear();
                 BackFromPicker();
             },
@@ -907,21 +1010,22 @@ internal static partial class BattleCreator
         return (text.Length > 0 ? text + "  " : "") + $"(id {item.Id})";
     }
 
-    // The steppers change what the arcade shows ("Potion x3", "Health upgrades: 0."), so the preview is worked out again.
-    private static void StepConsumableCount(int direction)
+    // Health upgrades change what the arcade shows ("Health upgrades: 3."), so the preview is worked out again.
+    private static void SetHealthMode(bool set)
     {
         if (draft == null) return;
-        draft.SetConsumableCount(draft.ConsumableCount + direction);
+        draft.SetExtraHealthMode(set);
         RefreshGear();
     }
 
+    // Only while the battle sets them: "-" stops at 0 and "+" at the loader's limit, and neither
+    // goes back to the player's own (the button above does that). A number above the limit, from
+    // a battle.json written by hand, isn't lowered by "+".
     private static void StepExtraHealth(int direction)
     {
-        if (draft == null) return;
-        int? count = draft.ExtraHealth;
-        if (direction < 0) count = count is null or 0 ? null : count - 1;
-        else count = count is int n ? Math.Min(MaxExtraHealth, n + 1) : 0;
-        draft.SetExtraHealth(count);
+        if (draft?.ExtraHealth is not int n) return;
+        int next = direction < 0 ? Math.Max(0, Math.Min(n, GearDefinition.MaxCount + 1) - 1) : n >= GearDefinition.MaxCount ? n : n + 1;
+        draft.SetExtraHealth(next);
         RefreshGear();
     }
 }

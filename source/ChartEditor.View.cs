@@ -221,8 +221,8 @@ internal static partial class ChartEditor
         for (int i = 0; i < EventRowsVisible; i++)
         {
             int row = i;
-            var b = Ui.MakeButton(rightPanel, "", () => ClickEventRow(row));
-            b.Visible = () => tab == Tab.Events && EventRowShown(row);
+            var b = Ui.MakeButton(rightPanel, "", () => { if (dialogueView) ClickDialogueRow(row); else ClickEventRow(row); });
+            b.Visible = () => tab == Tab.Events && (dialogueView ? DialogueRowShown(row) : EventRowShown(row));
             b.Label.alignment = TextAlignmentOptions.Left;
             b.Label.margin = new Vector4(10, 0, 6, 0);
             b.Label.fontSize = 15;
@@ -247,10 +247,12 @@ internal static partial class ChartEditor
         {
             var (label, doIt) = eventButtons[i];
             var b = Ui.MakeButton(rightPanel, label, doIt);
-            b.Visible = () => tab == Tab.Events;
+            b.Visible = () => tab == Tab.Events && !dialogueView;
             b.Label.fontSize = 16;
             PlaceTop(b.Rect, 16 + (i % 2) * (width / 2 + 4), -262 - EventRowsVisible * 32 - 8 - (i / 2) * 40, width / 2 - 4, 35);
         }
+        // A battle's dialogue lines, in the same place.
+        if (battle != null) BuildDialogueView(width);
 
         // Setup: the chart's name and author, and the file actions. A battle's are its difficulties'.
         if (battle != null) BuildBattleSetup(width);
@@ -362,6 +364,8 @@ internal static partial class ChartEditor
         tab = next;
         keyMap.Rebinding = null;
         typing = TextField.None;
+        EditorInput.EndText();
+        speakerChoices = null;
         keysPanel!.gameObject.SetActive(tab == Tab.Keys);
         fieldArea!.gameObject.SetActive(tab != Tab.Keys);
         if (difficultyBar) difficultyBar!.gameObject.SetActive(tab != Tab.Keys);
@@ -530,6 +534,7 @@ internal static partial class ChartEditor
             PlaceField(Pooled(notePool, images++, field!, "Note"), FieldLeft - 12, (y0 + y1) / 2f, 6, Math.Max(4f, y1 - y0), picked ? Accent : Hex(0xF2B02E, 0.6f));
             if (y0 > -halfH && y0 < halfH) Label(labels++, e.Verb, y0, picked ? Accent : Hex(0xF2B02E));
         }
+        if (battle != null) DrawDialogueLane(now, bottom, top, width, ref images, ref labels);
         for (int i = labels; i < labelPool.Count; i++) if (labelPool[i].gameObject.activeSelf) labelPool[i].gameObject.SetActive(false);
         HideFrom(notePool, images);
 
@@ -549,7 +554,8 @@ internal static partial class ChartEditor
         DrawTimeline(now);
     }
 
-    private static void Label(int index, string text, float y, Color color)
+    /// <param name="right">How far left of the lanes the label ends (dialogue lines' end further left than events').</param>
+    private static void Label(int index, string text, float y, Color color, float right = 24)
     {
         if (index >= 24) return;
         while (labelPool.Count <= index)
@@ -566,7 +572,7 @@ internal static partial class ChartEditor
         if (!label.gameObject.activeSelf) label.gameObject.SetActive(true);
         label.text = Escape(text);
         label.color = color;
-        label.rectTransform.anchoredPosition = new Vector2(FieldLeft - 24 - FieldCentre, y);
+        label.rectTransform.anchoredPosition = new Vector2(FieldLeft - right - FieldCentre, y);
     }
 
     /// <summary>The music's loudness beside the lanes, like the waveform in osu!'s editor.</summary>
@@ -602,6 +608,9 @@ internal static partial class ChartEditor
         foreach (double b in bookmarks) Marker(used++, X(b), 18, Hex(0x5AA0FF));
         foreach (var (beat, _) in scrolls) Marker(used++, X(chart!.BeatToSeconds(beat)), 14, Hex(0x4FD1A5));
         foreach (var e in events) Marker(used++, X(e.Time), 10, Hex(0xF2B02E, 0.8f));
+        // A battle's dialogue lines; the ones that stop the song full height.
+        foreach (var cue in cues)
+            if (CueTime(cue) is double t) Marker(used++, X(t), cue.Pause ? 20 : 14, DialogueColor);
         for (int i = used; i < markerPool.Count; i++) if (markerPool[i].gameObject.activeSelf) markerPool[i].gameObject.SetActive(false);
         timelinePlayhead.transform.SetAsLastSibling();
 

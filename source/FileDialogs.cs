@@ -61,7 +61,13 @@ internal static class FileDialogs
     internal static class Filters
     {
         internal static string[] Images => new[] { "Images (*.png, *.jpg, *.gif, *.webp, *.bmp)", "*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp" };
+        /// <summary>The images a custom battle's card shows: the game decodes PNG and JPEG only.</summary>
+        internal static string[] CardImages => new[] { "Card images (*.png, *.jpg)", "*.png;*.jpg;*.jpeg" };
         internal static string[] Videos => new[] { "Videos (*.mp4, *.webm, *.m4v, *.mov)", "*.mp4;*.webm;*.m4v;*.mov" };
+        // Enemy art: each kind lists only the files it takes.
+        internal static string[] Pictures => new[] { "Pictures (*.png, *.jpg)", "*.png;*.jpg;*.jpeg" };
+        internal static string[] Gifs => new[] { "GIFs (*.gif)", "*.gif" };
+        internal static string[] SpriteSheets => new[] { "Sprite sheets (*.png, *.jpg)", "*.png;*.jpg;*.jpeg" };
         internal static string[] Songs => new[] { "Music (*.ogg, *.mp3, *.wav, *.flac, *.m4a, *.wma)", "*.ogg;*.mp3;*.wav;*.flac;*.m4a;*.wma" };
         internal static string[] StepMania => new[] { "StepMania charts (*.sm, *.ssc)", "*.sm;*.ssc" };
         internal static string[] ChartPacks => new[] { "Nocturne But Better chart packs (*.nbbchart)", "*.nbbchart" };
@@ -83,11 +89,20 @@ internal static class FileDialogs
     internal sealed class Purpose
     {
         internal static readonly Purpose Images = new("images", PicturesFolder, Filters.Join(Filters.Images, Filters.AllFiles));
+        /// <summary>A custom battle's card: PNG or JPEG. It starts in the folder last used for images.</summary>
+        internal static readonly Purpose CardImages = new("images", PicturesFolder, Filters.Join(Filters.CardImages, Filters.AllFiles));
         internal static readonly Purpose Videos = new("videos", VideosFolder, Filters.Join(Filters.Videos, Filters.AllFiles));
         internal static readonly Purpose Songs = new("songs", MusicFolder, Filters.Join(Filters.Songs, Filters.AllFiles));
         internal static readonly Purpose StepMania = new("stepmania", DownloadsFolder, Filters.Join(Filters.StepMania, Filters.AllFiles));
         internal static readonly Purpose ChartPacks = new("chartpacks", DownloadsFolder, Filters.Join(Filters.ChartPacks, Filters.AllFiles));
         internal static readonly Purpose BattlePacks = new("battlepacks", DownloadsFolder, Filters.Join(Filters.BattlePacks, Filters.AllFiles));
+        /// <summary>A custom enemy's art, one purpose per kind; they share the folder they last opened in.</summary>
+        internal static readonly Purpose EnemyImage = new("enemyart", PicturesFolder, Filters.Join(Filters.Pictures, Filters.AllFiles));
+        internal static readonly Purpose EnemyGif = new("enemyart", PicturesFolder, Filters.Join(Filters.Gifs, Filters.AllFiles));
+        internal static readonly Purpose EnemyVideo = new("enemyart", VideosFolder, Filters.Join(Filters.Videos, Filters.AllFiles));
+        internal static readonly Purpose EnemySheet = new("enemyart", PicturesFolder, Filters.Join(Filters.SpriteSheets, Filters.AllFiles));
+        /// <summary>A dialogue speaker's pictures: PNG or JPEG, like the game decodes.</summary>
+        internal static readonly Purpose Portraits = new("portraits", PicturesFolder, Filters.Join(Filters.Pictures, Filters.AllFiles));
         /// <summary>For picking a whole song folder, like a StepMania song.</summary>
         internal static readonly Purpose SongFolders = new("songfolders", DownloadsFolder, Array.Empty<string>());
         /// <summary>For an osu! beatmap set (.osz) to make a battle from; it's only ever read.</summary>

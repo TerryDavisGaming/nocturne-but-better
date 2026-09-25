@@ -41,10 +41,15 @@ internal static class ChartSwap
     // aren't patched: TryRecordScore returns a small struct (ValueTuple<bool, int>), which
     // Il2CppInterop's patch trampoline returns as a pointer, and the results screen then read a
     // garbage "new high score" and previous score in every battle.
+    // The game's end-of-battle achievement check reads every arcade song's scores through the same
+    // key, so the song has its own key for that check (SuspendScoreKey): a custom difficulty's
+    // score never counts as the song's own there.
     private static SongData? keyedSong;
     private static WwiseConductor? keyedConductor;
     private static bool keyedOverride;
     private static string? keyedKey;
+    private static string? keyedCustomKey;
+    private static bool keySuspended;
 
     /// <summary>Whether the battle's chart and clock can be swapped (test play needs it).</summary>
     internal static bool Installed { get; private set; }
@@ -83,6 +88,8 @@ internal static class ChartSwap
                 // A custom battle has one melody, and its chart and score key are its own.
                 melodies = new Il2CppStructArray<int>(new[] { 0, 0 });
                 if (test != null) StartTestClock(test, ref startDelay);
+                // Its dialogue, before the game shows the ready prompt (which its first lines hold back).
+                BattleDialogue.Begin(PlayingBattle!, test, __instance);
                 return;
             }
             if (test != null)
@@ -133,8 +140,49 @@ internal static class ChartSwap
         keyedKey = song.highScoreKey;
         keyedSong = song;
         keyedConductor = conductor;
+        keyedCustomKey = key;
+        keySuspended = false;
         song.overrideHighScoreKey = true;
         song.highScoreKey = key;
+    }
+
+    /// <summary>
+    /// Gives the song its own score key back for a moment, while a custom difficulty's key is in.
+    /// True when it did; ResumeScoreKey puts the custom key back.
+    /// </summary>
+    internal static bool SuspendScoreKey()
+    {
+        var song = keyedSong;
+        if (song == null || keySuspended) return false;
+        try
+        {
+            if (!song) return false;
+            song.overrideHighScoreKey = keyedOverride;
+            song.highScoreKey = keyedKey;
+            keySuspended = true;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            ReportOnce(ex);
+            return false;
+        }
+    }
+
+    /// <summary>Puts the custom difficulty's key back after SuspendScoreKey. Does nothing otherwise.</summary>
+    internal static void ResumeScoreKey()
+    {
+        if (!keySuspended) return;
+        keySuspended = false;
+        var song = keyedSong;
+        if (song == null) return;
+        try
+        {
+            if (!song) return;
+            song.overrideHighScoreKey = true;
+            song.highScoreKey = keyedCustomKey;
+        }
+        catch (Exception ex) { ReportOnce(ex); }
     }
 
     /// <summary>
@@ -164,6 +212,8 @@ internal static class ChartSwap
         keyedSong = null;
         keyedConductor = null;
         keyedKey = null;
+        keyedCustomKey = null;
+        keySuspended = false;
     }
 
     private static void ExitCombatPostfix() => RestoreScoreKey(null);

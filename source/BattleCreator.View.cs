@@ -12,7 +12,7 @@ namespace NocturneFlatScroll;
 // bottom bar's (Up/Down, Enter).
 internal static partial class BattleCreator
 {
-    private enum Page { Info, Song, Charts, Enemy, Gear, Dialogue }
+    private enum Page { Info, Song, Charts, Enemy, Art, Gear, Dialogue }
 
     private const float TopH = 64f, BottomH = 92f, LeftW = 300f;
     private const float RowH = 44f, RowStep = 52f;
@@ -42,7 +42,7 @@ internal static partial class BattleCreator
 
     private static readonly (Page Page, string Name)[] Pages =
     {
-        (Page.Info, "Info"), (Page.Song, "Song"), (Page.Charts, "Charts"), (Page.Enemy, "Enemy"), (Page.Gear, "Gear & level"), (Page.Dialogue, "Dialogue"),
+        (Page.Info, "Info"), (Page.Song, "Song"), (Page.Charts, "Charts"), (Page.Enemy, "Enemy"), (Page.Art, "Art"), (Page.Gear, "Gear & level"), (Page.Dialogue, "Dialogue"),
     };
 
     // ---- building --------------------------------------------------------------------------------
@@ -69,6 +69,7 @@ internal static partial class BattleCreator
         BuildSongPage();
         BuildChartsPage();
         BuildEnemyPage();
+        BuildArtPage();
         BuildGearPage();
         BuildDialoguePage();
         // The keyboard's marker: a bar left of the button it's on (see DrawEdit).
@@ -183,10 +184,10 @@ internal static partial class BattleCreator
         var b = AddButton(p, x, y, w, h, "", () => StartTyping(field), shown);
         b.Text = () => FieldText(field, b);
         b.Active = () => typing == field;
-        b.Label.alignment = field.MultiLine ? TextAlignmentOptions.TopLeft : TextAlignmentOptions.Left;
-        b.Label.margin = new Vector4(16, field.MultiLine ? 10 : 0, 12, field.MultiLine ? 8 : 0);
+        b.Label.alignment = field.Tall ? TextAlignmentOptions.TopLeft : TextAlignmentOptions.Left;
+        b.Label.margin = new Vector4(16, field.Tall ? 10 : 0, 12, field.Tall ? 8 : 0);
         b.Label.fontSize = 19;
-        if (field.MultiLine)
+        if (field.Tall)
         {
             // A long text ends in "..." when it doesn't fit; while it's typed, its end shows instead (FieldText).
             b.Label.enableWordWrapping = true;
@@ -261,7 +262,7 @@ internal static partial class BattleCreator
     {
         // While typing the row is lit in the accent colour, where the dim label wouldn't read.
         string label = typing == field ? field.Label : $"<color=#9D92B4>{field.Label}</color>";
-        string Row(string shown) => field.MultiLine ? $"{label}\n{shown}" : $"{label}<pos=32%>{shown}";
+        string Row(string shown) => field.Tall ? $"{label}\n{shown}" : $"{label}<pos=32%>{shown}";
         if (typing == field)
         {
             // The end of the text, where the "_" cursor is, always shows: what doesn't fit is cut from the start.
@@ -269,7 +270,7 @@ internal static partial class BattleCreator
             {
                 fittedField = field;
                 fittedText = typed;
-                fittedShown = TextTail.Fit(typed, shown => Fits(button, field.MultiLine, Row(Escape(shown) + "_"), Escape(shown) + "_"));
+                fittedShown = TextTail.Fit(typed, shown => Fits(button, field.Tall, Row(Escape(shown) + "_"), Escape(shown) + "_"));
             }
             return Row(Escape(fittedShown) + "_");
         }
@@ -352,11 +353,15 @@ internal static partial class BattleCreator
             int slot = s;
             AddChoice(p, 0, ref y, Col1W, ChartText.GameDifficultyLabels[slot], () => SlotText(slot), () => EditCharts(slot));
         }
-        AddText(p, 0, ref y, Col1W, 110, () =>
+        AddText(p, 0, ref y, Col1W, 136, () =>
         {
             int lanes = draft?.Lanes ?? 4;
-            return $"{lanes} lanes{(lanes == 5 ? " (D F Space J K; the middle lane attacks)" : " (D F J K)")}. Lanes are set when the battle is made; " +
-                   $"for {(lanes == 5 ? 4 : 5)} lanes, make a new battle.\nClick a difficulty to chart it. In the arcade, a difficulty without its own chart plays the nearest one.";
+            string keys = lanes == 5
+                ? "5 lanes: the middle lane is played with the Attack key (Space by default). The player's own attacks are off in 5 lanes, " +
+                  "so the enemy only takes damage from Player attack events (the chart editor's Events tab)."
+                : "4 lanes, played with the lane keys (D F J K by default).";
+            return $"{keys} Lanes are set when the battle is made; for {(lanes == 5 ? 4 : 5)} lanes, make a new battle.\n" +
+                   "Click a difficulty to chart it. In the arcade, a difficulty without its own chart plays the nearest one.";
         }, 17);
         var problems = AddText(p, 0, ref y, Col1W, 200, ChartProblemsText, 17);
         problems.color = Hex(0xF2B02E);
@@ -367,32 +372,49 @@ internal static partial class BattleCreator
         const Page p = Page.Enemy;
         float y = 0;
         AddHeader(p, 0, ref y, Col1W, "Enemy");
-        AddChoice(p, 0, ref y, Col1W, "Looks like", () => Escape(EnemyChoices.NameOf(draft?.Placeholder)), ChooseEnemy);
-        AddToggle(p, 0, ref y, Col1W, () => $"Advanced bosses: {((draft?.Advanced ?? false) ? "on" : "off")}", () => draft?.Advanced ?? false, ToggleAdvanced);
-        AddField(p, 0, ref y, Col1W, EnemyNameField);
+        // How it looks: a game enemy's own art, or the battle's custom art (the Art page).
+        float row = y;
+        var gameArt = AddButton(p, 0, row, Col1W / 2 - 6, RowH, "Game enemy's art", () => SetArtMode(false));
+        gameArt.Active = () => draft != null && !CustomArtEnemy();
+        var customArt = AddButton(p, Col1W / 2 + 6, row, Col1W / 2 - 6, RowH, "Custom art", () => SetArtMode(true));
+        customArt.Active = CustomArtEnemy;
+        y -= RowStep;
+        var looks = AddChoice(p, 0, ref y, Col1W, "Looks like", () => Escape(EnemyChoices.NameOf(draft?.Placeholder)), ChooseEnemy);
+        // A custom-art enemy only fights like the game enemy.
+        looks.Text = () => $"<color=#9D92B4>{(CustomArtEnemy() ? "Fights like" : "Looks like")}</color><pos=32%>{Escape(EnemyChoices.NameOf(draft?.Placeholder))}";
+        // Scripted bosses can't take custom art, so custom mode shows its art instead of that toggle.
+        float slot = y;
+        AddToggle(p, 0, ref y, Col1W, () => $"Advanced bosses: {((draft?.Advanced ?? false) ? "on" : "off")}", () => draft?.Advanced ?? false, ToggleAdvanced,
+            () => !CustomArtEnemy());
+        AddChoice(p, 0, ref slot, Col1W, "Art", ArtRowSummary, () => SetPage(Page.Art), CustomArtEnemy);
         AddHeader(p, 0, ref y, Col1W, "Stats (blank keeps the enemy's own)");
         foreach (var field in StatFields) AddField(p, 0, ref y, Col1W, field);
-        var art = MakeImage("CustomArt", pagePanels[p], PanelColor).rectTransform;
-        PlaceTop(art, 0, y, Col1W, RowH);
-        var artText = MakeText("CustomArtText", art, 18, TextAlignmentOptions.Center);
-        artText.color = DimText;
-        artText.text = "Custom art (images and videos): coming later";
-        Stretch(artText.rectTransform, 12, 0, 12, 0);
-        y -= RowStep;
         var warning = AddText(p, 0, ref y, Col1W, 60, EnemyWarning, 17);
         warning.color = Hex(0xF2B02E);
+        AddText(p, 0, ref y, Col1W, 50, () => "Custom art fights with this enemy's attacks, sounds and stats; the Art page sets how it looks.", 16, CustomArtEnemy);
 
         float y2 = 0;
         AddHeader(p, Col2, ref y2, Col2W, "Info boxes (top right in the battle)");
         AddToggle(p, Col2, ref y2, Col2W, () => (draft?.OwnInfo ?? false) ? "Info boxes: this battle's own" : "Info boxes: the enemy's own",
             () => draft?.OwnInfo ?? false, ToggleOwnInfo);
         Func<bool> own = () => draft?.OwnInfo ?? false;
-        AddText(p, Col2, ref y2, Col2W, 44, () => "A box shows when it has a title or a text. A box without a title shows the Name, if the enemy has one.", 16, own);
+        Func<bool> theirs = () => !own();
+        // In the room the battle's own boxes use below, while the enemy's own are shown.
+        float y3 = y2;
+        AddText(p, Col2, ref y3, Col2W, 90, () =>
+            $"The battle shows the info boxes of the enemy it {(CustomArtEnemy() ? "fights" : "looks")} like ({Escape(EnemyChoices.NameOf(draft?.Placeholder))}). " +
+            "Choose this battle's own to write up to 3 boxes, with an enemy name as their title.", 16, theirs);
+        AddField(p, Col2, ref y2, Col2W, EnemyNameField, own);
+        AddText(p, Col2, ref y2, Col2W, 66, () =>
+            $"A box shows only when it has a text, and at most {BattleDraft.InfoMaxLines} lines of it. A box without a title shows the enemy name. " +
+            "With no text in any box, the battle shows no info boxes.", 16, own);
         for (int i = 0; i < EnemyPlaceholders.MaxInfoBoxes; i++)
         {
             AddField(p, Col2, ref y2, Col2W, InfoTitleFields[i], own);
-            AddField(p, Col2, ref y2, Col2W, InfoTextFields[i], own, 170);
+            AddField(p, Col2, ref y2, Col2W, InfoTextFields[i], own, 118);
         }
+        var notes = AddText(p, Col2, ref y2, Col2W, 66, () => draft == null ? "" : Escape(string.Join("\n", draft.InfoBoxNotes())), 16, own);
+        notes.color = Hex(0xF2B02E);
     }
 
     private static void BuildGearPage()
@@ -413,12 +435,17 @@ internal static partial class BattleCreator
             var s = slot;
             AddChoice(p, 0, ref y, Col1W, GearCatalog.LabelOf(s), () => GearText(s), () => ChooseGear(s), setMode);
         }
-        AddStepper(p, 0, ref y, Col1W, () => $"How many: {draft?.ConsumableCount ?? 1}",
-            () => StepConsumableCount(-1), () => StepConsumableCount(1),
-            () => setMode() && draft?.GearItem(GearSlot.Consumable) != null);
-        AddStepper(p, 0, ref y, Col1W, () => draft?.ExtraHealth is int n ? $"Health upgrades: {n}" : "Health upgrades: the player's own",
-            () => StepExtraHealth(-1), () => StepExtraHealth(1), setMode);
         AddToggle(p, 0, ref y, Col1W, () => $"Show test items: {(showTestItems ? "on" : "off")}", () => showTestItems, () => showTestItems = !showTestItems, setMode);
+        // Health upgrades: the player's own, or a number set for this battle (only then the stepper shows).
+        AddHeader(p, 0, ref y, Col1W, "Health upgrades", setMode);
+        float healthRow = y;
+        var ownHealth = AddButton(p, 0, healthRow, Col1W / 2 - 6, RowH, "Player's own", () => SetHealthMode(false), setMode);
+        ownHealth.Active = () => draft?.ExtraHealth == null;
+        var setHealth = AddButton(p, Col1W / 2 + 6, healthRow, Col1W / 2 - 6, RowH, "Set for this battle", () => SetHealthMode(true), setMode);
+        setHealth.Active = () => draft?.ExtraHealth != null;
+        y -= RowStep;
+        AddStepper(p, 0, ref y, Col1W, () => $"Health upgrades: {draft?.ExtraHealth ?? 0}",
+            () => StepExtraHealth(-1), () => StepExtraHealth(1), () => setMode() && draft?.ExtraHealth != null);
 
         // The level, then how both work and what players will see (worked out in RefreshGear).
         float y2 = 0;
@@ -438,20 +465,15 @@ internal static partial class BattleCreator
         AddText(p, Col2, ref y2, Col2W, 210, () => noticePreview, 16);
     }
 
-    private static void BuildDialoguePage()
-    {
-        const Page p = Page.Dialogue;
-        float y = 0;
-        AddHeader(p, 0, ref y, Col1W, "Dialogue");
-        var t = AddText(p, 0, ref y, Col1W, 80, () => "Boss-style dialogue: coming later.", 22);
-        t.color = TextColor;
-    }
-
     // ---- per-frame --------------------------------------------------------------------------------
 
     private static void SetPage(Page next)
     {
         if (!FinishTyping()) return;
+        // The Art page's preview lets go of its textures and videos when the page closes, and the
+        // Dialogue page's of the faces and pictures it loaded.
+        if (page == Page.Art && next != Page.Art) StopArtPreview(false);
+        if (page == Page.Dialogue && next != Page.Dialogue) StopDialoguePreview(false);
         page = next;
         focus = -1;
         foreach (var (p, panel) in pagePanels) panel.gameObject.SetActive(p == page);
@@ -549,13 +571,17 @@ internal static partial class BattleCreator
         return string.Join("\n", charts.Problems.Take(6).Select(p => "- " + Escape(p)));
     }
 
+    private static bool CustomArtEnemy() => draft?.CustomArt == true;
+
     private static string EnemyWarning()
     {
         if (draft == null) return "";
         if (draft.EnemyLocked != null) return Escape(draft.EnemyLocked);
+        // Custom art never takes a scripted boss (its Advanced toggle is hidden), whatever that toggle says.
+        if (CustomArtEnemy() && EnemyChoices.IsAdvanced(draft.Placeholder)) return Escape(ArtWarning() ?? "");
         string? problem = EnemyChoices.Problem(draft.Placeholder, draft.Advanced);
         if (problem != null) return Escape(problem);
-        if (draft.EnemyMode.Equals("custom", StringComparison.OrdinalIgnoreCase)) return "This enemy is set to custom art, which comes later; it plays as its placeholder for now.";
+        if (CustomArtEnemy()) return Escape(ArtWarning() ?? "");
         return EnemyChoices.IsAdvanced(draft.Placeholder) ? "Advanced bosses are built around scripted fights and may not play well here." : "";
     }
 
@@ -609,8 +635,9 @@ internal static partial class BattleCreator
         {
             var info = new FileInfo(path);
             if (info.Length > BattlePackage.MaxImageBytes) { cardState = $"{card} is too big (at most {BattlePackage.MaxImageBytes / (1024 * 1024)} MB)."; return; }
-            var texture = CustomBattles.CardImages.Decode(File.ReadAllBytes(path), "NocturneButBetter/creator/card");
-            if (texture == null) { cardState = $"{card}\nOnly PNG and JPEG cards show for now; this one shows as a plain card."; return; }
+            // At the image's own size (the preview says it), and refused as the arcade refuses it.
+            var texture = CustomBattles.CardImages.Decode(File.ReadAllBytes(path), "NocturneButBetter/creator/card", 0, out _, out string? why);
+            if (texture == null) { cardState = $"{card}\nIt {why}, so the arcade shows a plain card."; return; }
             cardTexture = texture;
             cardSprite = CustomBattles.CardImages.ToSprite(texture);
             cardImage!.sprite = cardSprite;

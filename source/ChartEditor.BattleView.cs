@@ -6,7 +6,8 @@ namespace NocturneFlatScroll;
 
 // The screen's extra pieces for a custom battle: the difficulty tabs above the playfield, the
 // panel on a difficulty that isn't charted yet, the Timing tab's tempo and offset tools, the
-// Setup tab's difficulty actions, the unsaved-changes prompt, and the 5-lane attack lane.
+// Setup tab's difficulty actions and "Dialogue in tests", the unsaved-changes prompt, and the
+// 5-lane attack lane.
 internal static partial class ChartEditor
 {
     private const float DifficultyH = 52f;
@@ -148,6 +149,11 @@ internal static partial class ChartEditor
         chartIt.Text = () => tabCharted ? $"Delete the {SlotName(slot)} chart" : $"Start {SlotName(slot)} empty";
         chartIt.Visible = () => tab == Tab.Setup;
         PlaceTop(chartIt.Rect, 16, -316, width, 40);
+        var talk = Ui.MakeButton(rightPanel!, "", ToggleTestDialogue);
+        talk.Text = () => $"Dialogue in tests: {(TestDialogue ? "on" : "off")}";
+        talk.Active = () => TestDialogue;
+        talk.Visible = () => tab == Tab.Setup;
+        PlaceTop(talk.Rect, 16, -362, width, 40);
         for (int i = 0; i < BattleChartFile.SlotCount; i++)
         {
             int s = i;
@@ -169,7 +175,10 @@ internal static partial class ChartEditor
         box.sizeDelta = new Vector2(760, 250);
         var text = MakeText("Text", box, 28, TextAlignmentOptions.Center);
         Place(text.rectTransform, new Vector2(0.5f, 1), new Vector2(0, -26), new Vector2(700, 110));
-        text.text = "Unsaved changes\n<size=70%><color=#9D92B4>Save the chart before closing?</color></size>";
+        // Dialogue line edits are already in the battle creator's draft, so they stay either way.
+        Ui.AddLiveText(text, () => "Unsaved changes\n<size=70%><color=#9D92B4>" +
+            (cuesChanged ? "Save the chart and battle.json before closing? The dialogue lines stay in the Battle creator either way." : "Save the chart before closing?") +
+            "</color></size>");
         var choices = new (string Label, string Key, Action Do)[]
         {
             ("Save", "Enter", PromptSave), ("Discard", "D", Close), ("Cancel", "Esc", () => closePrompt = false),
@@ -207,7 +216,7 @@ internal static partial class ChartEditor
                 FlowButtons(overlayCopyButtons, 24, -202, 512, 40, 2, 8);
             }
         }
-        if (tab == Tab.Setup) FlowButtons(setupCopyButtons, 16, -362, RightW - 32, 40, 2, 8);
+        if (tab == Tab.Setup) FlowButtons(setupCopyButtons, 16, -408, RightW - 32, 40, 2, 8);
         if (promptLayer && promptLayer!.gameObject.activeSelf != closePrompt) promptLayer.gameObject.SetActive(closePrompt);
     }
 
@@ -234,7 +243,19 @@ internal static partial class ChartEditor
         attackLabel.rectTransform.sizeDelta = new Vector2(LaneWidth, 44);
         attackLabel.enableWordWrapping = false;
         attackLabel.color = Hex(0xE58A5C, 0.85f);
-        attackLabel.text = "ATTACK\nSpace";
+        attackLabel.text = "ATTACK\n" + Escape(AttackKeyName());
+    }
+
+    /// <summary>The key that plays 5 lanes' middle (attack) lane, as the game's own key labels name it: the player may have changed it.</summary>
+    private static string AttackKeyName()
+    {
+        try
+        {
+            string name = NocturneInput.Combat.GetColumnInputName(2, true);
+            if (!string.IsNullOrWhiteSpace(name)) return name.Trim();
+        }
+        catch (Exception) { }
+        return "Space";
     }
 
     private static void PlaceAttackLabel()

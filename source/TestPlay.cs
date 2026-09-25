@@ -35,8 +35,17 @@ internal static class TestPlay
         internal string MusicName = "";
         internal string Label = "";
         internal bool SkipReady;                   // QA hook only: no Ready prompt
+        internal bool DialogueOn;                  // Kind.Battle: the chart editor's "Dialogue in tests"
         internal int FirstRow, Notes, Events, Carried;   // for the log
         internal IntPtr Conductor;                 // the battle's conductor, once it takes the test
+
+        /// <summary>
+        /// Whether the battle's lines before the fight play: a battle's test with dialogue on,
+        /// from the song's start (a test from partway in has none), with such lines, and the
+        /// dialogue's hooks in. They play while the Ready prompt is held back, so such a test asks
+        /// for the prompt even with <see cref="SkipReady"/>; the dialogue then starts the countdown itself.
+        /// </summary>
+        internal bool HoldsForDialogue => Kind == Kind.Battle && DialogueOn && T0 <= 0 && BattleDialogue.Installed && Battle?.Package.Dialogue.Before.Count > 0;
     }
 
     /// <summary>How a test ended, for the editor's status line.</summary>
@@ -127,7 +136,8 @@ internal static class TestPlay
     // ---- starting --------------------------------------------------------------------------------
 
     /// <summary>Whether a test can start now, and if not, why (for the status line).</summary>
-    internal static bool CanStart(out string why)
+    /// <param name="battle">The test is of a custom battle's chart, which the Battle creator opens (not the chart editor's song list).</param>
+    internal static bool CanStart(out string why, bool battle = false)
     {
         why = "";
         if (!Available)
@@ -149,7 +159,9 @@ internal static class TestPlay
         }
         if (!title)
         {
-            why = "Test works from the title screen. Open the chart editor from Options there.";
+            why = battle
+                ? "Test works from the title screen. Open the Battle creator from Options there."
+                : "Test works from the title screen. Open the chart editor from Options there.";
             return false;
         }
         // The game's main menu is already there under its startup intro. Unreadable, the intro
@@ -225,7 +237,7 @@ internal static class TestPlay
     /// <summary>Starts the battle for a test, as the arcade menu would start one. False with a reason when it can't.</summary>
     internal static bool Start(Run next, out string why)
     {
-        if (!CanStart(out why)) return false;
+        if (!CanStart(out why, next.Kind == Kind.Battle)) return false;
         prevDifficulty = ArcadeUtility.Difficulty;
         try
         {
@@ -250,7 +262,8 @@ internal static class TestPlay
             returnedAt = -1f;
             loggedClaim = loggedFadeIn = loggedSaveBlock = false;
             ModLog.Info($"Test play: starting {next.Kind} \"{next.Label}\" from {next.T0:0.000} s (first note row {next.FirstRow}, " +
-                        $"{next.Notes} notes, {next.Events} events, {next.Carried} carried), music: {next.MusicName}.");
+                        $"{next.Notes} notes, {next.Events} events, {next.Carried} carried), music: {next.MusicName}" +
+                        $"{(next.Kind == Kind.Battle ? $", dialogue {(next.DialogueOn ? "on" : "off")}" : "")}.");
             // The game's own start (private in the game): the sting, the fade to black, then the battle.
             transitions!.GoToCombat(options, new Il2CppSystem.Nullable<Color>(), false);
             return true;
@@ -284,7 +297,8 @@ internal static class TestPlay
         options.FullHealthEnd = true;
         options.automateInput = false;
         options.inputScript = null;
-        options.WaitForPlayerReady = !next.SkipReady;
+        // Lines before the fight hold the Ready prompt back, so they need it asked for.
+        options.WaitForPlayerReady = !next.SkipReady || next.HoldsForDialogue;
         return options;
     }
 

@@ -286,6 +286,20 @@ internal static class BattleFiles
         return (subfolder + "/" + Path.GetFileName(target), true);
     }
 
+    /// <summary>
+    /// Whether a file is a PNG or a JPEG, by its first bytes (not its name): the only images a
+    /// battle's card shows, since those are what the game's image decoder reads.
+    /// </summary>
+    internal static bool IsCardImage(string path)
+    {
+        var head = new byte[8];
+        int n;
+        using (var stream = File.OpenRead(path)) n = ReadFull(stream, head, head.Length);
+        bool png = n >= 8 && head.AsSpan(0, 8).SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });
+        bool jpeg = n >= 3 && head[0] == 0xFF && head[1] == 0xD8 && head[2] == 0xFF;
+        return png || jpeg;
+    }
+
     private static bool SamePath(string a, string b) =>
         Path.GetFullPath(a).Equals(Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 
@@ -321,11 +335,12 @@ internal static class BattleFiles
     }
 
     /// <summary>
-    /// Of <paramref name="candidates"/> (paths inside the battle), the song and image files that
-    /// the saved battle no longer names anywhere: not in battle.json, the enemy's file, a JSON file
-    /// they name (like the dialogue), or the chart's #MUSIC. Paths are compared as the files they
-    /// point at, so "audio/./a.ogg" and "audio/a.ogg" are the same file. Only files in audio/ and
-    /// images/ are ever listed, and nothing is when a file that could name them can't be read.
+    /// Of <paramref name="candidates"/> (paths inside the battle), the song, image, enemy art and
+    /// speaker picture files that the saved battle no longer names anywhere: not in battle.json,
+    /// the enemy's file, a JSON file they name (like the dialogue), or the chart's #MUSIC. Paths are
+    /// compared as the files they point at, so "audio/./a.ogg" and "audio/a.ogg" are the same file.
+    /// Only files in audio/, images/, art/ and portraits/ are ever listed, and nothing is when a
+    /// file that could name them can't be read.
     /// </summary>
     internal static List<string> Unreferenced(string folder, IEnumerable<string> candidates)
     {
@@ -355,7 +370,7 @@ internal static class BattleFiles
             string? full = FileIn(folder, candidate);
             if (full == null || used.Contains(full) || unused.Contains(full, StringComparer.OrdinalIgnoreCase)) continue;
             string inside = Path.GetRelativePath(folder, full).Replace('\\', '/');
-            if (!inside.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) && !inside.StartsWith("images/", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!new[] { "audio/", "images/", "art/", "portraits/" }.Any(f => inside.StartsWith(f, StringComparison.OrdinalIgnoreCase))) continue;
             if (File.Exists(full)) unused.Add(full);
         }
         return unused;
@@ -397,29 +412,63 @@ internal static class BattleFiles
         internal bool Loads;
         /// <summary>What the battle sets for the player, like "set gear, level 12"; empty when it sets neither.</summary>
         internal string Overrides = "";
+        /// <summary>
+        /// The battle (folder or zip) that the arcade shows instead of this one, because one is a
+        /// copy of the other (the same battle id) and it comes first; null when there is none.
+        /// </summary>
+        internal string? CopyOf;
     }
 
     /// <summary>
     /// Every battle folder and .nbbbattle zip, found the way the arcade finds them (two folder
     /// levels, zips first). A battle that has no chart yet isn't a problem here, just "not charted".
     /// </summary>
-    internal static List<BattleEntry> List(string root)
+    /// <param name="gameCheck">The game's own check of a battle that loads (see <see cref="Read"/>).</param>
+    internal static List<BattleEntry> List(string root, Func<BattlePackage, string?>? gameCheck = null)
     {
         var entries = new List<BattleEntry>();
         if (!Directory.Exists(root)) return entries;
         var ids = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var path in Candidates(root, 0))
         {
-            var entry = File.Exists(path) ? ReadZip(path) : ReadFolder(path);
+            BattleEntry entry;
+            try { entry = Read(path, gameCheck); }
+            catch (Exception ex)
+            {
+                // Like the arcade's scan: one battle that can't be read never hides the others.
+                bool zip = File.Exists(path);
+                entry = new BattleEntry
+                {
+                    Path = path, IsZip = zip, Broken = !zip,
+                    Title = zip ? System.IO.Path.GetFileNameWithoutExtension(path) : System.IO.Path.GetFileName(path.TrimEnd('\\', '/')),
+                };
+                entry.Problems.Add(BattleDraft.IsFileProblem(ex) ? ex.Message : $"{ex.GetType().Name}: {ex.Message}");
+            }
             // Like the arcade's scan: of the battles that load, the first with an id is used.
             if (entry.Loads && entry.Id.Length > 0)
             {
-                if (ids.TryGetValue(entry.Id, out var first)) entry.Problems.Add($"it has the same id as {System.IO.Path.GetFileName(first)}, so the arcade skips it");
+                if (ids.TryGetValue(entry.Id, out var first))
+                {
+                    entry.CopyOf = first;
+                    string name = System.IO.Path.GetFileName(first);
+                    entry.Problems.Insert(0, $"it has the same battle id as {name} (one is a copy of the other), so the arcade shows only {name}");
+                }
                 else ids[entry.Id] = path;
             }
             entries.Add(entry);
         }
         return entries;
+    }
+
+    /// <summary>
+    /// Gives a battle folder a battle id of its own, so the arcade shows it next to the battle it
+    /// shared its id with. Scores are kept by id, so the ones so far stay with that other battle.
+    /// </summary>
+    internal static void MakeSeparate(string folder)
+    {
+        var draft = BattleDraft.Load(folder);
+        draft.NewId();
+        draft.Save();
     }
 
     /// <summary>Whether the arcade's scan looks at this file or folder (so it is one of the battles in <paramref name="root"/>).</summary>
@@ -447,10 +496,15 @@ internal static class BattleFiles
         }
     }
 
-    /// <summary>One battle folder or zip, as the list shows it (without the check for a second battle with its id).</summary>
-    internal static BattleEntry Read(string path) => File.Exists(path) ? ReadZip(path) : ReadFolder(path);
+    /// <summary>
+    /// One battle folder or zip, as the list shows it (without the check for a second battle with
+    /// its id). <paramref name="gameCheck"/>, when given, is the game's own check of a battle that
+    /// loads (its chart reader, which the arcade also asks): why the arcade would skip it, or null.
+    /// </summary>
+    internal static BattleEntry Read(string path, Func<BattlePackage, string?>? gameCheck = null) =>
+        File.Exists(path) ? ReadZip(path, gameCheck) : ReadFolder(path, gameCheck);
 
-    private static BattleEntry ReadZip(string path)
+    private static BattleEntry ReadZip(string path, Func<BattlePackage, string?>? gameCheck)
     {
         var entry = new BattleEntry { Path = path, IsZip = true, Title = Path.GetFileNameWithoutExtension(path) };
         try
@@ -462,23 +516,24 @@ internal static class BattleFiles
             entry.Lanes = package.Lanes;
             for (int s = 0; s < package.Slots.Length; s++)
                 if (package.Slots[s] != null) entry.Charted.Add(ChartText.GameDifficultyLabels[s]);
-            entry.Problems.AddRange(package.Problems);
+            entry.Problems.AddRange(CreatorWords(package));
+            if (gameCheck?.Invoke(package) is { } skipped) entry.Problems.Insert(0, skipped + ", so the arcade skips it");
             entry.Overrides = BattleNotice.Summary(package.Gear.IsSet, package.Level.Level);
             entry.Loads = true;
         }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or UnauthorizedAccessException)
+        catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
         {
-            entry.Problems.Add(ex.Message);
+            entry.Problems.Add(LoadFailureWords(path, ex.Message));
         }
         return entry;
     }
 
-    private static BattleEntry ReadFolder(string path)
+    private static BattleEntry ReadFolder(string path, Func<BattlePackage, string?>? gameCheck)
     {
         var entry = new BattleEntry { Path = path, Title = Path.GetFileName(path.TrimEnd('\\', '/')) };
         BattleDraft draft;
         try { draft = BattleDraft.Load(path); }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or UnauthorizedAccessException)
+        catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
         {
             entry.Broken = true;
             entry.Problems.Add(ex.Message);
@@ -490,20 +545,26 @@ internal static class BattleFiles
         entry.Lanes = draft.Lanes;
         entry.Overrides = BattleNotice.Summary(draft.SetGear, draft.SetLevel ? draft.LevelValue : null);
         var summary = SummarizeChart(path, draft.ChartPath, entry.Lanes);
+        // A chart outside the battle is one of the summary's problems already.
+        if (PackageFiles.SafeName(draft.ChartPath) != null && draft.ChartFileProblem() is { } chartFile)
+            entry.Problems.Add(chartFile + "; the Charts page can't edit it");
         for (int s = 0; s < summary.Notes.Length; s++)
             if (summary.Notes[s] >= 0) entry.Charted.Add(ChartText.GameDifficultyLabels[s]);
+        string? skipped = null;
         if (entry.Charted.Count > 0)
         {
             // The loader's own checks, as the arcade will see the battle.
             try
             {
                 // The draft reads gear and level with the loader's words; each problem is listed once.
-                entry.Problems.AddRange(BattlePackage.Load(path).Problems.Where(p => !draft.Problems.Contains(p)));
+                var package = BattlePackage.Load(path);
+                entry.Problems.AddRange(CreatorWords(package).Where(p => !draft.Problems.Contains(p)));
+                skipped = gameCheck?.Invoke(package);
                 entry.Loads = true;
             }
-            catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or UnauthorizedAccessException)
+            catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
             {
-                entry.Problems.Add(ex.Message);
+                entry.Problems.Add(LoadFailureWords(path, ex.Message));
             }
         }
         else
@@ -515,7 +576,108 @@ internal static class BattleFiles
             else if (!File.Exists(Path.Combine(path, audio.Replace('/', Path.DirectorySeparatorChar)))) entry.Problems.Add($"the audio file {audio} is missing");
         }
         entry.Problems.InsertRange(0, draft.Problems);
+        // What keeps the battle out of the arcade comes first.
+        if (skipped != null) entry.Problems.Insert(0, skipped + ", so the arcade skips it");
         return entry;
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex AssetName = new(@"\bEnemyData_[A-Za-z0-9_]+");
+
+    /// <summary>
+    /// The loader's problems with a battle, in the creator's words: the chart's as the Charts page
+    /// says them (the difficulty tabs' names, lane counts), the enemy's as the Enemy page says it,
+    /// a beat 0 before the song as the Charts page's offset line says it, the dialogue's as the
+    /// Dialogue page says them (the reader words each both ways), and game asset names like
+    /// "EnemyData_Yako" as the enemy's name. The loader's own messages are made again from the
+    /// same battle to find them; the rest stay as the loader words them.
+    /// </summary>
+    internal static List<string> CreatorWords(BattlePackage package)
+    {
+        var loaderChart = new List<string>();
+        var plainChart = new List<string>();
+        package.Chart.SongSlots(package.Lanes, loaderChart);
+        package.Chart.SongSlots(package.Lanes, plainChart, plain: true);
+        // The enemy the loader asks for, picked the way BattlePackage.Load picks it: custom art
+        // fights like the placeholder, and never like a scripted boss (Mantis fights instead).
+        var enemy = package.Enemy;
+        string requested = enemy.placeholder ?? "";
+        string? scriptedBoss = null;
+        if (package.CustomArt && EnemyPlaceholders.IsAdvanced(requested))
+        {
+            scriptedBoss = $"{requested.Trim()} is a scripted boss, which can't take custom art; {EnemyPlaceholders.Default} fights instead";
+            requested = EnemyPlaceholders.Default;
+        }
+        var loaderEnemy = new List<string>();
+        EnemyPlaceholders.Resolve(requested, enemy.advanced, loaderEnemy);
+        // Custom art with nothing to show yet: EnemyArtReader's messages, said as the Enemy page says it.
+        string look = package.EnemyPlaceholder;
+        var noIdle = new[] { $"the enemy is set to custom art but has no \"art\", so it looks like {look}", $"the enemy art has no idle, so it looks like {look}" };
+        // A positive #OFFSET: the creator's own chart editor makes one when beats are moved earlier
+        // from 0 (the Timing tab's "-10 ms"). This is BattlePackage.Load's message for it.
+        string offset = package.Offset.ToString("0.###", CultureInfo.InvariantCulture);
+        string loaderOffset = $"#OFFSET is {offset} s, so beat 0 comes before the audio starts; notes in the chart's first {offset} s can't be played";
+        var dialogue = new Dictionary<string, string>();
+        foreach (var p in package.Dialogue.Problems) dialogue.TryAdd(p.Text, p.Plain);
+
+        var words = new List<string>();
+        bool chartDone = false;
+        foreach (var problem in package.Problems)
+        {
+            if (loaderChart.Contains(problem))
+            {
+                if (!chartDone) words.AddRange(plainChart);
+                chartDone = true;
+            }
+            else if (loaderEnemy.Contains(problem))
+            {
+                if (EnemyChoices.Problem(requested, enemy.advanced) is { } plain) words.Add(plain.TrimEnd('.'));
+            }
+            else if (package.Offset > 0.001 && problem == loaderOffset)
+                words.Add($"beat 0 is {offset} s before the song starts, so notes before 0:00 can't be played (the chart editor's Timing page moves it)");
+            else if (package.CustomArt && noIdle.Contains(problem))
+                words.Add($"custom art needs an idle; until it has one, the enemy looks like {EnemyChoices.NameOf(look)}");
+            else if (problem == scriptedBoss)
+                words.Add($"scripted bosses can't take custom art, so {EnemyChoices.NameOf(EnemyPlaceholders.Default)} fights instead (the Enemy page picks another)");
+            else if (dialogue.TryGetValue(problem, out var plain)) words.Add(plain);
+            else words.Add(AssetName.Replace(problem, m => EnemyChoices.NameOf(m.Value)));
+        }
+        return words;
+    }
+
+    /// <summary>
+    /// Why BattlePackage.Load refused a battle, in the creator's words when the reason is its chart
+    /// (no difficulty the game can play, like a zip whose charts all have the wrong lane count).
+    /// The chart is read again the way the loader reads it and the loader's message is made again
+    /// from it, so only that exact message is reworded; any other reason stays as it is.
+    /// </summary>
+    internal static string LoadFailureWords(string path, string message)
+    {
+        try
+        {
+            PackageFiles files;
+            if (Directory.Exists(path)) files = PackageFiles.Folder(path);
+            else
+            {
+                using var zip = ZipFile.OpenRead(path);
+                files = PackageFiles.Zip(path, PackagePrefix(zip));
+            }
+            var manifest = JsonSerializer.Deserialize<BattleManifest>(files.ReadAllText(BattlePackage.ManifestName, BattlePackage.MaxJsonBytes), BattlePackage.JsonOptions);
+            string? chartPath = PackageFiles.SafeName(manifest?.chart ?? BattlePackage.DefaultChart);
+            if (manifest == null || chartPath == null) return message;
+            var chart = ChartText.Parse(files.ReadAllText(chartPath, BattlePackage.MaxChartBytes));
+            // As the loader infers it: the first difficulty with notes, else 4.
+            int lanes = manifest.lanes ?? chart.Blocks.Where(ChartText.HasNotes).Select(b => b.Lanes).DefaultIfEmpty(4).First();
+            var loader = new List<string>();
+            if (chart.SongSlots(lanes, loader).Any(s => s != null)) return message;
+            if (message != "the chart has no playable difficulty" + (loader.Count > 0 ? ": " + string.Join("; ", loader) : "")) return message;
+            var plain = new List<string>();
+            chart.SongSlots(lanes, plain, plain: true);
+            return plain.Count == 0 ? "nothing in it is charted yet" : "none of its charts can be played: " + string.Join("; ", plain);
+        }
+        catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
+        {
+            return message;
+        }
     }
 
     // ---- the chart, for the creator's pages ----------------------------------------------------------
@@ -554,13 +716,13 @@ internal static class BattleFiles
         }
         ChartText chart;
         try { chart = ChartText.Parse(BattleDraft.ReadText(Path.Combine(folder, name.Replace('/', Path.DirectorySeparatorChar)), BattlePackage.MaxChartBytes)); }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+        catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
         {
             summary.Problems.Add($"the chart {name} couldn't be read ({ex.Message})");
             return summary;
         }
         summary.Found = true;
-        var slots = chart.SongSlots(lanes, summary.Problems);
+        var slots = chart.SongSlots(lanes, summary.Problems, plain: true);
         for (int s = 0; s < slots.Length; s++)
             if (slots[s] != null) summary.Notes[s] = NoteCount(slots[s]!);
         if (double.TryParse(chart.GetTag("OFFSET"), NumberStyles.Float, CultureInfo.InvariantCulture, out double offset)) summary.Offset = offset;
@@ -682,7 +844,8 @@ internal static class BattleFiles
         return string.Join("/", parts);
     }
 
-    // The loader's limits for each kind of file.
+    // The loader's limits for each kind of file. Enemy art in art/ may be bigger than a card image,
+    // and a speaker's picture in portraits/ smaller.
     private static long LimitFor(string name)
     {
         string ext = Path.GetExtension(name).ToLowerInvariant();
@@ -690,7 +853,9 @@ internal static class BattleFiles
         {
             ".json" => BattlePackage.MaxJsonBytes,
             ".sm" or ".ssc" => BattlePackage.MaxChartBytes,
-            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" => BattlePackage.MaxImageBytes,
+            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" => name.StartsWith("art/", StringComparison.OrdinalIgnoreCase) ? EnemyArtReader.MaxPictureBytes
+                : name.StartsWith("portraits/", StringComparison.OrdinalIgnoreCase) ? DialogueReader.MaxPortraitBytes
+                : BattlePackage.MaxImageBytes,
             _ => BattlePackage.MaxAudioBytes,
         };
     }

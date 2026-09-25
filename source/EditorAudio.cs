@@ -20,6 +20,7 @@ internal sealed class EditorAudio : IDisposable
     private readonly short[] pcm;          // interleaved stereo, 16-bit
     private readonly int frames;
     private readonly int rate;
+    private readonly double lead;          // seconds of silence it can play before the first sample
     private readonly AutoResetEvent bufferDone = new(false);
     private readonly IntPtr[] headers = new IntPtr[BufferCount];
     private readonly IntPtr[] data = new IntPtr[BufferCount];
@@ -30,6 +31,7 @@ internal sealed class EditorAudio : IDisposable
 
     // Guarded by gate.
     private bool playing;
+    private bool draining;                 // the end is queued; playing stops once the device has played it
     private double speed = 1;
     private double sourceFrame;            // next source frame the fill thread will read
     private double clockStartSeconds;      // source time when the device was last reset
@@ -46,12 +48,26 @@ internal sealed class EditorAudio : IDisposable
     internal bool Playing { get { lock (gate) return playing; } }
     internal double Speed { get { lock (gate) return speed; } }
 
+    /// <summary>
+    /// Stopped at the song's end, where <see cref="Play"/> starts it over: it played to the end,
+    /// or it was paused after its last sample was heard, before it stopped by itself.
+    /// </summary>
+    internal bool Ended { get { lock (gate) return !playing && AtEnd; } }
+
+    // At the song's end (read under gate); Play starts over from here.
+    private bool AtEnd => sourceFrame >= frames - 1;
+
     /// <param name="stereo">Interleaved stereo 16-bit samples at <paramref name="sampleRate"/>.</param>
-    internal EditorAudio(short[] stereo, int sampleRate)
+    /// <param name="leadIn">
+    /// How far before the first sample it can be seeked, playing silence there, so a song can start
+    /// before its file does without a padded copy of it.
+    /// </param>
+    internal EditorAudio(short[] stereo, int sampleRate, double leadIn = 0)
     {
         pcm = stereo;
         frames = stereo.Length / 2;
         rate = sampleRate;
+        lead = double.IsFinite(leadIn) ? Math.Max(0, leadIn) : 0;
         var format = new WaveFormatEx
         {
             wFormatTag = 1, nChannels = 2, nSamplesPerSec = (uint)rate, wBitsPerSample = 16,
@@ -71,7 +87,7 @@ internal sealed class EditorAudio : IDisposable
         thread.Start();
     }
 
-    /// <summary>The source time being heard now, in seconds.</summary>
+    /// <summary>The source time being heard now, in seconds (negative in the lead-in).</summary>
     internal double Time
     {
         get
@@ -91,7 +107,7 @@ internal sealed class EditorAudio : IDisposable
         lock (gate)
         {
             if (playing) return;
-            if (sourceFrame >= frames - 1) sourceFrame = 0;
+            if (AtEnd) sourceFrame = 0;
             ResetDevice(sourceFrame / rate);
             playing = true;
         }
@@ -103,8 +119,10 @@ internal sealed class EditorAudio : IDisposable
         lock (gate)
         {
             if (!playing) return;
+            // Paused in the silence after the file's last sample, it stays at the end (Ended).
             double now = CurrentTimeLocked();
             playing = false;
+            draining = false;
             waveOutReset(device);
             for (int i = 0; i < BufferCount; i++) queued[i] = false;
             sourceFrame = now * rate;
@@ -113,9 +131,12 @@ internal sealed class EditorAudio : IDisposable
 
     internal void Seek(double seconds)
     {
+        if (!double.IsFinite(seconds)) seconds = 0;
         lock (gate)
         {
-            sourceFrame = Math.Clamp(seconds, 0, Length) * rate;
+            // Not -0.0 without a lead-in: the editor shows this time.
+            sourceFrame = Math.Clamp(seconds, lead > 0 ? -lead : 0, Length) * rate;
+            draining = false;
             if (playing) ResetDevice(sourceFrame / rate);
         }
         bufferDone.Set();
@@ -163,6 +184,7 @@ internal sealed class EditorAudio : IDisposable
     {
         waveOutReset(device);
         for (int i = 0; i < BufferCount; i++) queued[i] = false;
+        draining = false;
         clockStartSeconds = seconds;
         clockSpeed = speed;
         nextTick = FirstAfter(ticks, seconds);
@@ -193,7 +215,7 @@ internal sealed class EditorAudio : IDisposable
                         if ((flags & WhdrDone) == 0) continue;
                         queued[i] = false;
                     }
-                    if (!playing) continue;
+                    if (!playing || draining) continue;
                     Fill(buffer);
                     Marshal.Copy(buffer, 0, data[i], buffer.Length);
                     int result = waveOutWrite(device, headers[i], Marshal.SizeOf<WaveHdr>());
@@ -201,12 +223,20 @@ internal sealed class EditorAudio : IDisposable
                     {
                         // The device went away (unplugged, say): stop rather than wait forever.
                         playing = false;
+                        draining = false;
                         Failed = $"the sound device stopped (waveOut error {result})";
                         waveOutReset(device);
                         for (int j = 0; j < BufferCount; j++) queued[j] = false;
                         break;
                     }
                     queued[i] = true;
+                }
+                // The song ends when its last buffer has been played, not when it was queued (about
+                // 0.1 s earlier), so its end is heard and Time runs to the end.
+                if (playing && draining && Array.IndexOf(queued, true) < 0)
+                {
+                    playing = false;
+                    draining = false;
                 }
             }
         }
@@ -222,13 +252,21 @@ internal sealed class EditorAudio : IDisposable
         for (int f = 0; f < BufferFrames; f++)
         {
             double pos = sourceFrame + f * step;
-            int i0 = (int)pos;
+            // Rounded down, so a position in the lead-in (before 0) is silence.
+            int i0 = (int)Math.Floor(pos);
             float l = 0, r = 0;
             if (i0 >= 0 && i0 < frames - 1)
             {
                 float frac = (float)(pos - i0);
                 l = pcm[i0 * 2] + (pcm[i0 * 2 + 2] - pcm[i0 * 2]) * frac;
                 r = pcm[i0 * 2 + 1] + (pcm[i0 * 2 + 3] - pcm[i0 * 2 + 1]) * frac;
+            }
+            else if (i0 == -1 && frames > 0)
+            {
+                // From the lead-in's silence into the first sample.
+                float frac = (float)(pos - i0);
+                l = pcm[0] * frac;
+                r = pcm[1] * frac;
             }
             buffer[f * 2] = (short)(l * musicVolume);
             buffer[f * 2 + 1] = (short)(r * musicVolume);
@@ -255,7 +293,7 @@ internal sealed class EditorAudio : IDisposable
             if (t >= startSeconds) MixTick(buffer, (int)((t - startSeconds) * rate / step), 1000);
         }
         sourceFrame += BufferFrames * step;
-        if (sourceFrame >= frames) playing = false;
+        if (sourceFrame >= frames) draining = true;
     }
 
     // A short click (decaying 2 kHz tone); one that starts near a buffer's end carries on in the next.
@@ -275,6 +313,17 @@ internal sealed class EditorAudio : IDisposable
         buffer[frame * 2] = (short)Math.Clamp(buffer[frame * 2] + s, short.MinValue, short.MaxValue);
         buffer[frame * 2 + 1] = (short)Math.Clamp(buffer[frame * 2 + 1] + s, short.MinValue, short.MaxValue);
     }
+
+    /// <summary>
+    /// Stops the sound and closes the device on a worker thread: stopping a device that is playing
+    /// takes about 10 ms, and closing one has taken up to 60 ms. Don't use the player afterwards.
+    /// </summary>
+    internal void CloseInBackground() =>
+        Task.Run(() =>
+        {
+            try { Dispose(); }
+            catch { }
+        });
 
     public void Dispose()
     {

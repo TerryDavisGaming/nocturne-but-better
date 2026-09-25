@@ -86,6 +86,14 @@ internal sealed class VorbisSetup
     internal VorbisMode[] Modes = Array.Empty<VorbisMode>();
     internal int ModeBits;
 
+    /// <summary>
+    /// The most values the codebooks' VQ tables and the residues' class maps may hold together
+    /// (16 MB of floats). Each codebook alone stays under 16M values (libvorbis' limit), but a few
+    /// bytes of header can ask for one that big, and a setup can have 256 codebooks and 64
+    /// residues. Files from libvorbis and ffmpeg use under 70,000 in all.
+    /// </summary>
+    internal const long MaxTableValues = 4 * 1024 * 1024;
+
     /// <summary>Parses the setup header after its "\x05vorbis" signature.</summary>
     internal static VorbisSetup Parse(VorbisBitReader br, int channels)
     {
@@ -94,11 +102,12 @@ internal sealed class VorbisSetup
         // ---- codebooks ----
         int cbCount = (int)br.ReadHeader(8) + 1;
         s.Codebooks = new VorbisCodebook[cbCount];
-        long totalEntries = 0;
+        long totalEntries = 0, tableValues = 0;
         for (int i = 0; i < cbCount; i++)
         {
-            s.Codebooks[i] = VorbisCodebook.Read(br);
+            s.Codebooks[i] = VorbisCodebook.Read(br, MaxTableValues - tableValues);
             totalEntries += s.Codebooks[i].Entries;
+            tableValues += s.Codebooks[i].Vq?.Length ?? 0;
             if (totalEntries > 4 * VorbisCodebook.MaxEntries) throw new InvalidDataException("the Vorbis codebooks are too large");
         }
 
@@ -205,6 +214,8 @@ internal sealed class VorbisSetup
             long words = 1;
             for (int k = 0; k < dim; k++) { words *= r.Classifications; if (words > classBook.Entries) break; }
             r.ClassWords = (int)Math.Min(words, classBook.Entries);
+            tableValues += (long)r.ClassWords * dim;
+            if (tableValues > MaxTableValues) throw new InvalidDataException("the Vorbis setup's tables are too large");
             r.DecodeMap = new int[r.ClassWords][];
             for (int w = 0; w < r.ClassWords; w++)
             {
