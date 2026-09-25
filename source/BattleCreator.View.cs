@@ -352,11 +352,15 @@ internal static partial class BattleCreator
             int slot = s;
             AddChoice(p, 0, ref y, Col1W, ChartText.GameDifficultyLabels[slot], () => SlotText(slot), () => EditCharts(slot));
         }
-        AddText(p, 0, ref y, Col1W, 110, () =>
+        AddText(p, 0, ref y, Col1W, 136, () =>
         {
             int lanes = draft?.Lanes ?? 4;
-            return $"{lanes} lanes{(lanes == 5 ? " (D F Space J K; the middle lane attacks)" : " (D F J K)")}. Lanes are set when the battle is made; " +
-                   $"for {(lanes == 5 ? 4 : 5)} lanes, make a new battle.\nClick a difficulty to chart it. In the arcade, a difficulty without its own chart plays the nearest one.";
+            string keys = lanes == 5
+                ? "5 lanes: the middle lane is played with the Attack key (Space by default). The player's own attacks are off in 5 lanes, " +
+                  "so the enemy only takes damage from Player attack events (the chart editor's Events tab)."
+                : "4 lanes, played with the lane keys (D F J K by default).";
+            return $"{keys} Lanes are set when the battle is made; for {(lanes == 5 ? 4 : 5)} lanes, make a new battle.\n" +
+                   "Click a difficulty to chart it. In the arcade, a difficulty without its own chart plays the nearest one.";
         }, 17);
         var problems = AddText(p, 0, ref y, Col1W, 200, ChartProblemsText, 17);
         problems.color = Hex(0xF2B02E);

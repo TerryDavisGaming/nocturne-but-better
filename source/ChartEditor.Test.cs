@@ -35,7 +35,7 @@ internal static partial class ChartEditor
                 Say("Press Enter to finish typing first (Esc cancels it).", 4f);
                 return;
             }
-            if (!TestPlay.CanStart(out string why))
+            if (!TestPlay.CanStart(out string why, battle: battle != null))
             {
                 Say(why, 6f);
                 return;

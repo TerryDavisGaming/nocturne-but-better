@@ -174,6 +174,20 @@ internal static class BattleFiles
         return (subfolder + "/" + Path.GetFileName(target), true);
     }
 
+    /// <summary>
+    /// Whether a file is a PNG or a JPEG, by its first bytes (not its name): the only images a
+    /// battle's card shows, since those are what the game's image decoder reads.
+    /// </summary>
+    internal static bool IsCardImage(string path)
+    {
+        var head = new byte[8];
+        int n;
+        using (var stream = File.OpenRead(path)) n = ReadFull(stream, head, head.Length);
+        bool png = n >= 8 && head.AsSpan(0, 8).SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });
+        bool jpeg = n >= 3 && head[0] == 0xFF && head[1] == 0xD8 && head[2] == 0xFF;
+        return png || jpeg;
+    }
+
     private static bool SamePath(string a, string b) =>
         Path.GetFullPath(a).Equals(Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 

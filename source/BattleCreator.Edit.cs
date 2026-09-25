@@ -479,8 +479,11 @@ internal static partial class BattleCreator
             ShowPicker(new Picker
             {
                 Heading = $"{Path.GetFileNameWithoutExtension(path)}: how many lanes?",
-                Rows = { "4 lanes (D F J K)", "5 lanes (D F Space J K; the middle lane attacks)" },
-                Hint = _ => "This can't change later. For the other number of lanes, make another battle.  Esc goes back.",
+                Rows = { "4 lanes", "5 lanes: the middle lane is played with the Attack key" },
+                Hint = i => (i == 0
+                    ? "Played with the lane keys (D F J K by default)."
+                    : "In 5 lanes the player's own attacks are off: the enemy only takes damage from Player attack events, added on the chart editor's Events tab.") +
+                    " This can't change later; for the other number of lanes, make another battle.  Esc goes back.",
                 Choose = i => CreateBattle(path, i == 0 ? 4 : 5),
                 Back = () => ShowScreen(Screen.List),
             });
@@ -735,9 +738,15 @@ internal static partial class BattleCreator
     {
         if (draft == null || !FinishTyping()) return;
         var d = draft;
-        Run(FileDialogs.Open(FileDialogs.Purpose.Images, "Choose the battle's card image"), "Choose an image in the window that opened...", path =>
+        Run(FileDialogs.Open(FileDialogs.Purpose.CardImages, "Choose the battle's card image"), "Choose an image in the window that opened...", path =>
         {
             if (path == null || draft != d) return;
+            // Cards show PNG and JPEG images only; anything else isn't copied in.
+            if (!BattleFiles.IsCardImage(path))
+            {
+                Say($"{Path.GetFileName(path)} isn't a PNG or JPEG image, and cards only show those. Choose a .png or .jpg file.", 7f);
+                return;
+            }
             var (card, copied) = BattleFiles.AddFile(d.Folder, path, "images", BattlePackage.MaxImageBytes);
             if (copied) touched.Add(card);
             if (d.Card != null && !d.Card.Equals(card, StringComparison.OrdinalIgnoreCase)) touched.Add(d.Card);

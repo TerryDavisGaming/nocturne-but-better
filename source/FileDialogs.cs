@@ -61,6 +61,8 @@ internal static class FileDialogs
     internal static class Filters
     {
         internal static string[] Images => new[] { "Images (*.png, *.jpg, *.gif, *.webp, *.bmp)", "*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp" };
+        /// <summary>The images a custom battle's card shows: the game decodes PNG and JPEG only.</summary>
+        internal static string[] CardImages => new[] { "Card images (*.png, *.jpg)", "*.png;*.jpg;*.jpeg" };
         internal static string[] Videos => new[] { "Videos (*.mp4, *.webm, *.m4v, *.mov)", "*.mp4;*.webm;*.m4v;*.mov" };
         internal static string[] Songs => new[] { "Music (*.ogg, *.mp3, *.wav, *.flac, *.m4a, *.wma)", "*.ogg;*.mp3;*.wav;*.flac;*.m4a;*.wma" };
         internal static string[] StepMania => new[] { "StepMania charts (*.sm, *.ssc)", "*.sm;*.ssc" };
@@ -82,6 +84,8 @@ internal static class FileDialogs
     internal sealed class Purpose
     {
         internal static readonly Purpose Images = new("images", PicturesFolder, Filters.Join(Filters.Images, Filters.AllFiles));
+        /// <summary>A custom battle's card: PNG or JPEG. It starts in the folder last used for images.</summary>
+        internal static readonly Purpose CardImages = new("images", PicturesFolder, Filters.Join(Filters.CardImages, Filters.AllFiles));
         internal static readonly Purpose Videos = new("videos", VideosFolder, Filters.Join(Filters.Videos, Filters.AllFiles));
         internal static readonly Purpose Songs = new("songs", MusicFolder, Filters.Join(Filters.Songs, Filters.AllFiles));
         internal static readonly Purpose StepMania = new("stepmania", DownloadsFolder, Filters.Join(Filters.StepMania, Filters.AllFiles));

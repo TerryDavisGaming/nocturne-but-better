@@ -19,6 +19,8 @@ internal static class CustomChartsMenu
     private const string TabName = "Tab_FlatCustomCharts";
     private const string DifficultyEntryName = "Difficulty_FlatCustom";
     private const string Title = "Custom Charts";
+    // The page has the custom difficulties and the Battle creator.
+    private const string HelpText = "Import, pick, and share custom difficulties, or make your own battles.";
 
     /// <summary>True while the gameplay page is showing the chart rows for the Custom Charts tab.</summary>
     internal static bool ChartsPage { get; private set; }
@@ -91,7 +93,7 @@ internal static class CustomChartsMenu
             {
                 button = CloneButton(options, parent, MainButtonName, Title, () => OpenFromMainMenu(__instance));
                 button.transform.SetSiblingIndex(options.transform.GetSiblingIndex() + 1);
-                button.ButtonHelpText = "Import, pick, and share custom difficulties.";
+                button.ButtonHelpText = HelpText;
             }
             button.gameObject.SetActive(options.gameObject.activeSelf);
             InsertBelow(options, button);
@@ -128,7 +130,7 @@ internal static class CustomChartsMenu
         var existing = parent.Find(TabName);
         if (existing) return existing.GetComponent<CustomButton>();
         var tab = CloneButton(gameplay, parent, TabName, Title, () => OpenPage(panel));
-        tab.ButtonHelpText = "Import, pick, and share custom difficulties.";
+        tab.ButtonHelpText = HelpText;
         // After Accessibility, the last settings page before Privacy.
         var after = panel.accessibilityButton ? panel.accessibilityButton : gameplay;
         tab.transform.SetSiblingIndex(after.transform.GetSiblingIndex() + 1);
@@ -300,7 +302,10 @@ internal static class CustomChartsMenu
         if (song == null || charts.Count == 0)
         {
             name = "Custom";
-            desc = song == null ? "No custom charts yet" : $"No custom charts for {shown} yet";
+            // A custom battle never takes custom charts (CustomCharts.SharesScore); it plays its own.
+            desc = song == null ? "No custom charts yet"
+                : CustomBattles.IsRuntimeName(song) ? "Custom battles play their own charts"
+                : $"No custom charts for {shown} yet";
         }
         else
         {
