@@ -138,11 +138,16 @@ internal static class CustomBattles
         return ById.TryGetValue(name.Substring(BattlePackage.ScoreKeyPrefix.Length), out var song) ? song.Title : null;
     }
 
-    /// <summary>Reads the CustomBattles folder again and builds the songs that are new or changed.</summary>
+    /// <summary>
+    /// Reads the CustomBattles folder again and builds the songs that are new or changed. It runs
+    /// every time an arcade screen is shown, so a battle whose files haven't changed isn't read again.
+    /// </summary>
     internal static void Refresh()
     {
         List<BattlePackage> found;
-        try { found = BattlePackage.Scan(Folder, message => Note(message)); }
+        var known = new Dictionary<string, BattlePackage>(StringComparer.Ordinal);
+        foreach (var built in ById.Values) known[built.Package.Location] = built.Package;
+        try { found = BattlePackage.Scan(Folder, message => Note(message), known); }
         catch (Exception ex)
         {
             Note("Listing the custom battles failed: " + ex.Message);
