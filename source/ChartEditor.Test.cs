@@ -378,14 +378,15 @@ internal static partial class ChartEditor
     // ---- QA ------------------------------------------------------------------------------------
 
     // QA ONLY: with NFS_QA_TESTPLAY in the game's environment, the editor opens by itself once the
-    // title screen's menu shows (once a session), seeks, and presses Test with no Ready prompt, so
-    // a whole test runs and comes back without input. The value is
+    // title screen's menu shows and its startup intro is over (once a session), seeks, and presses
+    // Test with no Ready prompt, so a whole test runs and comes back without input. The value is
     // battle:<folder>[#<slot 0-5>][@<seconds>|@start] or song:<SongData name>[#<melody>][@<seconds>|@start];
     // without @ it starts 20 s before the last note. Players never set it; without it this does nothing.
     private static readonly string QaSpec = (Environment.GetEnvironmentVariable("NFS_QA_TESTPLAY") ?? "").Trim();
     private enum QaStep { Waiting, Opened, Pressed, Done }
     private static QaStep qaStep;
     private static float qaNextCheck, qaOpenedAt;
+    private static bool qaLoggedIntro;
 
     private static void QaTestPlay()
     {
@@ -446,6 +447,15 @@ internal static partial class ChartEditor
         foreach (var menu in Resources.FindObjectsOfTypeAll<MainMenu>())
             if (menu && menu.optionsButton && menu.optionsButton.gameObject.activeInHierarchy) titleShowing = true;
         if (!titleShowing) return;
+        // The game shows its main menu under its startup intro (the title background's load, then
+        // about 20 s with no input); a player can't reach Options before the intro ends, and Test
+        // refuses until then, so the QA waits too.
+        if (TestPlay.IntroShowing())
+        {
+            if (!qaLoggedIntro) ModLog.Info("Test play QA: waiting for the title intro to end.");
+            qaLoggedIntro = true;
+            return;
+        }
         var (kind, name, number, _) = QaParse();
         qaStep = QaStep.Opened;
         qaOpenedAt = Time.unscaledTime;
