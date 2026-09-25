@@ -101,6 +101,24 @@ internal static class MediaSniff
         return info;
     }
 
+    /// <summary>
+    /// Why a whole file can't go to Unity's PNG and JPEG decoder as a picture at most
+    /// <paramref name="maxSide"/> on a side (null when it can), from its header: the decoder makes
+    /// whatever size the header claims. Written to follow the file's name; <paramref name="what"/>
+    /// names the pictures in the limit ("card images").
+    /// </summary>
+    internal static string? PictureProblem(byte[] bytes, int maxSide, string what)
+    {
+        var type = TypeOf(bytes);
+        if (type is not (MediaType.Png or MediaType.Jpeg))
+            return type == MediaType.Unknown ? "isn't a PNG or JPEG" : $"is {(type is MediaType.Mp4 or MediaType.WebM ? "a video" : "a " + Name(type) + " picture")}, not a PNG or JPEG";
+        MediaInfo info;
+        try { info = Probe(bytes, true); }
+        catch (InvalidDataException ex) { return ex.Message; }
+        if (info.Width > maxSide || info.Height > maxSide) return $"is {info.Width} x {info.Height}; {what} can be at most {maxSide} on a side";
+        return null;
+    }
+
     private static uint U32BE(byte[] b, int at) => BinaryPrimitives.ReadUInt32BigEndian(b.AsSpan(at, 4));
 
     private static void Png(byte[] b, MediaInfo info)

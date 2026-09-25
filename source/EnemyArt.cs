@@ -21,7 +21,12 @@ internal static partial class EnemyArt
 {
     /// <summary>How long a fight's start waits for its art.</summary>
     private const float CollectSeconds = 5f;
-    /// <summary>How long a video may take to get ready.</summary>
+    /// <summary>
+    /// How much longer a battle's first fight waits for its idle video to be prepared once the rest
+    /// is loaded. Short: the video player may need the frames the wait holds up to get ready.
+    /// </summary>
+    private const float IdleVideoWait = 0.5f;
+    /// <summary>How long a video may take to get ready, in frames after a fight's start.</summary>
     private const float PrepareSeconds = 8f;
     /// <summary>A warm start nobody fights is let go after this long.</summary>
     private const float UnusedSeconds = 60f;
@@ -53,6 +58,9 @@ internal static partial class EnemyArt
         internal bool Usable => Video == null || !Video.Failed;
     }
 
+    /// <summary>Whether the idle can be shown: loaded (a video once it's prepared), still loading, or failed.</summary>
+    internal enum IdleLoad { Ready, Loading, Failed }
+
     /// <summary>A video animation: its player renders into a texture that is copied into its sprite's texture.</summary>
     internal sealed class VideoArt
     {
@@ -67,8 +75,11 @@ internal static partial class EnemyArt
         internal bool Playing;
         /// <summary>A frame was copied since the player last started, so its sprite can show.</summary>
         internal bool Fresh;
+        /// <summary>A frame was ever copied into its sprite's texture (until then it's clear).</summary>
+        internal bool Shown;
         internal string? Error;
-        internal float MadeAt;
+        /// <summary>When the player was made, and when its time to get ready started (real seconds).</summary>
+        internal float MadeAt, WaitFrom;
         internal long LastFrame = -1;
         // The callbacks are set as fields (the add_ methods throw); the delegates are kept alive here.
         internal VideoPlayer.EventHandler? OnPrepared;
@@ -119,7 +130,35 @@ internal static partial class EnemyArt
 
         internal ArtLoadResult Result => Loader.Result;
         internal bool Done => Work.IsCompleted;
-        internal bool IdleReady => Clips.TryGetValue("idle", out var idle) && idle.Usable;
+        /// <summary>The idle loaded (a video's player was made; it may still be getting ready).</summary>
+        internal bool IdleLoaded => Clips.TryGetValue("idle", out var idle) && idle.Usable;
+
+        internal IdleLoad IdleState
+        {
+            get
+            {
+                if (!Clips.TryGetValue("idle", out var idle)) return Done ? IdleLoad.Failed : IdleLoad.Loading;
+                var v = idle.Video;
+                return v == null || (v.Prepared && !v.Failed) ? IdleLoad.Ready : v.Failed ? IdleLoad.Failed : IdleLoad.Loading;
+            }
+        }
+
+        /// <summary>Why the idle isn't ready, for the log: "idle: ..." when it failed, "its idle ..." while it loads.</summary>
+        internal string IdleWhy()
+        {
+            if (Result.Failed.TryGetValue("idle", out var failed)) return "idle: " + failed;
+            if (Clips.TryGetValue("idle", out var idle) && idle.Video is { } v)
+                return v.Failed ? $"idle: {v.File} can't play ({v.Error ?? "it wasn't ready in time"})" : $"its idle video {v.File} wasn't ready yet";
+            return Done ? "its idle couldn't be loaded" : $"its idle took longer than {CollectSeconds:0} s to load";
+        }
+
+        /// <summary>A video still getting ready counts its time again from now (a fight's start held up the frames it needs).</summary>
+        internal void RestartVideoClocks()
+        {
+            float now = Time.realtimeSinceStartup;
+            foreach (var clip in Clips.Values)
+                if (clip.Video is { Prepared: false, Failed: false } v) v.WaitFrom = now;
+        }
 
         /// <summary>Starts loading on worker threads; the main-thread steps wait for the pump.</summary>
         internal void Begin() => Work = Task.Run(() => Loader.Run(Cancel.Token));
@@ -238,7 +277,8 @@ internal static partial class EnemyArt
             Made.Add(sprite);
             Sprites++;
 
-            var video = new VideoArt { Target = target, Copy = copy, File = a.File, MadeAt = Time.unscaledTime };
+            float now = Time.realtimeSinceStartup;
+            var video = new VideoArt { Target = target, Copy = copy, File = a.File, MadeAt = now, WaitFrom = now };
             var player = VideoHost().AddComponent<VideoPlayer>();
             Made.Add(player);
             Videos++;
@@ -270,9 +310,13 @@ internal static partial class EnemyArt
             Clips[a.Name] = clip;
         }
 
-        /// <summary>Follows the videos getting ready (the callbacks, and polling in case they don't come).</summary>
+        /// <summary>
+        /// Follows the videos getting ready (the callbacks, and polling in case they don't come).
+        /// Real time, so a fight's start that waits on the main thread is counted as it passes.
+        /// </summary>
         internal void WatchVideos()
         {
+            float now = Time.realtimeSinceStartup;
             foreach (var clip in Clips.Values)
             {
                 var v = clip.Video;
@@ -280,21 +324,29 @@ internal static partial class EnemyArt
                 if (v.Error != null)
                 {
                     v.Failed = true;
-                    ModLog.Error($"Enemy art for {Title}: video {v.File} can't play ({v.Error}); {EnemyArtReader.StandIn(clip.Name, Spec)}.");
+                    ModLog.Error($"Enemy art for {Title}: video {v.File} can't play ({v.Error}); {VideoStandIn(clip.Name)}.");
                     continue;
                 }
                 if (v.Prepared) continue;
                 if (v.Called || v.Player.isPrepared)
                 {
                     v.Prepared = true;
-                    ModLog.Info($"Enemy art: video {v.File} prepared in {(Time.unscaledTime - v.MadeAt) * 1000:0} ms ({v.Player.width} x {v.Player.height}, {ArtLoadResult.Sec(v.Player.length)} s{(v.Called ? "" : "; its callback didn't come")}).");
+                    ModLog.Info($"Enemy art: video {v.File} prepared in {(now - v.MadeAt) * 1000:0} ms ({v.Player.width} x {v.Player.height}, {ArtLoadResult.Sec(v.Player.length)} s{(v.Called ? "" : "; its callback didn't come")}).");
                 }
-                else if (Time.unscaledTime - v.MadeAt > PrepareSeconds)
+                else if (now - v.WaitFrom > PrepareSeconds)
                 {
                     v.Failed = true;
-                    ModLog.Error($"Enemy art for {Title}: video {v.File} wasn't ready after {PrepareSeconds:0} s; {EnemyArtReader.StandIn(clip.Name, Spec)}.");
+                    ModLog.Error($"Enemy art for {Title}: video {v.File} wasn't ready after {PrepareSeconds:0} s; {VideoStandIn(clip.Name)}.");
                 }
             }
+        }
+
+        // What shows instead of an animation whose video can't play.
+        private string VideoStandIn(string name)
+        {
+            if (name != "idle") return EnemyArtReader.StandIn(name, Spec);
+            if (Battle == null) return "the preview can't show the enemy";
+            return Battle.Look == CustomBattles.ArtLook.Rig ? EnemyArtReader.StandIn(name, Spec) : $"the enemy looks like {LookName}";
         }
 
         /// <summary>Logs how loading went, once it's done.</summary>
@@ -311,7 +363,7 @@ internal static partial class EnemyArt
                 ModLog.Error($"Enemy art for {Title}: {failed.Key} can't be used ({failed.Value}); {(failed.Key == "idle" ? $"the enemy looks like {LookName}" : EnemyArtReader.StandIn(failed.Key, Spec))}.");
             foreach (var note in Result.Notes.Where(n => !problems.Contains(n)).Distinct()) ModLog.Info($"Enemy art for {Title}: {note}.");
             foreach (var error in Result.Errors) ModLog.Error($"Enemy art for {Title}: {error}");
-            if (IdleReady) ModLog.Info($"Enemy art for {Title}: ready in {Clock.ElapsedMilliseconds} ms: {Result.Describe()}.");
+            if (IdleLoaded) ModLog.Info($"Enemy art for {Title}: ready in {Clock.ElapsedMilliseconds} ms: {Result.Describe()}.");
         }
 
         internal void Dispose()
@@ -378,8 +430,8 @@ internal static partial class EnemyArt
     /// </summary>
     internal static Picture ReadPicture(byte[] file, string name)
     {
-        var texture = CustomBattles.CardImages.Decode(file, CustomBattles.RuntimePrefix + "art/" + name, EnemyArtReader.MaxPictureSide)
-            ?? throw new InvalidDataException($"{name} isn't a PNG or JPEG the game can read");
+        var texture = CustomBattles.CardImages.Decode(file, CustomBattles.RuntimePrefix + "art/" + name, EnemyArtReader.MaxPictureSide, "pictures", out string? why)
+            ?? throw new InvalidDataException($"{name} {why}");
         try
         {
             int w = texture.width, h = texture.height;
@@ -422,11 +474,12 @@ internal static partial class EnemyArt
     /// <summary>
     /// Starts loading a battle's art, so it's ready when its fight starts: from the arcade's click
     /// on the battle, or the chart editor's test. Loading the same battle again does nothing;
-    /// another battle's art is let go first.
+    /// another battle's art is let go first. A battle that already looks like its placeholder for
+    /// good (or has no rig) loads nothing.
     /// </summary>
     internal static void Warm(CustomBattles.Battle battle, string from)
     {
-        if (!installed || battle.Package.Art == null) return;
+        if (!installed || battle.Package.Art == null || battle.RigArt == null || battle.Look == CustomBattles.ArtLook.Placeholder) return;
         try
         {
             if (current != null && current.Battle == battle && !current.Disposed) return;
@@ -462,15 +515,31 @@ internal static partial class EnemyArt
     /// <summary>
     /// The battle's art for a fight that is starting: whatever loading is left is done now, for at
     /// most CollectSeconds. Animations that are still loading after that are used once they're ready.
+    /// With <paramref name="idleVideo"/> (the look isn't decided yet) an idle video that's still
+    /// getting ready is waited for a little longer (IdleVideoWait), within the same limit.
     /// </summary>
-    private static ArtSet Collect(CustomBattles.Battle battle)
+    private static ArtSet Collect(CustomBattles.Battle battle, bool idleVideo)
     {
         var set = current != null && current.Battle == battle && !current.Disposed ? current : Start(battle);
         set.Used = true;
         var wait = Stopwatch.StartNew();
-        while (!set.Done && wait.Elapsed.TotalSeconds < CollectSeconds)
+        double doneAt = -1;
+        while (wait.Elapsed.TotalSeconds < CollectSeconds)
+        {
+            if (set.Done)
+            {
+                set.WatchVideos();
+                if (doneAt < 0) doneAt = wait.Elapsed.TotalSeconds;
+                if (!idleVideo || set.IdleState != IdleLoad.Loading || wait.Elapsed.TotalSeconds - doneAt >= IdleVideoWait) break;
+            }
             if (!Pump(int.MaxValue)) Thread.Sleep(1);
+        }
         Pump(int.MaxValue);
+        set.WatchVideos();
+        set.RestartVideoClocks();
+        if (idleVideo && doneAt >= 0 && set.Clips.TryGetValue("idle", out var idle) && idle.Video != null)
+            ModLog.Info($"Enemy art for {set.Title}: the idle video is {(idle.Video.Prepared ? "prepared" : idle.Video.Failed ? "not playable" : "still getting ready")} " +
+                        $"after {wait.ElapsedMilliseconds} ms at the fight's start.");
         set.Report();
         return set;
     }

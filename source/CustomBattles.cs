@@ -537,7 +537,7 @@ internal static class CustomBattles
             try
             {
                 var bytes = package.Files.ReadAllBytes(package.CardPath, BattlePackage.MaxImageBytes);
-                var texture = CardImages.Decode(bytes, package.ScoreKey + "/card");
+                var texture = CardImages.Decode(bytes, package.ScoreKey + "/card", CardImages.MaxCardSide, "card images", out string? why);
                 if (texture != null)
                 {
                     made.Add(texture);
@@ -545,7 +545,7 @@ internal static class CustomBattles
                     made.Add(sprite);
                     return (sprite, texture);
                 }
-                Note($"Custom battle {package.Title}: {package.CardPath} isn't a PNG or JPEG the game can read, so its card is plain for now.");
+                Note($"Custom battle {package.Title}: {package.CardPath} {why}, so its card is plain for now.");
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException)
             {
@@ -565,12 +565,16 @@ internal static class CustomBattles
         private static bool looked;
         private static Sprite? placeholder;
 
+        /// <summary>Card images can be this big on a side (a 50 MP phone photo is 8160 x 6120).</summary>
+        internal const int MaxCardSide = 8192;
+
         /// <summary>
-        /// A PNG or JPEG as a texture (readable), or null when it can't be decoded. The decoder makes
-        /// whatever size the file's header claims, so a header over <paramref name="maxSide"/> on a
-        /// side is refused first.
+        /// A PNG or JPEG as a texture (readable), or null when it can't be decoded, with why
+        /// (<paramref name="why"/>, written to follow the file's name). The decoder makes whatever
+        /// size the file's header claims, so a header over <paramref name="maxSide"/> on a side is
+        /// refused first; <paramref name="what"/> names the pictures in that limit.
         /// </summary>
-        internal static Texture2D? Decode(byte[] bytes, string name, int maxSide = 4096)
+        internal static Texture2D? Decode(byte[] bytes, string name, int maxSide, string what, out string? why)
         {
             if (!looked)
             {
@@ -579,20 +583,16 @@ internal static class CustomBattles
                 if (call != IntPtr.Zero) loadImage = Marshal.GetDelegateForFunctionPointer<LoadImageCall>(call);
                 else ModLog.Info("Custom battles: the game has no image decoder, so cards are plain.");
             }
-            if (loadImage == null || bytes.Length == 0) return null;
-            try
-            {
-                var header = MediaSniff.Probe(bytes, true);
-                if (header.Type is not (MediaType.Png or MediaType.Jpeg) || header.Width > maxSide || header.Height > maxSide) return null;
-            }
-            catch (InvalidDataException) { return null; }
+            why = loadImage == null ? "can't be shown: the game has no image decoder" : bytes.Length == 0 ? "is empty" : MediaSniff.PictureProblem(bytes, maxSide, what);
+            if (why != null) return null;
             var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = name, hideFlags = HideFlags.HideAndDontSave };
             var data = new Il2CppStructArray<byte>(bytes);
-            bool loaded = loadImage(texture.Pointer, data.Pointer, 0) != 0;
+            bool loaded = loadImage!(texture.Pointer, data.Pointer, 0) != 0;
             GC.KeepAlive(data);
             if (!loaded || texture.width < 1 || texture.height < 1)
             {
                 Object.Destroy(texture);
+                why = "couldn't be read by the game's PNG and JPEG decoder";
                 return null;
             }
             texture.wrapMode = TextureWrapMode.Clamp;

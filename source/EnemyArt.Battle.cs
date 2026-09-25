@@ -17,10 +17,11 @@ namespace NocturneFlatScroll;
 internal static partial class EnemyArt
 {
     private static readonly int AttackTag = Animator.StringToHash("Attack");
-    private static readonly int IdleState = Animator.StringToHash("Base Layer.Idle");
+    private static readonly int IdleAnimatorState = Animator.StringToHash("Base Layer.Idle");
     /// <summary>The Mantis rig's shadow, and the Mantis's visible width it's made for.</summary>
     private const float ShadowBaseWidth = 43f;
     private const string CouldNotLoad = "Custom art couldn't load";
+    private const string NotReady = "Custom art wasn't ready yet";
 
     private static Fight? fight;
     // Handed from Initialize's prefix to its postfix.
@@ -39,6 +40,9 @@ internal static partial class EnemyArt
         var playHit = Method(typeof(CombatEnemyView), "PlayHit");
         var attacking = Method(typeof(CombatEnemyView), "IsPlayingAttackAnimation");
         var click = Method(typeof(ArcadeMenuV2), "ArcadeSongGroup_OnClick");
+        // The hooks do nothing until every patch is in (the Initialize prefix checks "installed", and
+        // the others only act on a fight it started), so a patch that fails part way leaves the
+        // battles looking like their placeholders instead of on a rig nothing drives.
         harmony.Patch(initialize, prefix: Hook(nameof(InitializePrefix)), postfix: Hook(nameof(InitializePostfix)));
         harmony.Patch(playAttack, postfix: Hook(nameof(PlayAttackPostfix)));
         harmony.Patch(playHit, postfix: Hook(nameof(PlayHitPostfix)));
@@ -61,10 +65,12 @@ internal static partial class EnemyArt
 
     // ---- hooks ------------------------------------------------------------------------------------
 
-    // Before the game loads the enemy's art: a custom-art enemy's art is loaded now, and if its
-    // idle is usable the enemy is switched to the Mantis rig. That choice is made on a battle's
-    // first fight and kept until the battle is rebuilt: the game releases whatever art reference
-    // the enemy has when the fight's view goes, so it must never change between fights.
+    // Before the game loads the enemy's art: a custom-art enemy's art is loaded now, and once its
+    // idle is ready (a video's player prepared) the enemy is switched to the Mantis rig. The switch
+    // is kept until the battle is rebuilt: the game releases whatever art reference the enemy has
+    // when the fight's view goes, so it must never change while a view of it is alive. An idle
+    // that fails for good keeps the placeholder's look for good; one that's only still loading
+    // keeps it for this fight, and the next fight tries again.
     private static void InitializePrefix(CombatEnemyView __instance, CombatEnemyModel model)
     {
         try
@@ -72,6 +78,7 @@ internal static partial class EnemyArt
             pendingView = IntPtr.Zero;
             pendingSet = null;
             pendingText = null;
+            if (!installed) return;
             var data = model?.Data;
             var battle = data != null && data ? CustomBattles.FindEnemy(data) : null;
             if (battle == null || !battle.Package.CustomArt) return;
@@ -80,25 +87,39 @@ internal static partial class EnemyArt
             var package = battle.Package;
             if (package.Art == null || battle.RigArt == null)
             {
-                CantUse(battle, package.ArtUnusable ?? "the Mantis rig couldn't be set up");
+                CantUse(battle, package.ArtUnusable ?? "the Mantis rig couldn't be set up", CouldNotLoad);
                 return;
             }
             if (battle.Look == CustomBattles.ArtLook.Placeholder)
             {
-                CantUse(battle, battle.LookReason ?? "its idle couldn't be loaded");
+                CantUse(battle, battle.LookReason ?? "its idle couldn't be loaded", CouldNotLoad);
                 return;
             }
-            var set = Collect(battle);
-            if (battle.Look == CustomBattles.ArtLook.Undecided)
+            bool deciding = battle.Look == CustomBattles.ArtLook.Undecided;
+            var set = Collect(battle, idleVideo: deciding);
+            if (deciding)
             {
-                if (!set.IdleReady)
+                var state = set.IdleState;
+                if (state == IdleLoad.Failed)
                 {
-                    string why = set.Result.Failed.TryGetValue("idle", out var failed) ? "idle: " + failed
-                        : set.Done ? "its idle couldn't be loaded" : $"its idle took longer than {CollectSeconds:0} s to load";
+                    string why = set.IdleWhy();
                     battle.Look = CustomBattles.ArtLook.Placeholder;
                     battle.LookReason = why;
                     Release(set);
-                    CantUse(battle, why);
+                    CantUse(battle, why, CouldNotLoad);
+                    return;
+                }
+                if (state == IdleLoad.Loading)
+                {
+                    // Kept loading: the next fight of this battle uses it once it's ready.
+                    CantUse(battle, set.IdleWhy() + "; the next fight tries again", NotReady, release: false);
+                    return;
+                }
+                // A view of this enemy still alive (a retry made before the last fight's view went)
+                // would release the rig's reference when it goes, so the switch waits for a fight without one.
+                if (fight != null && fight.Battle == battle && fight.Alive)
+                {
+                    CantUse(battle, "the last fight's enemy is still there; the next fight switches", NotReady, release: false);
                     return;
                 }
                 data!.addressableArtPrefab = battle.RigArt;
@@ -113,19 +134,30 @@ internal static partial class EnemyArt
             var idle = set.Result.Measured.TryGetValue("idle", out var m) ? m : null;
             ModLog.Info($"Enemy art for {battle.Title}: custom art on the Mantis rig (fights like {package.EnemyPlaceholder}); size {set.Result.Size:0.##}, " +
                 $"offset ({package.Art.OffsetX:0.##}, {package.Art.OffsetY:0.##}), feet ({idle?.FeetX:0.##}, {idle?.FeetY:0.##}).");
-            if (!set.IdleReady)
+            // A later fight: the look can't go back to the placeholder now.
+            switch (set.IdleState)
             {
-                ModLog.Error($"Enemy art for {battle.Title}: the idle didn't load this time, so the first frame of another animation stands in.");
-                pendingText = CouldNotLoad;
+                case IdleLoad.Failed:
+                    ModLog.Error($"Enemy art for {battle.Title}: the idle can't be shown this time ({set.IdleWhy()}), so {EnemyArtReader.StandIn("idle", package.Art)}.");
+                    pendingText = CouldNotLoad;
+                    break;
+                case IdleLoad.Loading:
+                    ModLog.Info($"Enemy art for {battle.Title}: {set.IdleWhy()}; it shows once it is.");
+                    break;
             }
         }
         catch (Exception ex) { ReportHook(ex); }
     }
 
-    private static void CantUse(CustomBattles.Battle battle, string why)
+    /// <summary>
+    /// This fight looks like the placeholder: says why in the log and, as combat text, <paramref name="text"/>.
+    /// The battle's art is let go unless the next fight may still use it (<paramref name="release"/>).
+    /// </summary>
+    private static void CantUse(CustomBattles.Battle battle, string why, string text, bool release = true)
     {
         ModLog.Error($"Enemy art for {battle.Title}: can't use the custom art ({why}); the enemy looks like {battle.Package.EnemyPlaceholder}.");
-        pendingText = CouldNotLoad;
+        pendingText = text;
+        if (release && current != null && current.Battle == battle) Release(current);
     }
 
     // After the game made the enemy: the rig is set up to show the art.
@@ -205,13 +237,21 @@ internal static partial class EnemyArt
         {
             fight = null;
             f.End(keepSet: false);
+            // A fight that looked like the placeholder while the art was still loading: the art
+            // waits for a retry as a warm start does, and is let go if none comes.
+            var set = current;
+            if (f.Set == null && set != null && set.Battle == f.Battle && f.Battle.Look == CustomBattles.ArtLook.Undecided)
+            {
+                set.Used = false;
+                set.WarmedAt = Time.unscaledTime;
+            }
         }
     }
 
     // ---- one fight --------------------------------------------------------------------------------
 
     /// <summary>A custom-art enemy's fight: what it shows, and its attack's timeline.</summary>
-    private sealed class Fight
+    private sealed partial class Fight
     {
         internal readonly CombatEnemyView View;
         internal readonly IntPtr ViewPointer;
@@ -228,12 +268,13 @@ internal static partial class EnemyArt
         // The stock Empty_Attack's own hit times the attack (the runtime override failed).
         private bool stockHit;
 
-        // What shows.
+        // What shows. The rig's own sprite is kept for an idle that can't show anything else.
         private Clip? clip;
         private float clipTime;
         private int shown = -1;
-        private bool frozen, defeated;
+        private bool frozen, defeated, idleFailed;
         private float hurtTime = -1;
+        private Sprite? rigSprite;
 
         // The attack.
         private bool attacking, parryDone, hitDone, watchdogDone, speedChanged, wasAttacking;
@@ -254,8 +295,22 @@ internal static partial class EnemyArt
 
         private Clip? Get(string name) => Set != null && Set.Clips.TryGetValue(name, out var c) && c.Usable ? c : null;
 
-        /// <summary>The idle, or a stand-in for it: another animation's first frame.</summary>
-        private Clip? Idle() => Get("idle") ?? Get("attack") ?? Get("hurt") ?? Get("defeat");
+        private static readonly string[] StandIns = { "attack", "hurt", "defeat" };
+
+        /// <summary>The idle, or a stand-in for it: another animation's first frame (frames before videos).</summary>
+        private Clip? Idle()
+        {
+            var idle = Get("idle");
+            if (idle != null) return idle;
+            Clip? video = null;
+            foreach (var name in StandIns)
+                if (Get(name) is { } c)
+                {
+                    if (c.Video == null) return c;
+                    video ??= c;
+                }
+            return video;
+        }
 
         internal void SetUpRig()
         {
@@ -286,11 +341,13 @@ internal static partial class EnemyArt
                 stockHit = true;
                 if (baseController != null) animator!.runtimeAnimatorController = baseController;
             }
+            rigSprite = renderer!.sprite;
             var idle = Idle();
             if (idle != null)
             {
                 Show(idle);
-                // A video idle's sprite is clear until its first frame comes; the rig's own sprite never shows.
+                // A video idle's sprite is clear until its first frame comes; the rig's own sprite
+                // only shows when the idle can't show anything (WatchIdle).
                 if (idle.Video != null) renderer!.sprite = idle.Frames[0];
             }
             var shadow = View.shadowSpriteRenderer;
@@ -312,10 +369,15 @@ internal static partial class EnemyArt
             if (!View) return false;
             if (PendingText != null && ++frames > 2)
             {
-                View.ShowText(PendingText);
+                // Said once; a text that can't show must never hold up the attack's timeline below.
+                string text = PendingText;
                 PendingText = null;
+                try { View.ShowText(text); }
+                catch (Exception ex) { ModLog.Error($"Enemy art: the combat text \"{text}\" couldn't show ({ex.Message})."); }
             }
+            QaShots();
             if (Set == null || Set.Disposed || !renderer) return true;
+            WatchIdle();
             bool isAttacking = View.isAttacking;
             // A backstop for an attack that started without PlayAttack.
             if (isAttacking && !wasAttacking && !attacking) StartAttack(true);
@@ -331,6 +393,28 @@ internal static partial class EnemyArt
             Pick();
             Advance(dt);
             return true;
+        }
+
+        /// <summary>
+        /// An idle video that can't play once the fight is on the rig (an error, or not ready in
+        /// time): said as combat text, and the enemy never goes blank. Another animation's first
+        /// frame stands in (Pick); without one, the video's last frame stays, or the rig's own
+        /// sprite shows when it never had a frame.
+        /// </summary>
+        private void WatchIdle()
+        {
+            if (idleFailed || !Set!.Clips.TryGetValue("idle", out var idle) || idle.Video is not { Failed: true } v) return;
+            idleFailed = true;
+            PendingText ??= CouldNotLoad;
+            bool standIn = Idle() != null;
+            string what = standIn ? "another animation's first frame stands in" : v.Shown ? "its last frame stays" : "the rig's own picture shows";
+            ModLog.Info($"Enemy art for {Battle.Title}: the idle video can't play in this fight, so {what}.");
+            if (!standIn && !v.Shown && clip == idle && rigSprite != null && rigSprite)
+            {
+                renderer!.sprite = rigSprite;
+                renderer.flipX = false;
+                shown = -1;
+            }
         }
 
         internal void End(bool keepSet)
@@ -354,6 +438,7 @@ internal static partial class EnemyArt
                 {
                     defeated = true;
                     ModLog.Info("Enemy art: defeat.");
+                    QaMoment(QaDefeat, "defeat");
                 }
                 // Defeat: its own animation, else the hurt played once, else the idle held.
                 next = Get("defeat") ?? Get("hurt");
@@ -431,21 +516,23 @@ internal static partial class EnemyArt
         {
             if (v.Failed)
             {
-                // A video that fails after the switch keeps the last frame it showed; another state
-                // falls back to the idle on the next pick.
+                // Another state falls back to the idle on the next pick; the idle's own failure is
+                // WatchIdle's (its stand-in, or its last frame).
                 if (c.Name != "idle") clip = null;
                 return;
             }
             if (!v.Prepared || !v.Player) return;
             bool paused = GamePaused();
+            // A frozen stand-in still plays until its first frame is in.
+            bool hold = paused || (frozen && v.Fresh);
             // A clip that played to its end stays "playing" here, so it isn't started again.
-            if (!v.Playing && !paused && !frozen)
+            if (!v.Playing && !hold)
             {
                 if (v.LastFrame < 0) v.Player.time = 0;
                 v.Player.Play();
                 v.Playing = true;
             }
-            else if (v.Playing && (paused || frozen))
+            else if (v.Playing && hold)
             {
                 v.Player.Pause();
                 v.Playing = false;
@@ -457,6 +544,7 @@ internal static partial class EnemyArt
                 Graphics.CopyTexture(v.Target, 0, 0, v.Copy, 0, 0);
             else
                 Graphics.ConvertTexture(v.Target, v.Copy);
+            v.Shown = true;
             if (!v.Fresh)
             {
                 v.Fresh = true;
@@ -483,6 +571,7 @@ internal static partial class EnemyArt
             var hurt = Get("hurt");
             if (hurt != null && clip == hurt) Show(hurt);
             ModLog.Info("Enemy art: hurt.");
+            QaMoment(QaHurt, "hurt");
         }
 
         // ---- the attack ----
@@ -528,11 +617,13 @@ internal static partial class EnemyArt
                     }
                 }
             }
+            if (!hitDone && attackTime >= hitAt - QaLead) QaMoment(QaBeforeHit, "just before the hit");
             if (!hitDone && attackTime >= hitAt)
             {
                 if (!stockHit) Hit("hit");
                 else if (View.attacks >= 1 || !View.isAttacking) hitDone = true;
                 else if (attackTime >= Math.Min(attackLength, ArtTimeline.MaxHit) + 0.25) Hit("the stock hit didn't come, so the hit landed");
+                if (hitDone) QaMoment(QaHit, "the hit");
             }
             WatchAnimator();
             // Over once the art has shown, the hit has landed and the animator is back.
@@ -574,7 +665,7 @@ internal static partial class EnemyArt
             if (tag && !watchdogDone && attackTime > (stockHit ? hitAt : attackLength) + 0.25)
             {
                 watchdogDone = true;
-                animator.Play(IdleState, 0, 0f);
+                animator.Play(IdleAnimatorState, 0, 0f);
                 RestoreSpeed();
                 ModLog.Error($"Enemy art: the attack state ran past {ArtLoadResult.Sec(attackTime)} s, so the enemy's animator was sent back to idle.");
             }

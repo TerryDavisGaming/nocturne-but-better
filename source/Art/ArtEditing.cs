@@ -113,6 +113,8 @@ internal static class ArtEditing
         if (facts.Width < 1 || facts.Height < 1) return $"{name} doesn't say how big its picture is.";
         if (facts.Width > EnemyArtReader.MaxVideoSide || facts.Height > EnemyArtReader.MaxVideoSide || (long)facts.Width * facts.Height > EnemyArtReader.MaxVideoPixels)
             return $"{name} is {facts.Width} x {facts.Height}. Videos can be at most 1920 x 1080.";
+        if (facts.Seconds <= 0 && EnemyArtReader.NeedsLength(anim))
+            return $"{name} doesn't say how long it plays, and the {anim} needs that for its timing. Re-save it first (for example with ffmpeg).";
         double limit = anim == "idle" ? EnemyArtReader.MaxIdleVideoSeconds : EnemyArtReader.MaxOtherVideoSeconds;
         if (anim != "attack" && facts.Seconds > limit)
             return $"{name} plays for {Sec(facts.Seconds)} s. The {anim} can be at most {limit:0} s.";
@@ -264,7 +266,19 @@ internal static class ArtEditing
     {
         if (t.Hit < 0) return (null, null);
         if (a.Kind is ArtKind.Sheet or ArtKind.Gif && t.HitFrame >= 0) return (t.HitFrame, null);
-        double speed = a.Kind == ArtKind.Video ? a.Speed : 1;
-        return (null, Math.Round(t.Hit * speed, 2));
+        return (null, HitTimeAt(a, t.Hit, null));
+    }
+
+    /// <summary>
+    /// The "hitTime" battle.json writes for a hit <paramref name="battleSeconds"/> into the attack
+    /// in the battle (the time the creator shows, types and steps): a video's own seconds are its
+    /// battle time times its speed. Kept between MinHit and the attack's end (at most MaxHit) when
+    /// <paramref name="t"/> is known, and rounded to 0.01 s.
+    /// </summary>
+    internal static double HitTimeAt(ArtAnimationSpec a, double battleSeconds, ArtTimeline? t)
+    {
+        double most = t != null ? Math.Min(t.Length, ArtTimeline.MaxHit) : double.MaxValue;
+        double battle = Math.Clamp(battleSeconds, ArtTimeline.MinHit, Math.Max(ArtTimeline.MinHit, most));
+        return Math.Round(battle * (a.Kind == ArtKind.Video ? a.Speed : 1), 2);
     }
 }

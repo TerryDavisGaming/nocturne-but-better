@@ -595,8 +595,8 @@ internal static partial class BattleCreator
         {
             var info = new FileInfo(path);
             if (info.Length > BattlePackage.MaxImageBytes) { cardState = $"{card} is too big (at most {BattlePackage.MaxImageBytes / (1024 * 1024)} MB)."; return; }
-            var texture = CustomBattles.CardImages.Decode(File.ReadAllBytes(path), "NocturneButBetter/creator/card");
-            if (texture == null) { cardState = $"{card}\nOnly PNG and JPEG cards show for now; this one shows as a plain card."; return; }
+            var texture = CustomBattles.CardImages.Decode(File.ReadAllBytes(path), "NocturneButBetter/creator/card", CustomBattles.CardImages.MaxCardSide, "card images", out string? why);
+            if (texture == null) { cardState = $"{card}\nIt {why}, so the arcade shows a plain card."; return; }
             cardTexture = texture;
             cardSprite = CustomBattles.CardImages.ToSprite(texture);
             cardImage!.sprite = cardSprite;

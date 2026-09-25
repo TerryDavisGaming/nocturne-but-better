@@ -201,6 +201,9 @@ internal static class EnemyArtReader
         "attack" => $"the idle stands in, hit at {ArtLoadResult.Sec(ArtTimeline.NoArtHit)} s",
         "hurt" => "the idle shows instead",
         "defeat" => spec.Animations.ContainsKey("hurt") ? "the hurt shows instead" : "the idle holds instead",
+        // Once the enemy is on the rig (a later fight, or a video that fails after the fight started).
+        "idle" => Names.Any(n => n != "idle" && spec.Animations.ContainsKey(n))
+            ? "another animation's first frame stands in" : "the rig's own picture shows",
         _ => "",
     };
 
@@ -328,6 +331,13 @@ internal static class EnemyArtReader
         CheckVideoFacts(a, facts);
     }
 
+    /// <summary>
+    /// Whether an animation's video must say how long it plays: the attack's hit and the hurt's
+    /// time on screen come from it. The idle loops and the defeat holds, so theirs can be missing
+    /// (browser recordings and some fragmented MP4s leave it out).
+    /// </summary>
+    internal static bool NeedsLength(string anim) => anim is "attack" or "hurt";
+
     /// <summary>The video limits, also checked again when a fight loads a video whose index came late.</summary>
     internal static void CheckVideoFacts(ArtAnimationSpec a, VideoFacts facts)
     {
@@ -336,6 +346,8 @@ internal static class EnemyArtReader
         if (facts.Width > MaxVideoSide || facts.Height > MaxVideoSide || (long)facts.Width * facts.Height > MaxVideoPixels)
             throw new InvalidDataException($"{a.File} is {facts.Width} x {facts.Height}; videos can be at most 1920 x 1080");
         if (facts.Width < 1 || facts.Height < 1) throw new InvalidDataException($"{a.File} doesn't say how big its picture is");
+        if (facts.Seconds <= 0 && NeedsLength(a.Name))
+            throw new InvalidDataException($"{a.File} doesn't say how long it plays, and the {a.Name} needs that for its timing; re-save it first (for example with ffmpeg)");
         double seconds = facts.Seconds / a.Speed;
         double limit = a.Name == "idle" ? MaxIdleVideoSeconds : MaxOtherVideoSeconds;
         if (a.Name != "attack" && seconds > limit)

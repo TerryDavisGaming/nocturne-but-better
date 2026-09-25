@@ -13,10 +13,21 @@ internal sealed class VideoFacts
     internal int Width, Height;
     /// <summary>H.264's profile from avcC; -1 when not known.</summary>
     internal int Profile = -1;
+    /// <summary>How long it plays; 0 when the file doesn't say (browser recordings, some fragmented MP4s).</summary>
     internal double Seconds;
     internal bool HasVideo, Alpha;
     /// <summary>The part that describes the tracks was read (an MP4's moov, a WebM's Tracks).</summary>
     internal bool IndexFound;
+    /// <summary>
+    /// How far an MP4 asks to be turned when it's shown (0, 90, 180 or 270 degrees), from its video
+    /// track's matrix: a phone video recorded upright is stored sideways with 90. The game's video
+    /// player shows the stored frames as they are.
+    /// </summary>
+    internal int Rotation;
+    /// <summary>An MP4's movie time scale, for a fragmented file's length (mehd).</summary>
+    internal double TimeScale;
+    /// <summary>A fragmented MP4 (its moov has mvex), and whether it said its whole length (mehd).</summary>
+    internal bool Fragmented, FragmentsLength;
 
     internal string CodecName => Codec switch
     {
@@ -39,6 +50,15 @@ internal sealed class VideoFacts
     {
         if (!IndexFound) return "isn't a video the game can play";
         if (!HasVideo) return "has no video in it";
+        string? codec = CodecProblem();
+        if (codec != null) return codec;
+        if (Rotation == 180) return "is stored upside down with a note to turn it; the game can't turn videos, so save it the right way up first (for example with ffmpeg)";
+        if (Rotation != 0) return "is stored sideways with a note to turn it (as upright phone videos are); the game can't turn videos, so save it upright first (for example with ffmpeg)";
+        return null;
+    }
+
+    private string? CodecProblem()
+    {
         // Unity plays .webm with its own decoder, which only knows VP8.
         if (Container == "webm")
             return Codec == "V_VP8" ? null : $"uses {CodecName}, which the game can't play (WebM videos must use VP8, or use an H.264 MP4)";
@@ -152,6 +172,16 @@ internal static class VideoProbe
 
     private static uint U32(byte[] d, int p) => (uint)(d[p] << 24 | d[p + 1] << 16 | d[p + 2] << 8 | d[p + 3]);
 
+    private static int I32(byte[] d, int p) => (int)U32(d, p);
+
+    /// <summary>The turn a track matrix asks for, from its first row (a = cos, b = sin), to the nearest quarter.</summary>
+    internal static int RotationOf(int a, int b)
+    {
+        if (a == 0 && b == 0) return 0;
+        double degrees = Math.Atan2(b, a) * 180 / Math.PI;
+        return ((int)Math.Round(degrees / 90) * 90 % 360 + 360) % 360;
+    }
+
     private static void WalkBoxes(byte[] d, int start, int end, int depth, VideoFacts f, bool videoTrack)
     {
         int p = start;
@@ -171,8 +201,15 @@ internal static class VideoProbe
                 case "moov":
                     if (whole) f.IndexFound = true;
                     WalkBoxes(d, body, next, depth + 1, f, videoTrack);
+                    // A fragmented file's mvhd covers only what's in moov (often nothing, or the first
+                    // fragment): without mehd its whole length isn't known.
+                    if (f.Fragmented && !f.FragmentsLength) f.Seconds = 0;
                     break;
                 case "mdia": case "minf": case "stbl": case "edts":
+                    WalkBoxes(d, body, next, depth + 1, f, videoTrack);
+                    break;
+                case "mvex":
+                    f.Fragmented = true;
                     WalkBoxes(d, body, next, depth + 1, f, videoTrack);
                     break;
                 case "trak":
@@ -186,15 +223,39 @@ internal static class VideoProbe
                         {
                             double scale = U32(d, body + 20);
                             double duration = (double)((ulong)U32(d, body + 24) << 32 | U32(d, body + 28));
+                            f.TimeScale = scale;
                             if (scale > 0) f.Seconds = duration / scale;
                         }
                         else if (v == 0 && body + 20 <= next)
                         {
                             double scale = U32(d, body + 12);
+                            f.TimeScale = scale;
                             if (scale > 0) f.Seconds = U32(d, body + 16) / scale;
                         }
                         break;
                     }
+                case "mehd":
+                    {
+                        // A fragmented MP4's whole length (mvhd, which comes first, gives its time scale).
+                        int v = d[body];
+                        double duration = v == 1 && body + 12 <= next ? (double)((ulong)U32(d, body + 4) << 32 | U32(d, body + 8))
+                            : v == 0 && body + 8 <= next ? U32(d, body + 4) : 0;
+                        if (f.TimeScale > 0 && duration > 0)
+                        {
+                            f.Seconds = duration / f.TimeScale;
+                            f.FragmentsLength = true;
+                        }
+                        break;
+                    }
+                case "tkhd":
+                    if (videoTrack)
+                    {
+                        // Version and flags, the times (v1: 32 bytes, v0: 20), 16 more, then the 3 x 3
+                        // matrix of 16.16 numbers: a b u / c d v / x y w.
+                        int m = body + 4 + (d[body] == 1 ? 32 : 20) + 16;
+                        if (m + 20 <= next) f.Rotation = RotationOf(I32(d, m), I32(d, m + 4));
+                    }
+                    break;
                 case "stsd":
                     if (videoTrack && body + 16 + 78 <= next)
                     {
