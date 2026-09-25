@@ -1,18 +1,17 @@
-nocturne but better 2.5.0 - package verification
-checked september 24, 2026 on windows 11, using windows powershell 5.1.
+nocturne but better 2.6.0 - package verification
+checked september 25, 2026 on windows 11, using windows powershell 5.1.
 
 installer
-43 checks ran against throwaway copies of the game files. the real game
-folder was not used, and its files were unchanged afterwards.
+45 checks ran against throwaway copies of the game files. the
+real game folder was not used, and its files were unchanged afterwards.
 - every package script parses in windows powershell 5.1.
 - install previews (-whatif) leave the game folder unchanged for both
   loaders, and so does the uninstall preview.
 - a game without melonloader gets the bundled bepinex and the plugin. a
   repeat install changes nothing.
-- upgrading from the published 2.1.2, 2.2.0, or 2.4.1 plugin, or from the
-  earlier unpublished 2.3.0 and 2.5.0 test builds, installs 2.5.0 and keeps
-  the old dll as a backup. upgrading the 2.2.0, 2.4.1, or test-build
-  melonloader mods does the same.
+- upgrading from the published 2.1.2, 2.2.0, 2.4.1, or 2.5.0 plugin
+  installs 2.6.0 and keeps the old dll as a backup. upgrading the 2.2.0,
+  2.4.1, or 2.5.0 melonloader mod does the same.
 - with melonloader 0.7.3 installed and turned on, the mod goes into mods and
   the bepinex copy is disabled. a melonloader-only game gets no bepinex
   files. a repeat install changes nothing.
@@ -30,19 +29,75 @@ folder was not used, and its files were unchanged afterwards.
   unknown game asset, a conflicting loader binary, and a disabled doorstop
   configuration. an existing compatible doorstop configuration is kept.
 
-for 2.5.0 the real installer was not run on the test pc's own game; the
-installer script only changed its version and pinned dll hashes since 2.4.1,
-when it was. the optional fullscreen script is unchanged since 2.4.1.
+for 2.6.0 the real installer was not run on the test pc's own game; the
+installer script only changed its version and pinned dll hashes since
+2.5.0. the optional fullscreen script is unchanged since 2.4.1. neither
+script touches the custom charts or custom battles folders.
 
 shareable dlls
-- both are built from the 2.5.0 source with debug symbols disabled and no
+- both are built from the 2.6.0 source with debug symbols disabled and no
   git commit hash, so they contain no development-machine paths.
 - two clean builds of the source folder with -c Release gave the same
   bytes for both dlls.
 
 gameplay coverage
 both loaders were tested in-game with qa builds: the same source plus test
-hooks. for 2.5.0: a chart pack was imported, exported, and re-imported
+hooks, on nocturne 1.0.1 with bepinex 6.0.0-be.788 and melonloader 0.7.3,
+the melonloader one in a separate copy of the game folder. every run took
+a snapshot of the player's plugin, settings and saves first, put that
+snapshot back afterwards, and checked that the .sav files hadn't changed.
+on melonloader, no run logged a "native->managed trampoline" error.
+for 2.6.0:
+- custom battles in the main-menu arcade, in 4 and 5 lanes, with songs
+  played to the end: scores went into ProdSlotN.score and the .sav files
+  didn't change. both loaders.
+- set gear and infinite consumables: 228 of 228 checks on both loaders
+  (a win, a retry, quitting from the pause menu, a real loss, extra
+  health, a save check in the middle of a battle, and infinite
+  consumables on and off).
+- per-battle level and the arcade's box: 233 of 233 checks, both
+  loaders.
+- the battle creator: 155 of 155 checks on both loaders. every page
+  opened, and they covered the pickers, play 10 s, saving, export, the
+  charts, and the art page. that includes
+  the osu!mania .osz import: 20 broken beatmaps were refused in plain
+  words, and imported battles played in the arcade, where a 5-lane one
+  was beaten with the player attacks the import adds.
+- custom enemy art: 10 test battles on both loaders (a gif, a sprite
+  sheet, a png, an mp4, a webm, a big video, broken files, a battle in a
+  zip, and the art turned off). videos showed on the first fight.
+- turn into frames: 29 of 29 checks on both loaders, including a
+  green-screen mp4 cut out with the corner colour, esc stopping it, and
+  "back to the video" bringing the video back.
+- arcade card pictures: 81 of 81 checks on 16 cards, both loaders: square,
+  tall and wide pictures, tiny pixel art, a 4000 x 3000 picture, crops,
+  and bad card keys in battle.json.
+- the chart editor's test, from the playhead and from the start, on
+  custom battles and game songs: the results and score were skipped,
+  nothing was saved, and the editor came back. bepinex ran all six test
+  runs. melonloader ran two, both from the playhead: a custom battle, and
+  a game song playing the editor's own mix of its music.
+- dialogue in the arcade, on both loaders: lines before the song held the
+  ready prompt, lines during the song showed within 6 ms of their time in a
+  see-through box, lines that stop the song paused it and let it go on, win
+  lines came before the results, and a real loss played its loss lines
+  with the music stopped. on bepinex it was also checked in downscroll and
+  upscroll, with a dialogue file, in 5 lanes, in the chart editor's test
+  from the start and from partway, and in a battle with 10 broken dialogue
+  entries that still loaded and played. the story's viewed-scene flags were
+  untouched.
+- the creator's dialogue page: 93 of 93 checks on both loaders (every
+  tab, adding, copying, replying and undoing lines, the speaker picker with
+  karma first and typing to jump, faces and sides, a new speaker with a
+  picture, save and reopen, and the chart editor's dialogue lane). its
+  preview put the portraits where the game does.
+not tried for 2.6.0: custom battles played with a real keyboard (the tests
+use auto-play or the game's own input check), a controller, custom battles
+by hand in the story's arcade cabinet, very long songs in the arcade, and
+real osu!mania beatmaps beyond the generated test files and five real sets
+checked outside the game.
+
+for 2.5.0: a chart pack was imported, exported, and re-imported
 (recognized as already there). the real windows open and save dialogs were
 driven from the game: a typed path imported a pack, a typed name exported
 one, and a cancelled dialog changed nothing. charts with a note row of the
@@ -71,8 +126,8 @@ all 7 of the song's events, and an edited event was saved with the chart
 and read by the game. a chapter button turned gold with its sparkles once
 every card in the chapter showed theirs.
 
-earlier features: with the game's auto-play on every lane, the firefly battle ran
-through the circle and arrow skins in all three scroll modes, receptor
+earlier features: with the game's auto-play on every lane, the firefly battle
+ran through the circle and arrow skins in all three scroll modes, receptor
 heights from -10 to +30, note sizes from 70% to 150%, and lane spacings from
 70% to 150%, with note flares off and on and enemy attack opacity at 0%,
 30%, and 60%. going back to the default layout restored all 70 values the
@@ -89,7 +144,7 @@ windows, and alt, alone, with another key, and pressed and released inside
 one frame, were all ignored, and j started the fight. the note colors
 preview was checked in all six palettes with all three skins.
 real key presses, five-lane charts, and enemies other than the firefly
-have not been tried.
+have not been tried with those settings.
 
 see technical-notes.md for compatibility and third-party-notices.txt for
 the official loader and corresponding-source provenance.

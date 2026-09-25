@@ -1,4 +1,4 @@
-nocturne but better 2.5.0 (formerly nocturne flat scroll)
+nocturne but better 2.6.0 (formerly nocturne flat scroll)
 windows x64 | steam nocturne 1.0.1 | tested steam build 25487568
 works with bepinex 6 (bundled) or melonloader 0.7.3 and newer (not bundled)
 
@@ -25,6 +25,10 @@ install
                       or above enemy (along the top of the screen)
    enemy attack opacity - 0% to 100%; how visible the enemy stays while it
                       attacks (100% = unchanged)
+   infinite consumables (arcade) - off or on; in arcade battles, using a
+                      consumable doesn't use it up. you still get one use
+                      per battle, and battles that set your gear use
+                      their own.
    the game's own note colors row gets a preview under it, with a red mine
    next to your notes so you can spot palettes that look like it.
 6. in options > audio, under sound effects:
@@ -41,12 +45,55 @@ only one copy runs at a time. to switch loaders, run install.cmd again; it
 disables the copy for the other loader. do not keep bepinex and melonloader
 in the same game folder, because only one of them can start.
 
-custom difficulties and chart editor (new)
+custom battles and the arcade button (new)
+the main menu gets an arcade button. it needs a save, like continue does,
+and opens the arcade on your latest save. arcade scores go into that
+save's .score file; your place in the story and your .sav files don't
+change. custom battles are arcade-only battles with your own song and
+charts, in the arcade's custom tab. make them in the battle creator:
+custom charts on the main menu (or the custom charts tab in options) >
+battle creator. its pages:
+   info          - title, artist, charter, lore, and the arcade card's
+                   picture: the card's slot is square, so fill it or show
+                   the whole picture, crop it, pick crisp pixels, and see
+                   an exact preview
+   song          - an ogg, mp3, wav, flac, m4a or wma file
+   charts        - six difficulties in 4 or 5 lanes, in the chart editor
+   enemy         - a game enemy's fight with your own stats and info boxes
+   art           - your own enemy art: image, gif, video or sprite sheet.
+                   "turn into frames" makes a video a sprite sheet, so a
+                   see-through colour works on it
+   gear & level  - set gear or the player's own, and a set level or the
+                   player's own. the player's own gear and level come
+                   back after the battle, and the arcade shows what a
+                   battle sets before you play it
+   dialogue      - boss-style lines before the song, during it (over the
+                   notes, or stopping the song), after a win and after a
+                   loss.
+                   speakers: karma (the player), game characters with
+                   their faces, the narrator, or your own with pictures
+a battle exports and imports as one .nbbbattle file, and deleting one
+moves it to the recycle bin. a new battle can also start from an
+osu!mania .osz (beta, not recommended). technical-notes.md describes
+battle.json and the folder layout.
+
+test in the chart editor (new)
+the chart editor's test button (f5 from the playhead, shift+f5 from the
+start) plays the chart in a real battle and brings you back to the
+editor. it works for custom battles and the game's songs when the editor
+was opened from the title screen, and nothing is saved.
+
+fixed
+2.5.0 garbled the results screen's high-score info in every battle. 2.6.0
+records custom chart scores without the hook that caused it.
+
+custom difficulties and chart editor
 press custom charts on the main menu, or the custom charts tab in options:
    chart editor         - make or edit a chart for any song, with the song's
                           music playing, like osu!mania's editor: tools,
                           bookmarks, metronome, scroll speed changes, the
                           enemy's events, and keys you can change
+   battle creator       - make or edit custom battles (see above)
    import custom chart  - opens a windows file picker; pick a .nbbchart
                           pack or an .sm file
    custom chart song    - the songs you have custom charts for
@@ -60,7 +107,7 @@ events stay in, and custom chart scores are saved apart from the game's high
 scores. boss fights split into parts (m1 to m3, gauntlets 1 to 4) can't take
 custom charts yet. the readme explains the editor.
 
-chapter badges (new)
+chapter badges
 in arcade and high scores, a chapter button turns gold with two sparkles
 once every encounter in it has its sparkles.
 
@@ -70,9 +117,9 @@ controller button still does.
 
 installations start on default, 0%, 100% size and spacing, default skin,
 note flares on, timing bar off and below the enemy, enemy attack opacity
-100%, hit sound off at 80%, and miss sound volume 100%. your selections
-are saved on that pc. the title screen and the intro's logo card
-read "nocturne but better, by terrydavisgaming".
+100%, infinite consumables off, hit sound off at 80%, and miss sound volume
+100%. your selections are saved on that pc. the title screen and the
+intro's logo card read "nocturne but better, by terrydavisgaming".
 
 optional fullscreen flicker fix
 if you have the flickering black bars, close nocturne and double-click
@@ -84,7 +131,8 @@ remove
 close nocturne, then run uninstall.cmd to disable this mod for both loaders.
 run restore-fullscreen-fix.cmd too if you enabled the display fix.
 uninstall keeps the loaders because other mods may use them. saves, scores,
-other mods, custom charts, and saved scrolling preferences are left in place.
+other mods, custom charts, custom battles, and saved scrolling preferences
+are left in place.
 
 if something does not work
 - access denied: right-click the relevant .cmd and run as administrator.
@@ -96,11 +144,16 @@ if something does not work
 - options rows missing: check bepinex\logoutput.log or
   melonloader\latest.log in the game folder. confirm the zip was fully
   extracted before running install.cmd.
+- a custom battle is missing from the arcade: open it in the battle
+  creator to see its problems. the loader's log (bepinex\logoutput.log or
+  melonloader\latest.log) says why the arcade skipped it.
+- an mp3, flac, m4a or wma song won't play on a windows n edition: install
+  the media feature pack, or convert the song to .ogg or .wav.
 - steam updates / verify integrity may remove the optional display patch.
   this package must be checked again after a game update.
 
 share
-send the original nocturne-flat-scroll-2.5.0-windows.zip to the other person
+send the original nocturne-flat-scroll-2.6.0-windows.zip to the other person
 or device. they need their own installed copy of nocturne. the package
 contains no game assets, game-generated assemblies, saves, or account data.
 it does not support macos, linux, or steam deck through these installers.
@@ -112,7 +165,8 @@ contents
 - third-party-notices.txt and licenses: loader notices and licenses
 - third-party-source: source archives for the bundled lgpl components
 - sha256sums.txt: package file integrity hashes
-- technical-notes.md: compatibility, verification, and command-line use
+- technical-notes.md: compatibility, verification, custom battle files,
+  and command-line use
 
 this is an unofficial community modification, not a release from the
 nocturne developers. nocturne and its artwork belong to their owners.
