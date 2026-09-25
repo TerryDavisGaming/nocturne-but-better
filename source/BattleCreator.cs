@@ -10,8 +10,9 @@ namespace NocturneFlatScroll;
 
 /// <summary>
 /// The battle creator: makes and edits the custom battles in the CustomBattles folder. It opens
-/// on a list of the battles (plus New, Import and Open folder); picking one opens its pages: info,
-/// song, charts, enemy, gear and level, and dialogue. It looks and works like the chart editor (an
+/// on a list of the battles (plus New, New from an osu!mania beatmap (beta), Import and Open
+/// folder); picking one opens its pages: info, song, charts, enemy, gear and level, and
+/// dialogue. It looks and works like the chart editor (an
 /// <see cref="EditorUi"/> drawn over the game, Windows file pickers, mouse or keyboard), and the
 /// game's menus underneath are locked while it is open (<see cref="EditorOverlay"/>). Charting
 /// hands over to the chart editor and comes back when it closes.
@@ -86,6 +87,9 @@ internal static partial class BattleCreator
         song = null;
         audioLoad = null;
         picker = null;
+        // A read still running is dropped (it writes nothing); a battle being made still finishes,
+        // and shows the next time the creator opens.
+        ClearOsz();
         pending = null;
         pendingDone = null;
         handedOver = false;
@@ -255,7 +259,7 @@ internal static partial class BattleCreator
 
     // ---- the list of battles -------------------------------------------------------------------
 
-    private const int ActionRows = 3;
+    private const int ActionRows = 4;
     private static List<BattleFiles.BattleEntry> entries = new();
     private static int listIndex;
 
@@ -292,12 +296,12 @@ internal static partial class BattleCreator
             if (!IsOpen || screen != Screen.List) return;
         }
         listIndex = Math.Clamp(listIndex, 0, Math.Max(0, ActionRows + entries.Count - 1));
-        Ui.DrawList("Battle creator", Escape(ListHint(listIndex)), ListLines(), listIndex);
+        Ui.DrawList("Battle creator", Escape(ListHint(listIndex)), ListLines(), listIndex, ListTags());
     }
 
     private static List<string> ListLines()
     {
-        var lines = new List<string> { "New battle...", "Import a .nbbbattle file...", "Open the battles folder" };
+        var lines = new List<string> { "New battle...", OszSummary.ListRow, "Import a .nbbbattle file...", "Open the battles folder" };
         foreach (var e in entries)
         {
             string name = e.Artist.Length > 0 ? $"{e.Title} - {e.Artist}" : e.Title;
@@ -315,6 +319,14 @@ internal static partial class BattleCreator
         return lines;
     }
 
+    /// <summary>What shows right after a row's text in amber: the osu!mania import's beta warning.</summary>
+    private static List<string?> ListTags()
+    {
+        var tags = new List<string?>(new string?[ActionRows + entries.Count]);
+        tags[1] = OszSummary.Beta;
+        return tags;
+    }
+
     private static string ListHint(int index)
     {
         if (Ui.MessageShowing) return Ui.Message;
@@ -327,8 +339,9 @@ internal static partial class BattleCreator
         switch (index)
         {
             case 0: return "Pick a song file, and a battle is made around it. Then chart it and set up its enemy.";
-            case 1: return "Unpacks a .nbbbattle file into a new battle folder you can edit.";
-            case 2: return "Opens the CustomBattles folder in Windows Explorer.";
+            case 1: return OszSummary.ListHint;
+            case 2: return "Unpacks a .nbbbattle file into a new battle folder you can edit.";
+            case 3: return "Opens the CustomBattles folder in Windows Explorer.";
         }
         int i = index - ActionRows;
         if (i < 0 || i >= entries.Count) return "";
@@ -344,8 +357,9 @@ internal static partial class BattleCreator
         switch (index)
         {
             case 0: StartNewBattle(); return;
-            case 1: StartImport(); return;
-            case 2: OpenInExplorer(Root); return;
+            case 1: StartOszImport(); return;
+            case 2: StartImport(); return;
+            case 3: OpenInExplorer(Root); return;
         }
         int i = index - ActionRows;
         if (i < 0 || i >= entries.Count) return;
