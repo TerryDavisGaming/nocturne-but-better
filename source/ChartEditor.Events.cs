@@ -6,7 +6,8 @@ namespace NocturneFlatScroll;
 // The chart's enemy events: the song's #ATTACKS (lane layouts, the enemy's props and animations,
 // helper attacks, combat effects like vines, camera moves, text). A chart starts with the song's
 // own events, so it plays exactly like the song; the Events tab changes them, and only then does
-// the chart save its own list (with #NBBEVENTS:chart).
+// the chart save its own list (with #NBBEVENTS:chart). A custom battle's events are always its
+// own (see ChartEditor.Battle.cs), with player attacks in the palette.
 internal static partial class ChartEditor
 {
     private sealed class ChartEvent
@@ -115,10 +116,13 @@ internal static partial class ChartEditor
     private static void AddEventHere()
     {
         PushUndo();
-        // A copy of the picked event (or the song's first) at the current time, on the snap.
+        // A copy of the picked event (or the song's first) at the current time, on the snap. A
+        // battle has no song events; its first event is a player attack.
         var template = PickedEvent ?? songEvents.FirstOrDefault();
         double time = chart!.RowToSeconds(SnapRow(chart.SecondsToRow(Now)));
-        var added = new ChartEvent { Time = time, Length = template?.Length ?? 1, Mods = template?.Mods ?? "TriggerCombatEffect 0" };
+        var added = battle != null && template == null
+            ? new ChartEvent { Time = time, Length = 0.5, Mods = "PlayerAttack 1" }
+            : new ChartEvent { Time = time, Length = template?.Length ?? 1, Mods = template?.Mods ?? "TriggerCombatEffect 0" };
         events.Add(added);
         EventsEdited();
         eventIndex = events.IndexOf(added);

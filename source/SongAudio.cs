@@ -8,6 +8,7 @@ namespace NocturneFlatScroll;
 /// music is Wwise interactive music; MusicMapData lists, for each song and melody, which files play
 /// where (worked out from the game's banks). They are all plain 16-bit PCM, so this reads them
 /// straight from the game's files, resamples to 48 kHz stereo, applies the clips' fades, and mixes.
+/// A custom battle's own song file is decoded as it is (<see cref="LoadFile"/>).
 /// </summary>
 internal static class SongAudio
 {
@@ -54,8 +55,31 @@ internal static class SongAudio
 
         var result = new Result { Origin = start, Stereo = new short[mix.Length] };
         for (int i = 0; i < mix.Length; i++) result.Stereo[i] = (short)Math.Clamp(mix[i], short.MinValue, short.MaxValue);
-        const int peakFrames = Rate / 100;
-        result.PeakRate = Rate / (float)peakFrames;
+        AddPeaks(result);
+        return result;
+    }
+
+    /// <summary>
+    /// A custom battle's own song file (a name inside its folder), decoded by the mod's decoders
+    /// (see AudioFile) at the file's own rate. The battle's clock is the file's own time, so its
+    /// first sample is at chart time 0. Can run on any thread.
+    /// </summary>
+    internal static Result LoadFile(string folder, string name)
+    {
+        var bytes = PackageFiles.Folder(folder).ReadAllBytes(name, BattlePackage.MaxAudioBytes);
+        var (stereo, rate) = AudioFile.Decode(bytes, name);
+        if (stereo.Length < 4 || rate <= 0) throw new InvalidDataException($"{name} has no sound in it");
+        var result = new Result { Stereo = stereo, SampleRate = rate, Origin = 0 };
+        AddPeaks(result);
+        return result;
+    }
+
+    // The loudest sample in every 1/100 s, for the waveform.
+    private static void AddPeaks(Result result)
+    {
+        int peakFrames = Math.Max(1, result.SampleRate / 100);
+        long frames = result.Stereo.Length / 2;
+        result.PeakRate = result.SampleRate / (float)peakFrames;
         result.Peaks = new float[(int)(frames / peakFrames) + 1];
         for (int p = 0; p < result.Peaks.Length; p++)
         {
@@ -64,7 +88,6 @@ internal static class SongAudio
             for (int i = from; i < to; i++) peak = Math.Max(peak, Math.Abs((int)result.Stereo[i]));
             result.Peaks[p] = peak / 32768f;
         }
-        return result;
     }
 
     private static void MixPiece(string root, Piece piece, double start, int[] mix)

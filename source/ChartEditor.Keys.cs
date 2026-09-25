@@ -16,6 +16,7 @@ internal static partial class ChartEditor
         Undo, Redo, SelectAll, Copy, Cut, Paste, Delete, Mirror, Reverse,
         NudgeLater, NudgeEarlier, NudgeLeft, NudgeRight, Resnap,
         Save, Export, Rename, SetAuthor,
+        NextDifficulty, PrevDifficulty, BeatsEarlier, BeatsLater, BeatsEarlier10, BeatsLater10,
     }
 
     private static readonly (EditorAction Action, string Label, KeyBinding[] Keys)[] DefaultBindings =
@@ -39,7 +40,8 @@ internal static partial class ChartEditor
         (EditorAction.ToolNote, "Note tool", new[] { new KeyBinding(Key.Digit2), new KeyBinding(Key.W) }),
         (EditorAction.ToolHold, "Hold tool", new[] { new KeyBinding(Key.Digit3), new KeyBinding(Key.E) }),
         (EditorAction.ToolMine, "Mine tool", new[] { new KeyBinding(Key.Digit4), new KeyBinding(Key.R) }),
-        (EditorAction.NoteTicks, "Note ticks on/off", new[] { new KeyBinding(Key.T) }),
+        // On a battle's Timing tab the same key taps the tempo, so the two never pull apart.
+        (EditorAction.NoteTicks, "Note ticks on/off, tap tempo (battles)", new[] { new KeyBinding(Key.T) }),
         (EditorAction.Metronome, "Metronome on/off", new[] { new KeyBinding(Key.M) }),
         (EditorAction.AddBookmark, "Add/remove bookmark", new[] { new KeyBinding(Key.B, ctrl: true) }),
         (EditorAction.NextBookmark, "Next bookmark", new[] { new KeyBinding(Key.B) }),
@@ -62,6 +64,13 @@ internal static partial class ChartEditor
         (EditorAction.Export, "Export as a pack", new[] { new KeyBinding(Key.E, ctrl: true) }),
         (EditorAction.Rename, "Name the chart", new[] { new KeyBinding(Key.F2) }),
         (EditorAction.SetAuthor, "Set the author", new[] { new KeyBinding(Key.F3) }),
+        // Battles only: the difficulty tabs, and moving every beat against the music (#OFFSET).
+        (EditorAction.NextDifficulty, "Next difficulty (battles)", new[] { new KeyBinding(Key.PageDown, ctrl: true) }),
+        (EditorAction.PrevDifficulty, "Previous difficulty (battles)", new[] { new KeyBinding(Key.PageUp, ctrl: true) }),
+        (EditorAction.BeatsEarlier, "Beats 1 ms earlier (battles)", new[] { new KeyBinding(Key.LeftBracket) }),
+        (EditorAction.BeatsLater, "Beats 1 ms later (battles)", new[] { new KeyBinding(Key.RightBracket) }),
+        (EditorAction.BeatsEarlier10, "Beats 10 ms earlier (battles)", new[] { new KeyBinding(Key.LeftBracket, shift: true) }),
+        (EditorAction.BeatsLater10, "Beats 10 ms later (battles)", new[] { new KeyBinding(Key.RightBracket, shift: true) }),
     };
 
     // The chart editor's own keys; other editor screens use their own KeyMap and player prefs key.
