@@ -11,8 +11,9 @@ namespace NocturneFlatScroll;
 
 // The Dialogue page's preview: the game's dialogue box on the battle's 480 x 270 screen (at 4/3,
 // or close up at 2x), laid out as the game lays out its own (research: dialogue_tree.txt). The
-// box is the bottom 81 game pixels; portraits stand centred 54 above the bottom, 30 either side of
-// their side's middle, the right side mirrored, the speaker lit and the others grey. Names and
+// box is the bottom 81 game pixels; portraits stand centred 54 above the bottom, placed around their
+// side's middle as the game places them (a speaker alone on the middle, two 30 either side of it),
+// the right side mirrored, the speaker lit and the others grey. Names and
 // text are in the game's own fonts. A game character's faces come from the game
 // (PortraitManager), loaded only for the characters showing and let go when they stop showing; a
 // speaker of the battle's own shows its pictures at the size the battle shows them. Lines during
@@ -23,7 +24,8 @@ internal static partial class BattleCreator
 {
     // The box, in game pixels from the screen's bottom left (dialogue_tree.txt). The bubble's
     // background is drawn a little bigger than its text, like the game's translucent one.
-    private const float LeftMiddle = 72, RightMiddle = 408, PortraitY = 54, PortraitStep = 30;
+    // PortraitSpacing is the box's characterSpacing.x: how far apart two speakers on a side stand.
+    private const float LeftMiddle = 72, RightMiddle = 408, PortraitY = 54, PortraitSpacing = 60;
     private const float BodyX = 179, BodyY = 13.5f, BodyW = 144, BodyH = 39;
     private const float NameX = 179, NameY = 55.5f, NameW = 150, NameH = 10;
     private const float BubbleX = 164, BubbleY = 8, BubbleW = 172, BubbleH = 62;
@@ -172,7 +174,10 @@ internal static partial class BattleCreator
         var notes = new List<string>();
         if (shot.Note.Length > 0) notes.Add(shot.Note);
         int used = 0;
-        foreach (var (speaker, faceName, side, slot, lit) in shot.Cast)
+        int leftCount = shot.Cast.Count(c => c.Side == DialogueSide.Left), rightCount = shot.Cast.Count - leftCount;
+        // Drawn as the game draws them: the right side over the left, and on a side the first
+        // speaker in front of the second.
+        foreach (var (speaker, faceName, side, slot, lit) in shot.Cast.OrderBy(c => c.Side == DialogueSide.Left ? 0 : 1).ThenByDescending(c => c.Slot))
         {
             var face = FaceOf(speaker, faceName);
             if (face.Sprite == null || used >= dialoguePortraits.Length)
@@ -182,10 +187,16 @@ internal static partial class BattleCreator
             }
             var image = dialoguePortraits[used++];
             if (image.sprite != face.Sprite) image.sprite = face.Sprite;
-            float middle = side == DialogueSide.Left ? LeftMiddle : RightMiddle;
-            // The first on a side stands outside, the second inside.
-            float step = (slot == 0) == (side == DialogueSide.Left) ? -PortraitStep : PortraitStep;
-            PlaceGame(image.rectTransform, middle + step + face.OffsetX, PortraitY + face.OffsetY, face.Width, face.Height, new Vector2(0.5f, 0.5f));
+            // Where the game's box puts them (DialogueStyleNormal.ShowSpeakersAsync), with its
+            // direction +1 on the left and -1 on the right: x = middle + direction * (60 * (slot -
+            // (speakers on the side - 1) / 2) - nudge x). A speaker alone stands on the middle, two
+            // stand 30 either side with the first outside, and the nudge's x counts toward the
+            // screen's edge on both sides (Karma's -30 moves her 30 toward the middle).
+            bool left = side == DialogueSide.Left;
+            float direction = left ? 1 : -1;
+            int count = left ? leftCount : rightCount;
+            float x = (left ? LeftMiddle : RightMiddle) + direction * (PortraitSpacing * (slot - (count - 1) / 2f) - face.OffsetX);
+            PlaceGame(image.rectTransform, x, PortraitY + face.OffsetY, face.Width, face.Height, new Vector2(0.5f, 0.5f));
             bool mirrored = (side == DialogueSide.Right) != face.Flip;
             image.rectTransform.localScale = new Vector3(mirrored ? -1 : 1, 1, 1);
             image.color = lit ? Color.white : new Color(0.5f, 0.5f, 0.5f, 1f);
