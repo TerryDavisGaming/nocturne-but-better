@@ -69,8 +69,9 @@ internal static partial class ChartEditor
                     ? draft.SpeakerText(id.Trim(), "name") ?? id : TidyId(id),
             };
         }
-        catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
+        catch (Exception ex)
         {
+            // The chart opens all the same, without lines.
             ModLog.Info("Chart editor: the battle's dialogue wasn't read (" + ex.Message + ").");
             return new DialogueLink();
         }
@@ -438,7 +439,8 @@ internal static partial class ChartEditor
     private static void ShowCueInCreator()
     {
         if (!CuesEditable() || dialogueLink?.ShowInCreator == null) return;
-        dialogueLink.ShowInCreator(Math.Max(0, cueIndex));
+        try { dialogueLink.ShowInCreator(Math.Max(0, cueIndex)); }
+        catch (Exception ex) { ModLog.Error("Chart editor: the battle creator couldn't show the line: " + ex); }
         RequestClose();
     }
 

@@ -81,6 +81,7 @@ internal static partial class BattleCreator
         if (dialoguePreviewFailed.Length > 0)
         {
             dialogueNote!.text = Escape($"The preview stopped ({dialoguePreviewFailed}). Open the page again to try again; the battle itself isn't affected.");
+            ReleaseUnwantedFaces();
             return;
         }
         try

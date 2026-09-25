@@ -496,11 +496,26 @@ internal static partial class BattleCreator
         bool show = p.Face != null;
         if (pickerFaceBox!.gameObject.activeSelf != show) pickerFaceBox.gameObject.SetActive(show);
         if (!show) return;
-        var face = p.Face!(p.Index);
+        Sprite? face = null;
+        string note;
+        // The picture is only a help: if it fails, the list still works.
+        try
+        {
+            face = p.Face!(p.Index);
+            note = p.FaceNote?.Invoke(p.Index) ?? "";
+        }
+        catch (Exception ex)
+        {
+            if (!reportedPickerFace) ModLog.Error("Battle creator: the picture beside the list failed: " + ex);
+            reportedPickerFace = true;
+            note = "";
+        }
         if (pickerFace!.sprite != face) pickerFace.sprite = face;
         if (pickerFace.enabled != (face != null)) pickerFace.enabled = face != null;
-        pickerFaceNote!.text = Escape(p.FaceNote?.Invoke(p.Index) ?? "");
+        pickerFaceNote!.text = Escape(note);
     }
+
+    private static bool reportedPickerFace;
 
     // Typing letters jumps to the first row that starts with them; a pause of a second starts over.
     private static void TypeJump(InputKeyboard keyboard, Picker p)

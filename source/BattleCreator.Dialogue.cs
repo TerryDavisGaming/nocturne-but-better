@@ -293,8 +293,11 @@ internal static partial class BattleCreator
             // Nothing is stamped here: the page only reads.
             dialogueRead = DialogueReader.Read(element, PackageFiles.Folder(draft.Folder), dialogueChart, dialogueSlots, new List<string>(), _ => { });
         }
-        catch (Exception ex) when (ex is JsonException or IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception ex)
         {
+            // The page reads what the arcade will; whatever goes wrong here, the page stays open.
+            if (ex is not (JsonException or IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException))
+                ModLog.Error("Battle creator: reading the dialogue for its page failed: " + ex);
             dialogueRead = new BattleDialogueData();
             dialogueRead.Problems.Add(new DialogueProblem { Text = ex.Message, Plain = $"the dialogue couldn't be read ({ex.Message})" });
         }
@@ -1131,7 +1134,7 @@ internal static partial class BattleCreator
         {
             string name = CleanName(text);
             if (name.Length == 0) throw new InvalidDataException("A speaker needs a name: it's shown in the box's name tag.");
-            if (chosenSpeaker != null && DialogueEditable()) draft!.SetSpeaker(chosenSpeaker, ("name", JsonValue.Create(name)));
+            if (HasChosenSpeaker && DialogueEditable()) draft!.SetSpeaker(chosenSpeaker!, ("name", JsonValue.Create(name)));
         },
         Refused = BoxRefused,
         RefusedText = BoxRefusedText,
@@ -1161,15 +1164,15 @@ internal static partial class BattleCreator
 
     private static void ToggleSpeakerSide()
     {
-        if (chosenSpeaker == null || !FinishTyping() || !DialogueEditable()) return;
-        draft!.SetSpeaker(chosenSpeaker, ("side", JsonValue.Create(SpeakerSide(chosenSpeaker) == DialogueSide.Left ? "right" : "left")));
+        if (!HasChosenSpeaker || !FinishTyping() || !DialogueEditable()) return;
+        draft!.SetSpeaker(chosenSpeaker!, ("side", JsonValue.Create(SpeakerSide(chosenSpeaker!) == DialogueSide.Left ? "right" : "left")));
     }
 
     private static void ToggleSpeakerMirror()
     {
-        if (chosenSpeaker == null || !FinishTyping() || !DialogueEditable()) return;
-        bool now = !draft!.SpeakerFlag(chosenSpeaker, "flip");
-        draft.SetSpeaker(chosenSpeaker, ("flip", now ? JsonValue.Create(true) : null));
+        if (!HasChosenSpeaker || !FinishTyping() || !DialogueEditable()) return;
+        bool now = !draft!.SpeakerFlag(chosenSpeaker!, "flip");
+        draft.SetSpeaker(chosenSpeaker!, ("flip", now ? JsonValue.Create(true) : null));
         if (now) Say("Mirrored. The game already turns pictures on the right to face the middle; this is for art drawn facing the other way.", 5f);
     }
 
@@ -1183,10 +1186,10 @@ internal static partial class BattleCreator
 
     private static void SetNudge(double x, double y)
     {
-        if (chosenSpeaker == null || !DialogueEditable()) return;
+        if (!HasChosenSpeaker || !DialogueEditable()) return;
         x = Math.Clamp(Math.Round(x), -DialogueReader.MaxOffset, DialogueReader.MaxOffset);
         y = Math.Clamp(Math.Round(y), -DialogueReader.MaxOffset, DialogueReader.MaxOffset);
-        draft!.SetSpeaker(chosenSpeaker, ("offset", x == 0 && y == 0 ? null : BattleDraft.ArtPairNode((x, y))));
+        draft!.SetSpeaker(chosenSpeaker!, ("offset", x == 0 && y == 0 ? null : BattleDraft.ArtPairNode((x, y))));
     }
 
     private static TextField NudgeField(string label, Func<string> get, Action<double> set, string hint)

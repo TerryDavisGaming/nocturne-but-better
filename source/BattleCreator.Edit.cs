@@ -61,7 +61,7 @@ internal static partial class BattleCreator
             Hint = i => i switch
             {
                 0 => "Saves the changes, then goes back to the list.",
-                1 => "Goes back to the list without the changes. Songs, images and art added since the last save go to the Recycle Bin.",
+                1 => "Goes back to the list without the changes. Songs, images, art and speakers' pictures added since the last save go to the Recycle Bin.",
                 _ => "Keeps editing.",
             },
             Choose = i =>
