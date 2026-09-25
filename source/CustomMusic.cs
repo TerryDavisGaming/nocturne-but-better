@@ -98,6 +98,9 @@ internal static class CustomMusic
     /// </summary>
     internal static void Hold(bool on) => held = on;
 
+    /// <summary>Whether <see cref="Hold"/> is on (for QA).</summary>
+    internal static bool Held => held;
+
     internal static void Install(HarmonyLib.Harmony harmony)
     {
         // Everything is looked up first, so a missing method installs nothing.

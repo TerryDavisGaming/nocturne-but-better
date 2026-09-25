@@ -223,6 +223,7 @@ internal static partial class BattleDialogue
         Try("letting go of the song", d.ReleaseSong);
         Try("removing its speakers", () => removed = d.RemoveSpeakers());
         ModLog.Info($"Battle dialogue: cleaned up (a block was still running: {(running ? "yes" : "no")}; speakers removed: {removed}).");
+        d.QaDump("cleaned up");
     }
 
     private static void Try(string what, Action action)
@@ -364,6 +365,7 @@ internal static partial class BattleDialogue
             if (stops > 0) ModLog.Info($"Battle dialogue: lines don't stop the song in this version, so {stops} such lines show like the others.");
             foreach (var note in notes) ModLog.Info("Battle dialogue: " + note);
             foreach (var problem in Data.Problems) NoteOnce($"{Title}: {problem.Text}");
+            QaDump("the battle starts");
         }
 
         // ---- every frame ----
@@ -396,6 +398,8 @@ internal static partial class BattleDialogue
                         ReleasePrompt();
                         phase = Phase.Song;
                         ModLog.Info($"Battle dialogue: before the fight done after {Time.unscaledTime - b.StartedAt:0.0} s; {(skipReady ? "the countdown starts" : "the ready prompt is back")}.");
+                        QaShot(QaAfterShot, skipReady ? "the countdown started" : "the ready prompt is back");
+                        QaDump("after the lines before the fight");
                     }
                     break;
                 case Phase.Song:
@@ -412,9 +416,11 @@ internal static partial class BattleDialogue
                     {
                         phase = Phase.EndFinished;
                         ModLog.Info($"Battle dialogue: {(endType == 1 ? "the lines after a loss" : "the lines after a win")} done after {Time.unscaledTime - endStartedAt:0.0} s; the battle ends.");
+                        QaDump(endType == 1 ? "after the lines after a loss" : "after the lines after a win");
                     }
                     break;
             }
+            QaUpdate();
         }
 
         // Whether the battle is still on. A battle left without its exit (the game's state out of
@@ -573,6 +579,7 @@ internal static partial class BattleDialogue
             liveShowing = up ? null : said;
             liveWaitingSince = Time.unscaledTime;
             ModLog.Info($"Battle dialogue: {DialogueReader.Clock(line.Time)} {said.Who}: shown for {liveSeconds:0.0} s.");
+            QaLiveFired(line, said, now);
             StartLive(now);
         }
 
@@ -596,6 +603,7 @@ internal static partial class BattleDialogue
             liveWaiting = null;
             liveRoutine = style.StartCoroutine(style.RunDialogue(options));
             liveHideAt = now + liveSeconds + LiveHideLag;
+            QaLiveStarted();
         }
 
         private void StopLiveRoutine()
@@ -644,6 +652,8 @@ internal static partial class BattleDialogue
             Resume();
             phase = Phase.Song;
             ModLog.Info($"Battle dialogue: the song goes on (stopped for {now - stoppedAt:0.0} s).");
+            QaShot(QaAfterShot, $"{QaAfterShot:0.0} s after the song went on");
+            QaDump("after the break");
         }
 
         private void Resume()
@@ -792,6 +802,7 @@ internal static partial class BattleDialogue
             Use(Style(narrator: false));
             if (b.Lines.Any(l => l.Narrator)) Use(Style(narrator: true));
             b.StartedAt = Time.unscaledTime;
+            QaBaseline();
             b.State = CutsceneManager.RunCutscene(new ICutscene(NewBlock(actions).Pointer), Caller, b.OnFinish, null);
             if (b.State == null && !b.Finished)
             {
@@ -804,7 +815,7 @@ internal static partial class BattleDialogue
         /// <summary>One line as the game's Dialogue action, with its name and text given as they are (no translation terms).</summary>
         private SceneAction Action(Said said, bool hideAfter)
         {
-            double? seconds = said.Line.Duration;
+            double? seconds = Seconds(said.Line);
             return new SceneAction
             {
                 action = ActionTypes.Dialogue,
