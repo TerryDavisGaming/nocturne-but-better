@@ -42,7 +42,7 @@ internal static partial class BattleCreator
 
     private static readonly (Page Page, string Name)[] Pages =
     {
-        (Page.Info, "Info"), (Page.Song, "Song"), (Page.Charts, "Charts"), (Page.Enemy, "Enemy"), (Page.Gear, "Gear"), (Page.Dialogue, "Dialogue"),
+        (Page.Info, "Info"), (Page.Song, "Song"), (Page.Charts, "Charts"), (Page.Enemy, "Enemy"), (Page.Gear, "Gear & level"), (Page.Dialogue, "Dialogue"),
     };
 
     // ---- building --------------------------------------------------------------------------------
@@ -301,7 +301,7 @@ internal static partial class BattleCreator
         AddField(p, 0, ref y, Col1W, ArtistField);
         AddField(p, 0, ref y, Col1W, AuthorField);
         AddField(p, 0, ref y, Col1W, LoreField, h: 300);
-        AddText(p, 0, ref y, Col1W, 26, () => "The lore is the text on the battle's arcade card. Shift+Enter starts a new line.", 16);
+        AddText(p, 0, ref y, Col1W, 66, LoreHint, 16);
         AddHeader(p, 0, ref y, Col1W, "Arcade preview");
         float row = y;
         AddField(p, 0, ref y, 560, PreviewField);
@@ -414,15 +414,28 @@ internal static partial class BattleCreator
             AddChoice(p, 0, ref y, Col1W, GearCatalog.LabelOf(s), () => GearText(s), () => ChooseGear(s), setMode);
         }
         AddStepper(p, 0, ref y, Col1W, () => $"How many: {draft?.ConsumableCount ?? 1}",
-            () => draft?.SetConsumableCount((draft?.ConsumableCount ?? 1) - 1), () => draft?.SetConsumableCount((draft?.ConsumableCount ?? 1) + 1),
+            () => StepConsumableCount(-1), () => StepConsumableCount(1),
             () => setMode() && draft?.GearItem(GearSlot.Consumable) != null);
         AddStepper(p, 0, ref y, Col1W, () => draft?.ExtraHealth is int n ? $"Health upgrades: {n}" : "Health upgrades: the player's own",
             () => StepExtraHealth(-1), () => StepExtraHealth(1), setMode);
         AddToggle(p, 0, ref y, Col1W, () => $"Show test items: {(showTestItems ? "on" : "off")}", () => showTestItems, () => showTestItems = !showTestItems, setMode);
 
+        // The level, then how both work and what players will see (worked out in RefreshGear).
         float y2 = 0;
-        AddHeader(p, Col2, ref y2, Col2W, "How gear works");
-        AddText(p, Col2, ref y2, Col2W, 480, GearHelpText, 18);
+        AddHeader(p, Col2, ref y2, Col2W, "The player's level in this battle");
+        float levelRow = y2;
+        var ownLevel = AddButton(p, Col2, levelRow, Col2W / 2 - 6, RowH, "Player's own level", () => SetLevelMode(false));
+        ownLevel.Active = () => !(draft?.SetLevel ?? false);
+        var setLevel = AddButton(p, Col2 + Col2W / 2 + 6, levelRow, Col2W / 2 - 6, RowH, "Set level for this battle", () => SetLevelMode(true));
+        setLevel.Active = () => draft?.SetLevel ?? false;
+        y2 -= RowStep + 8;
+        Func<bool> levelMode = () => draft?.SetLevel ?? false;
+        AddStepper(p, Col2, ref y2, Col2W, () => $"Level: {draft?.LevelValue ?? 1}", () => StepLevel(-1), () => StepLevel(1), levelMode);
+        AddText(p, Col2, ref y2, Col2W, 26, () => levelGains, 16, levelMode);
+        AddHeader(p, Col2, ref y2, Col2W, "How gear and level work");
+        AddText(p, Col2, ref y2, Col2W, 300, GearHelpText, 16);
+        AddHeader(p, Col2, ref y2, Col2W, "Players see in the arcade");
+        AddText(p, Col2, ref y2, Col2W, 210, () => noticePreview, 16);
     }
 
     private static void BuildDialoguePage()
@@ -443,7 +456,8 @@ internal static partial class BattleCreator
         focus = -1;
         foreach (var (p, panel) in pagePanels) panel.gameObject.SetActive(p == page);
         if (page == Page.Charts) RefreshBattleInfo();
-        if (page == Page.Gear) RefreshGear();
+        // The Info page's lore hint depends on the gear and level too.
+        if (page == Page.Gear || page == Page.Info) RefreshGear();
     }
 
     /// <summary>The buttons the keyboard can reach now, in order: the page's own that are showing, then the bottom bar's.</summary>
@@ -545,21 +559,35 @@ internal static partial class BattleCreator
         return EnemyChoices.IsAdvanced(draft.Placeholder) ? "Advanced bosses are built around scripted fights and may not play well here." : "";
     }
 
+    // What the battle sets comes first in the arcade's box, so it leaves less room for the lore (loreRoom, from RefreshGear).
+    private static string LoreHint() =>
+        "The lore shows in the box on the right of the arcade when the battle is selected, under what the battle sets. " +
+        (loreRoom >= BattleNotice.BoxLines ? "Keep it short: about 5 lines fit."
+            : loreRoom > 0 ? $"What this battle sets takes part of the box, so about {loreRoom} line{(loreRoom == 1 ? "" : "s")} of lore fit (see the Gear & level page)."
+            : "What this battle sets fills the box, so the lore doesn't show there (see the Gear & level page).") +
+        " Shift+Enter starts a new line.";
+
     private static string GearHelpText()
     {
         var lines = new List<string>
         {
             "<color=#EAE6F5>Player's own gear:</color> the player fights with what they have on.",
-            "",
-            "<color=#EAE6F5>Set gear:</color> the player gets exactly these items for this battle. Set gear is only for this battle; your own gear comes back after it.",
-            "",
-            "The game allows one consumable use per battle.",
+            "<color=#EAE6F5>Set gear:</color> the player gets exactly these items for this battle. Their own gear comes back after it.",
+            "<color=#EAE6F5>Player's own level:</color> the player fights at the level they have reached.",
+            "<color=#EAE6F5>Set level:</color> the player is this level for this battle only. Their own level comes back after it; nothing is saved and no XP is earned.",
+            "Level changes Strength, Regen and Critical. Gear that sets a stat outright (like the Pool Noodle) wins over the level.",
+            "The game allows one consumable use per battle. Battles that set gear or level don't count towards achievements.",
         };
-        if (draft?.SetGear == true)
+        bool gear = draft?.SetGear == true, level = draft?.SetLevel == true;
+        if (gear)
         {
-            if (!gearListed) lines.Add("\n<color=#F2B02E>The game's items aren't loaded yet, so they can't be listed now. Try again after loading a save.</color>");
-            foreach (var unknown in gearUnknown) lines.Add($"\n<color=#F2B02E>{unknown}</color>");
+            if (!gearListed) lines.Add("<color=#F2B02E>The game's items aren't loaded yet, so they can't be listed now. Try again after loading a save.</color>");
+            foreach (var unknown in gearUnknown) lines.Add($"<color=#F2B02E>{unknown}</color>");
         }
+        if (level && !(BattleGear.Installed && BattleGear.LevelAvailable))
+            lines.Add("<color=#F2B02E>Setting the level isn't available: a game hook couldn't be installed (see the log).</color>");
+        if ((gear || level) && !(BattleNoticeArcade.BoxInstalled && BattleNoticeArcade.BadgeInstalled))
+            lines.Add("<color=#F2B02E>The arcade can't show what a battle sets: a game hook couldn't be installed (see the log).</color>");
         return string.Join("\n", lines);
     }
 

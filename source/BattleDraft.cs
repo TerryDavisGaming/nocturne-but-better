@@ -41,6 +41,9 @@ internal sealed class BattleDraft
     private bool enemyAttached, enemyChanged;
     private GearDefinition gear;
     private GearDefinition? lastSetGear;
+    private LevelDefinition level;
+    // The set level while the player's own is picked, so picking "set" again brings it back.
+    private int? lastSetLevel;
     // The battle's own info boxes while they are switched off, so switching them on again brings them back.
     private JsonArray? lastInfo;
     private string audioAtLoad;
@@ -70,6 +73,8 @@ internal sealed class BattleDraft
         this.enemyAttached = enemyAttached;
         EnemyLocked = enemyLocked;
         gear = ReadGear(root["gear"], Problems);
+        // The loader's own reader, so the creator shows a level (and its problems) exactly as the arcade will use it.
+        level = LevelDefinition.Read(JsonSerializer.Deserialize<JsonElement>(root["level"]?.ToJsonString() ?? "null"), Problems);
         audioAtLoad = Audio;
     }
 
@@ -236,7 +241,7 @@ internal sealed class BattleDraft
     internal string Artist { get => GetString(root, "artist"); set => SetString(root, "artist", CleanLine(value)); }
     internal string Author { get => GetString(root, "author"); set => SetString(root, "author", CleanLine(value)); }
 
-    /// <summary>The text on the battle's arcade card; several lines are fine.</summary>
+    /// <summary>The text in the arcade's box on the right when the battle is selected; several lines are fine.</summary>
     internal string Lore
     {
         get => GetString(root, "lore");
@@ -511,6 +516,9 @@ internal sealed class BattleDraft
     /// <summary>Whether the battle sets the player's gear (true) or the player uses their own (false).</summary>
     internal bool SetGear => gear.IsSet;
 
+    /// <summary>The gear as battle.json has it now, for reading; the methods below change it.</summary>
+    internal GearDefinition Gear => gear;
+
     /// <summary>The item id in a slot of the set gear, or null when the slot is empty.</summary>
     internal string? GearItem(GearSlot slot) => gear.IsSet ? gear.ItemFor(slot) : null;
 
@@ -576,6 +584,53 @@ internal sealed class BattleDraft
     {
         root["gear"] = gear.IsSet
             ? JsonSerializer.SerializeToNode(gear, WriteOptions)
+            : new JsonObject(NodeOptions) { ["mode"] = "player" };
+        changes++;
+    }
+
+    // ---- level -----------------------------------------------------------------------------------------
+
+    /// <summary>Whether the battle sets the player's level (true) or the player plays at their own (false).</summary>
+    internal bool SetLevel => level.IsSet;
+
+    /// <summary>The level the battle sets (1 to 20); when it doesn't, the one it would set.</summary>
+    internal int LevelValue => level.value is int n && level.IsSet
+        ? Math.Clamp(n, LevelDefinition.MinLevel, LevelDefinition.MaxLevel)
+        : lastSetLevel ?? LevelDefinition.MinLevel;
+
+    /// <summary>
+    /// "Set level for this battle" (true) or "Player's own level" (false). Setting it starts at the
+    /// level picked before, else at <paramref name="suggested"/> (the player's own level, say).
+    /// Going back to the player's own writes {"mode": "player"} and nothing else.
+    /// </summary>
+    internal void SetLevelMode(bool set, int suggested)
+    {
+        // Nothing changes, nothing is written; a level that couldn't be read is written over.
+        if (set == level.IsSet && root["level"] != null && (set || level.IsPlayer)) return;
+        if (set) level = new LevelDefinition { mode = "set", value = lastSetLevel ?? ClampLevel(suggested) };
+        else
+        {
+            if (level.IsSet) lastSetLevel = LevelValue;
+            level = new LevelDefinition { mode = "player" };
+        }
+        WriteLevel();
+    }
+
+    /// <summary>Sets the battle's level (kept between 1 and 20), and sets "set" mode if it's off.</summary>
+    internal void SetLevelValue(int value)
+    {
+        value = ClampLevel(value);
+        if (level.IsSet && level.value == value) return;
+        level = new LevelDefinition { mode = "set", value = value };
+        WriteLevel();
+    }
+
+    private static int ClampLevel(int value) => Math.Clamp(value, LevelDefinition.MinLevel, LevelDefinition.MaxLevel);
+
+    private void WriteLevel()
+    {
+        root["level"] = level.IsSet
+            ? new JsonObject(NodeOptions) { ["mode"] = "set", ["value"] = level.value!.Value }
             : new JsonObject(NodeOptions) { ["mode"] = "player" };
         changes++;
     }

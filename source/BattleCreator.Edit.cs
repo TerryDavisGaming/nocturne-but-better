@@ -8,7 +8,7 @@ using Key = UnityEngine.InputSystem.Key;
 
 namespace NocturneFlatScroll;
 
-// Editing a battle: its text fields, the song, card, enemy and gear pickers, and the file
+// Editing a battle: its text fields, the song, card, enemy, gear and level pickers, and the file
 // actions (new, import, save, export, delete). Changes live in the BattleDraft until Save.
 internal static partial class BattleCreator
 {
@@ -307,7 +307,7 @@ internal static partial class BattleCreator
         MultiLine = true,
         Get = () => draft?.Lore ?? "",
         Set = text => draft!.Lore = text,
-        Empty = () => "(none: the card says who made the song and the charts)",
+        Empty = () => "(none: the arcade says who made the song and the charts)",
     };
 
     private static readonly TextField PreviewField = new()
@@ -798,26 +798,78 @@ internal static partial class BattleCreator
     {
         gearNames.Clear();
         gearUnknown.Clear();
-        if (draft == null || !draft.SetGear) return;
-        gearListed = GearCatalog.All.Count > 0;
-        foreach (var slot in GearSlots)
+        if (draft != null && draft.SetGear)
         {
-            string? id = draft.GearItem(slot);
-            if (id == null) continue;
-            var item = gearListed ? GearCatalog.Find(id) : null;
-            if (item != null) gearNames[slot] = EditorUi.Escape(item.Name);
-            else if (!gearListed) gearNames[slot] = EditorUi.Escape(id);
-            else
+            gearListed = GearCatalog.All.Count > 0;
+            foreach (var slot in GearSlots)
             {
-                gearNames[slot] = $"<color=#F2B02E>unknown item {EditorUi.Escape(id)}</color>";
-                gearUnknown.Add($"{GearCatalog.LabelOf(slot)}: the game has no item \"{EditorUi.Escape(id)}\", so the battle leaves that slot empty.");
+                string? id = draft.GearItem(slot);
+                if (id == null) continue;
+                var item = gearListed ? GearCatalog.Find(id) : null;
+                if (item != null) gearNames[slot] = EditorUi.Escape(item.Name);
+                else if (!gearListed) gearNames[slot] = EditorUi.Escape(id);
+                else
+                {
+                    gearNames[slot] = $"<color=#F2B02E>unknown item {EditorUi.Escape(id)}</color>";
+                    gearUnknown.Add($"{GearCatalog.LabelOf(slot)}: the game has no item \"{EditorUi.Escape(id)}\", so the battle leaves that slot empty.");
+                }
             }
         }
+        RefreshLevel();
     }
 
     private static void SetGearMode(bool set)
     {
         draft?.SetGearMode(set);
+        RefreshGear();
+    }
+
+    // ---- level ------------------------------------------------------------------------------------------
+
+    // The set level's stat gains and what the arcade will show, worked out with the gear (RefreshGear);
+    // and about how many lines of the arcade's box are left for the lore (the Info page's hint).
+    private static string levelGains = "", noticePreview = "";
+    private static int loreRoom = BattleNotice.BoxLines;
+
+    private static void RefreshLevel()
+    {
+        levelGains = "";
+        noticePreview = "";
+        loreRoom = BattleNotice.BoxLines;
+        if (draft == null) return;
+        try
+        {
+            if (draft.SetLevel)
+            {
+                int level = BattleGear.EffectiveLevel(draft.LevelValue) ?? draft.LevelValue;
+                var gains = BattleGear.LevelGains(level);
+                levelGains = gains is not { } g ? ""
+                    : level <= 1 ? "Level 1 is where every player starts: no stat gains from levels."
+                    : $"Compared with level 1: Strength +{g.Strength}, Regen +{g.Regen}, Critical +{g.Critical}.";
+            }
+            // What the arcade's box and the card will say, from the same text as the arcade's.
+            var input = BattleNoticeArcade.InputFor(draft);
+            string box = BattleNotice.Box(input, text => BattleNotice.FitsLines(text)) ?? "<color=#9D92B4>(nothing: the box stays hidden)</color>";
+            noticePreview = $"{box}\n\n<color=#9D92B4>On the battle's card:</color> {BattleNotice.Badge(input) ?? "no tag"}";
+            loreRoom = BattleNotice.LoreRoom(input);
+        }
+        catch (Exception ex) { ModLog.Error("Battle creator: working out the level page failed: " + ex); }
+    }
+
+    private static void SetLevelMode(bool set)
+    {
+        // "Set" starts at the player's own level when a save is loaded.
+        draft?.SetLevelMode(set, BattleGear.PlayerLevel() ?? LevelDefinition.MinLevel);
+        RefreshGear();
+    }
+
+    private static void StepLevel(int direction)
+    {
+        if (draft == null) return;
+        int max = Math.Min(LevelDefinition.MaxLevel, BattleGear.GameMaxLevel() ?? LevelDefinition.MaxLevel);
+        int next = Math.Clamp(draft.LevelValue + direction, LevelDefinition.MinLevel, max);
+        if (next == draft.LevelValue && draft.SetLevel) return;
+        draft.SetLevelValue(next);
         RefreshGear();
     }
 
@@ -855,6 +907,14 @@ internal static partial class BattleCreator
         return (text.Length > 0 ? text + "  " : "") + $"(id {item.Id})";
     }
 
+    // The steppers change what the arcade shows ("Potion x3", "Health upgrades: 0."), so the preview is worked out again.
+    private static void StepConsumableCount(int direction)
+    {
+        if (draft == null) return;
+        draft.SetConsumableCount(draft.ConsumableCount + direction);
+        RefreshGear();
+    }
+
     private static void StepExtraHealth(int direction)
     {
         if (draft == null) return;
@@ -862,5 +922,6 @@ internal static partial class BattleCreator
         if (direction < 0) count = count is null or 0 ? null : count - 1;
         else count = count is int n ? Math.Min(MaxExtraHealth, n + 1) : 0;
         draft.SetExtraHealth(count);
+        RefreshGear();
     }
 }

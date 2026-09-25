@@ -135,6 +135,8 @@ internal sealed class BattleManifest
     public string? dialogue { get; set; }
     // The player's gear in this battle; missing means the player's own.
     public JsonElement gear { get; set; }
+    // The player's level in this battle; missing means the player's own.
+    public JsonElement level { get; set; }
 }
 
 /// <summary>
@@ -222,6 +224,85 @@ internal sealed class GearConsumable
     public int? count { get; set; }
 }
 
+/// <summary>
+/// battle.json's "level". Mode "player" (the default) fights at the player's own level. Mode "set"
+/// fights at "value" for this battle only; the player's own level is back afterwards, and nothing
+/// of the player's is saved or changed. A bare number ("level": 12) is short for "set". Level
+/// changes the player's Strength, Regen and Critical, and nothing else.
+/// </summary>
+internal sealed class LevelDefinition
+{
+    /// <summary>The game's levels in 1.0.1. A battle also keeps the level within the game's own table.</summary>
+    internal const int MinLevel = 1, MaxLevel = 20;
+
+    public string? mode { get; set; }
+    public int? value { get; set; }
+
+    internal bool IsSet => "set".Equals(mode?.Trim(), StringComparison.OrdinalIgnoreCase) && value != null;
+    internal bool IsPlayer => "player".Equals(mode?.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The battle's level, or null for the player's own.</summary>
+    internal int? Level => IsSet ? value : null;
+
+    /// <summary>
+    /// Reads "level" the way the loader and the battle creator both read it. Anything unclear is
+    /// noted in <paramref name="problems"/> and means the player's own level: a level the battle's
+    /// maker didn't clearly choose is never used.
+    /// </summary>
+    internal static LevelDefinition Read(JsonElement level, List<string> problems)
+    {
+        try
+        {
+            switch (level.ValueKind)
+            {
+                case JsonValueKind.Undefined:
+                case JsonValueKind.Null:
+                    return new LevelDefinition();
+                case JsonValueKind.Number:
+                    // "level": 12, short for {"mode": "set", "value": 12}.
+                    if (!level.TryGetDouble(out double number) || number != Math.Floor(number))
+                        throw new InvalidDataException($"\"level\" must be a whole number, not {level.GetRawText()}");
+                    return Kept(new LevelDefinition { mode = "set" }, number, problems);
+                case JsonValueKind.Object:
+                    break;
+                default:
+                    throw new InvalidDataException($"\"level\" must be a number or an object, not {level.GetRawText()}");
+            }
+            var read = level.Deserialize<LevelDefinition>(BattlePackage.JsonOptions) ?? new LevelDefinition();
+            string mode = read.mode?.Trim() ?? "";
+            if (mode.Length == 0)
+            {
+                if (read.value != null) problems.Add("\"level\" has a \"value\" but no \"mode\": \"set\"; the player plays at their own level");
+                return new LevelDefinition();
+            }
+            if (read.IsPlayer) return read;
+            if (!mode.Equals("set", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException($"\"mode\" must be \"player\" or \"set\", not \"{mode}\"");
+            if (read.value is not int value)
+            {
+                problems.Add("\"level\" is set but has no \"value\"; the player plays at their own level");
+                return new LevelDefinition();
+            }
+            return Kept(read, value, problems);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidDataException or InvalidOperationException)
+        {
+            problems.Add($"the level couldn't be read ({ex.Message}); the player plays at their own level");
+            return new LevelDefinition();
+        }
+    }
+
+    // A level out of range is kept in range; it was clearly meant as a set level.
+    private static LevelDefinition Kept(LevelDefinition read, double wanted, List<string> problems)
+    {
+        int kept = (int)Math.Clamp(wanted, MinLevel, MaxLevel);
+        if (kept != wanted)
+            problems.Add($"\"level\" is {wanted.ToString(CultureInfo.InvariantCulture)}; it is kept between {MinLevel} and {MaxLevel}");
+        read.value = kept;
+        return read;
+    }
+}
+
 /// <summary>Which game enemies can stand in for a custom battle's enemy.</summary>
 internal static class EnemyPlaceholders
 {
@@ -304,6 +385,8 @@ internal sealed class BattlePackage
     internal EnemyDefinition Enemy = new();
     /// <summary>The player's gear in this battle ("player" mode unless battle.json sets it).</summary>
     internal GearDefinition Gear = new();
+    /// <summary>The player's level in this battle ("player" mode unless battle.json sets it).</summary>
+    internal LevelDefinition Level = new();
     /// <summary>The EnemyData asset to clone, after the checks.</summary>
     internal string EnemyPlaceholder = EnemyPlaceholders.Default;
 
@@ -419,6 +502,7 @@ internal sealed class BattlePackage
             song.Problems.Add($"the enemy has {song.Enemy.info.Count} info boxes; the first {EnemyPlaceholders.MaxInfoBoxes} show");
 
         song.Gear = ReadGear(manifest.gear, song.Problems);
+        song.Level = LevelDefinition.Read(manifest.level, song.Problems);
 
         song.Fingerprint = string.Join("|", stamps);
         return song;
