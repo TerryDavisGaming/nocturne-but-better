@@ -268,6 +268,24 @@ internal sealed class BattleDraft
         }
     }
 
+    /// <summary>How the card's picture fills the arcade card's square, read the way the loader reads it (CardLayout); its problems go in <paramref name="problems"/>.</summary>
+    internal CardLayout.Look CardLook(List<string>? problems = null) =>
+        CardLayout.Read(Element(root[CardLayout.FitKey]), Element(root[CardLayout.FocusKey]), Element(root[CardLayout.SmoothKey]), problems);
+
+    /// <summary>Sets or (with null) removes one of the card's keys ("cardFit", "cardFocus", "cardSmooth").</summary>
+    internal void SetCardKey(string key, JsonNode? value)
+    {
+        if (value == null) { Remove(root, key); return; }
+        if (root[key]?.ToJsonString() == value.ToJsonString()) return;
+        root[key] = value;
+        changes++;
+    }
+
+    /// <summary>Whether battle.json has one of the card's keys (an explicit "fit" is kept for a new picture).</summary>
+    internal bool HasCardKey(string key) => root[key] != null;
+
+    private static JsonElement Element(JsonNode? node) => node == null ? default : JsonSerializer.Deserialize<JsonElement>(node.ToJsonString());
+
     /// <summary>The song file battle.json names, as a path inside the battle; empty when it names none.</summary>
     internal string Audio { get => GetString(root, "audio").Trim(); set => SetString(root, "audio", value.Trim()); }
 

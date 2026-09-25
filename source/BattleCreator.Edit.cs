@@ -131,6 +131,7 @@ internal static partial class BattleCreator
             else if (!HandleEditKeys(keyboard)) return;
         }
         if (page == Page.Art) UpdateArtPage(Live && !Busy ? clicks : null);
+        if (page == Page.Info) UpdateCardPage(Live && !Busy ? clicks : null);
         DrawEdit();
     }
 
@@ -284,6 +285,8 @@ internal static partial class BattleCreator
             if (BattleDraft.CleanLine(text).Length == 0) throw new InvalidDataException("A battle needs a title.");
             draft!.Title = text;
         },
+        // How much of it the arcade card shows (BattleCreator.Card.cs).
+        Measure = TitleCardMeasure,
     };
 
     private static readonly TextField ArtistField = new()
@@ -753,8 +756,7 @@ internal static partial class BattleCreator
             var (card, copied) = BattleFiles.AddFile(d.Folder, path, "images", BattlePackage.MaxImageBytes);
             if (copied) touched.Add(card);
             if (d.Card != null && !d.Card.Equals(card, StringComparison.OrdinalIgnoreCase)) touched.Add(d.Card);
-            d.Card = card;
-            LoadCardPreview();
+            SetCardPicture(d, card);
             ModLog.Info($"Battle creator: card image {card} for {d.Folder} (from {path}).");
             Say("Card image set. Save to keep it.", 4f);
         });
@@ -764,8 +766,7 @@ internal static partial class BattleCreator
     {
         if (draft?.Card == null) return;
         touched.Add(draft.Card);
-        draft.Card = null;
-        LoadCardPreview();
+        SetCardPicture(draft, null);
         Say("Card image removed. Save to keep it that way.", 4f);
     }
 
@@ -878,6 +879,7 @@ internal static partial class BattleCreator
     {
         levelGains = "";
         noticePreview = "";
+        cardTag = null;
         loreRoom = BattleNotice.BoxLines;
         if (draft == null) return;
         try
@@ -896,7 +898,8 @@ internal static partial class BattleCreator
             string shown = box == null ? "<color=#9D92B4>(nothing: the box stays hidden)</color>"
                 : size < BattleNotice.BoxFontSize ? box + "\n<color=#9D92B4>(in smaller text, so it all fits)</color>"
                 : box;
-            noticePreview = $"{shown}\n\n<color=#9D92B4>On the battle's card:</color> {BattleNotice.Badge(input) ?? "no tag"}";
+            cardTag = BattleNotice.Badge(input);
+            noticePreview = $"{shown}\n\n<color=#9D92B4>On the battle's card:</color> {cardTag ?? "no tag"}";
             loreRoom = BattleNotice.LoreRoom(input);
         }
         catch (Exception ex) { ModLog.Error("Battle creator: working out the level page failed: " + ex); }
