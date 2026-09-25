@@ -23,9 +23,11 @@ internal static partial class EnemyArt
     private const float CollectSeconds = 5f;
     /// <summary>
     /// How much longer a battle's first fight waits for its idle video to be prepared once the rest
-    /// is loaded. Short: the video player may need the frames the wait holds up to get ready.
+    /// is loaded. None: the video player doesn't get ready while the wait holds up the frames (seen in
+    /// QA: still not ready after 0.5 s, then ready about 0.6 s into the fight), so waiting only freezes
+    /// the start. The arcade starts loading when a card is highlighted instead.
     /// </summary>
-    private const float IdleVideoWait = 0.5f;
+    private const float IdleVideoWait = 0f;
     /// <summary>How long a video may take to get ready, in frames after a fight's start.</summary>
     private const float PrepareSeconds = 8f;
     /// <summary>A warm start nobody fights is let go after this long.</summary>
@@ -570,6 +572,7 @@ internal static partial class EnemyArt
         if (!installed) return;
         try
         {
+            WarmHighlighted();
             // One step a frame, so a battle's transition doesn't hitch.
             Pump(1);
             var set = current;
