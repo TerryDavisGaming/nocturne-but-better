@@ -299,6 +299,8 @@ internal static partial class BattleCreator
         float y = 0;
         AddHeader(p, 0, ref y, Col1W, "About the battle");
         AddField(p, 0, ref y, Col1W, TitleField);
+        // How much of the title the arcade card shows (BattleCreator.Card.cs).
+        AddText(p, 0, ref y, Col1W, 20, TitleCardText, 16);
         AddField(p, 0, ref y, Col1W, ArtistField);
         AddField(p, 0, ref y, Col1W, AuthorField);
         AddField(p, 0, ref y, Col1W, LoreField, h: 300);
@@ -311,20 +313,8 @@ internal static partial class BattleCreator
         play.Active = () => preview != null;
         AddText(p, 0, ref y, Col1W, 26, () => "Where the arcade's preview of the song starts, in seconds.", 16);
 
-        float y2 = 0;
-        AddHeader(p, Col2, ref y2, Col2W, "Card image");
-        var box = MakeImage("CardBox", pagePanels[p], PanelColor).rectTransform;
-        PlaceTop(box, Col2, y2, 380, 380);
-        cardImage = MakeImage("Card", box, Color.white);
-        Stretch(cardImage.rectTransform, 10, 10, 10, 10);
-        cardImage.preserveAspect = true;
-        cardImage.gameObject.SetActive(false);
-        y2 -= 392;
-        float buttons = y2;
-        AddButton(p, Col2, buttons, 250, RowH, "Choose image...", ChooseCard);
-        AddButton(p, Col2 + 262, buttons, 118, RowH, "Remove", RemoveCard, () => draft?.Card != null);
-        y2 -= RowStep;
-        AddText(p, Col2, ref y2, Col2W, 90, () => Escape(cardState), 17);
+        // The arcade card and its picture (BattleCreator.Card.cs).
+        BuildCardSection(p);
     }
 
     private static void BuildSongPage()
@@ -622,51 +612,5 @@ internal static partial class BattleCreator
         if ((gear || level) && !(BattleNoticeArcade.BoxInstalled && BattleNoticeArcade.BadgeInstalled))
             lines.Add("<color=#F2B02E>The arcade can't show what a battle sets: a game hook couldn't be installed (see the log).</color>");
         return string.Join("\n", lines);
-    }
-
-    // ---- the card image preview -------------------------------------------------------------------------
-
-    private static Texture2D? cardTexture;
-    private static Sprite? cardSprite;
-    private static string cardState = "";
-
-    private static void LoadCardPreview()
-    {
-        ClearCardPreview();
-        string? card = draft?.Card;
-        if (draft == null || card == null) { cardState = "No card image: the arcade shows a plain card."; return; }
-        string? name = PackageFiles.SafeName(card);
-        string path = name == null ? "" : Path.Combine(draft.Folder, name.Replace('/', Path.DirectorySeparatorChar));
-        if (name == null || !File.Exists(path)) { cardState = $"{card} is missing."; return; }
-        try
-        {
-            var info = new FileInfo(path);
-            if (info.Length > BattlePackage.MaxImageBytes) { cardState = $"{card} is too big (at most {BattlePackage.MaxImageBytes / (1024 * 1024)} MB)."; return; }
-            // At the image's own size (the preview says it), and refused as the arcade refuses it.
-            var texture = CustomBattles.CardImages.Decode(File.ReadAllBytes(path), "NocturneButBetter/creator/card", 0, out _, out string? why);
-            if (texture == null) { cardState = $"{card}\nIt {why}, so the arcade shows a plain card."; return; }
-            cardTexture = texture;
-            cardSprite = CustomBattles.CardImages.ToSprite(texture);
-            cardImage!.sprite = cardSprite;
-            cardImage.gameObject.SetActive(true);
-            cardState = $"{card}\n{texture.width} x {texture.height}";
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            cardState = $"{card} couldn't be read: {ex.Message}";
-        }
-    }
-
-    private static void ClearCardPreview()
-    {
-        if (cardImage)
-        {
-            cardImage!.sprite = null;
-            cardImage.gameObject.SetActive(false);
-        }
-        if (cardSprite != null && cardSprite) Object.Destroy(cardSprite);
-        if (cardTexture != null && cardTexture) Object.Destroy(cardTexture);
-        cardSprite = null;
-        cardTexture = null;
     }
 }
