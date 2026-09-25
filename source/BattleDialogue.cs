@@ -15,7 +15,8 @@ namespace NocturneFlatScroll;
 /// by itself. Nothing reaches the save: every cutscene is repeatable (the game marks one that isn't
 /// as seen when it ends), it holds only Dialogue actions, and the battle's own speakers live in
 /// memory until the battle ends. Any failure drops the battle's dialogue, never the battle.
-/// The speakers and their pictures are in BattleDialogue.Speakers.cs.
+/// The speakers and their pictures are in BattleDialogue.Speakers.cs, and the live lines'
+/// see-through box in BattleDialogue.LiveBox.cs.
 /// </summary>
 internal static partial class BattleDialogue
 {
@@ -378,6 +379,7 @@ internal static partial class BattleDialogue
         internal void Update()
         {
             if (!Watch()) return;
+            UpdateSeeThrough();
             PumpBlock();
             switch (phase)
             {
@@ -762,6 +764,8 @@ internal static partial class BattleDialogue
             if (b.Step == 0)
             {
                 if (!waited && Moving()) return;
+                // The block's lines show in the game's opaque box.
+                EndSeeThrough("a block takes the box");
                 b.Step = 1;
                 b.StepAt = now;
                 if (ShowCast(b)) return;
@@ -879,6 +883,7 @@ internal static partial class BattleDialogue
         internal void StopAll()
         {
             BubbleStyle = IntPtr.Zero;
+            EndSeeThrough(null);
             var b = Current;
             if (b is { Finished: false, State: not null })
             {

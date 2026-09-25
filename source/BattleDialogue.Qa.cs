@@ -10,7 +10,10 @@ namespace NocturneFlatScroll;
 /// song goes on), for the screenshot helper of qa/Dialogue-Shots.ps1; "Battle dialogue: WAITING-KEY
 /// &lt;section&gt; &lt;n&gt;" once a line that waits for a key has finished typing, for the helper that
 /// presses Enter; and "Battle dialogue QA:" lines with the director's state at the battle's start,
-/// after each block of lines and at the cleanup, and each live line's time against the song's.
+/// after each block of lines, at the cleanup, with each live line's picture ("while a live line
+/// shows") and when its see-through box has its own alpha back ("the live box is back", "a block
+/// takes the box"), and each live line's time against the song's. Each state has the boxes'
+/// background alpha ("live box alpha normal 0.72, narrator 1.00").
 /// With NFS_QA_DIALOGUE=auto, every line that waits for a key goes on by itself after 2.5 s
 /// instead, for hands-free runs (not the real key path). Nothing else changes.
 /// </summary>
@@ -37,8 +40,9 @@ internal static partial class BattleDialogue
 
     private sealed partial class Director
     {
-        // Pictures to log: when, what, and the block whose line it is (skipped once that block is over).
-        private readonly List<(float At, string What, Block? Of)> qaShots = new();
+        // Pictures to log: when, what, the block whose line it is (skipped once that block is over),
+        // and the state dump to log with it, if one.
+        private readonly List<(float At, string What, Block? Of, string? Dump)> qaShots = new();
         // The running block's lines, followed through the box's text: the one typing now, whether
         // it has been said to wait for its key, and the text's typing count and when it last moved.
         private Block? qaBlock;
@@ -49,9 +53,9 @@ internal static partial class BattleDialogue
         private readonly Dictionary<IntPtr, (int Visible, string Text)> qaSeen = new();
         private string? qaLive;
 
-        private void QaShot(float delay, string what, Block? of = null)
+        private void QaShot(float delay, string what, Block? of = null, string? dump = null)
         {
-            if (QaOn) qaShots.Add((Time.unscaledTime + delay, what, of));
+            if (QaOn) qaShots.Add((Time.unscaledTime + delay, what, of, dump));
         }
 
         /// <summary>Every frame: the pictures that are due, and the running block's lines.</summary>
@@ -70,7 +74,9 @@ internal static partial class BattleDialogue
                         continue;
                     }
                     qaShots.RemoveAt(i);
-                    if (shot.Of == null || (Current == shot.Of && !shot.Of.Finished)) ModLog.Info($"Battle dialogue: SHOT-{++qaShot:00} {shot.What}.");
+                    if (shot.Of != null && (Current != shot.Of || shot.Of.Finished)) continue;
+                    ModLog.Info($"Battle dialogue: SHOT-{++qaShot:00} {shot.What}.");
+                    if (shot.Dump != null) QaDump(shot.Dump);
                 }
                 QaFollow(now);
             }
@@ -166,7 +172,8 @@ internal static partial class BattleDialogue
 
         private void QaLiveStarted()
         {
-            if (qaLive != null) QaShot(QaTypedShot, qaLive);
+            // With a state dump, for the see-through box's alpha while the line shows.
+            if (qaLive != null) QaShot(QaTypedShot, qaLive, dump: "while a live line shows");
             qaLive = null;
         }
 
@@ -192,6 +199,8 @@ internal static partial class BattleDialogue
                 return $"\"{Caller}\" {scenes.HasViewedScene(Caller)}, \"Arcade\" {scenes.HasViewedScene("Arcade")}";
             });
             Qa(sb, "conductor paused", () => conductor ? conductor.Paused.ToString() : "gone");
+            // The boxes' background alpha: LiveBoxAlpha of the game's while a live line shows, the game's own otherwise.
+            Qa(sb, "live box alpha", () => $"normal {BoxAlphaText(Style(narrator: false))}, narrator {BoxAlphaText(Style(narrator: true))}");
             sb.Append($"; music held {CustomMusic.Held}; box raised {BubbleStyle != IntPtr.Zero}; pause menu off {GatesPause}.");
             ModLog.Info(sb.ToString());
         }

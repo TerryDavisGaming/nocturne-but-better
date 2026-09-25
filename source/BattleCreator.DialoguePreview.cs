@@ -17,7 +17,8 @@ namespace NocturneFlatScroll;
 // (PortraitManager), loaded only for the characters showing and let go when they stop showing; a
 // speaker of the battle's own shows its pictures at the size the battle shows them. Lines during
 // the song show over a faint note field, with the box where the battle puts it. Play runs the
-// section from the chosen line with the box's typing.
+// section from the chosen line with the box's typing. A live line's box is see-through, as in the
+// battle (BattleDialogue.LiveBoxAlpha).
 internal static partial class BattleCreator
 {
     // The box, in game pixels from the screen's bottom left (dialogue_tree.txt). The bubble's
@@ -35,6 +36,8 @@ internal static partial class BattleCreator
     // The box types 40 letters a second.
     private const float TypingSpeed = 40;
     private const float LaneW = 22, ReceptorsDown = 40, ReceptorsUp = 230;
+    // The box's background (a live line's at BattleDialogue.LiveBoxAlpha of this).
+    private static readonly Color BubbleColor = Hex(0x1C1827, 0.9f);
 
     private static RectTransform? dialogueBox;
     private static Image? dialogueBubble, dialogueReceptors;
@@ -60,7 +63,7 @@ internal static partial class BattleCreator
         for (int i = 0; i < 5; i++) dialogueLanes.Add(MakeImage("Lane", dialogueBox, Hex(0x9D92B4, 0.07f)));
         dialogueReceptors = MakeImage("Receptors", dialogueBox, Hex(0xEAE6F5, 0.3f));
         for (int i = 0; i < dialoguePortraits.Length; i++) dialoguePortraits[i] = MakeImage("Portrait", dialogueBox, Color.white);
-        dialogueBubble = MakeImage("Bubble", dialogueBox, Hex(0x1C1827, 0.9f));
+        dialogueBubble = MakeImage("Bubble", dialogueBox, BubbleColor);
         dialogueName = MakeText("Name", dialogueBox, 10, TextAlignmentOptions.TopLeft);
         dialogueName.enableWordWrapping = false;
         dialogueName.richText = false;
@@ -127,7 +130,8 @@ internal static partial class BattleCreator
     private sealed class Shot
     {
         internal readonly List<(string Speaker, string? Face, DialogueSide Side, int Slot, bool Lit)> Cast = new();
-        internal bool Box, Narration, Field;
+        // Live: a line during the song that doesn't stop it, whose box is see-through as in the battle.
+        internal bool Box, Narration, Field, Live;
         internal string Name = "", Text = "";
         // Letters typed so far; -1 shows them all.
         internal int Letters = -1;
@@ -196,6 +200,9 @@ internal static partial class BattleCreator
         {
             dialogueBubble!.gameObject.SetActive(true);
             PlaceGame(dialogueBubble.rectTransform, BubbleX, BubbleY + shot.Lift, BubbleW, BubbleH, Vector2.zero);
+            // A live line's box is see-through, as the battle draws it; its text stays solid.
+            var bubbleColor = shot.Live ? new Color(BubbleColor.r, BubbleColor.g, BubbleColor.b, BubbleColor.a * BattleDialogue.LiveBoxAlpha) : BubbleColor;
+            if (dialogueBubble.color != bubbleColor) dialogueBubble.color = bubbleColor;
             dialogueName!.gameObject.SetActive(!shot.Narration);
             if (!shot.Narration)
             {
@@ -262,6 +269,7 @@ internal static partial class BattleCreator
         bool live = section == DialogueSection.During && !draft.LineFlag(section, index, "pause");
         shot.Narration = who == Who.Narrator;
         shot.Field = section == DialogueSection.During;
+        shot.Live = live;
         shot.Box = play == null || !(live && play.Gone);
         shot.Text = DialogueReader.CleanText(draft.LineText(section, index, "text"), out _);
         if (shot.Text.Length == 0) shot.Note = "This line has no text yet.";
