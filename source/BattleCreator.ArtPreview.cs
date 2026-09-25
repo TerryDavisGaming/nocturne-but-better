@@ -38,6 +38,8 @@ internal static partial class BattleCreator
     private static EnemyArt.ArtSet? previewSet, previewNext;
     private static string previewJson = "", previewNextJson = "";
     private static float previewDue = -1;
+    // A load finished while a file was being picked or copied: its fills wait until that's over.
+    private static bool previewFillsWaiting;
     // Pictures decoded for the preview (and the grid guess), kept between loads by file and stamp.
     private static readonly Dictionary<string, Picture> previewPictures = new();
     private static float previewTime, previewRest;
@@ -48,8 +50,9 @@ internal static partial class BattleCreator
     // load of the same animation keeps its place).
     private static string previewShowing = "";
     private static EnemyArt.Clip? previewClipShown;
-    // Dragging the art moves it: where the drag started, and the move so far in game pixels.
-    private static bool dragging;
+    // Dragging the art moves it: where the drag started, and the move so far in game pixels. A
+    // drag of the idle with Shift held moves only the idle over its shadow (dragOwn).
+    private static bool dragging, dragOwn;
     private static string dragAnim = "";
     private static Vector2 dragStart, dragGame;
     // Why the preview stopped, and the art it stopped on (it tries again once the art changes).
@@ -112,7 +115,9 @@ internal static partial class BattleCreator
         var help = MakeText("Help", panel, 15, TextAlignmentOptions.Left);
         help.color = DimText;
         PlaceTop(help.rectTransform, Col2 + 262, y, PreviewW - 262, RowH);
-        Ui.AddLiveText(help, () => "Drag the art to move it. Space plays or pauses; Left and Right step.").Visible = custom;
+        Ui.AddLiveText(help, () => artSelected == "idle"
+            ? "Drag the art to move it (Shift: over its shadow). Space plays or pauses; Left and Right step."
+            : "Drag the art to move it. Space plays or pauses; Left and Right step.").Visible = custom;
         y -= RowStep;
 
         AddHeader(p, Col2, ref y, Col2W, "Whole enemy", custom);
@@ -205,6 +210,13 @@ internal static partial class BattleCreator
             if (next.Done && next.Clips.Values.All(c => c.Video == null || c.Video.Prepared || c.Video.Failed)) FinishPreviewLoad(next);
         }
         previewSet?.WatchVideos();
+        // Fills that waited for a picker (or a copy) to close, when the draft didn't change meanwhile;
+        // if it did, the next load fills in.
+        if (previewFillsWaiting && !Busy)
+        {
+            previewFillsWaiting = false;
+            if (previewSet != null && previewJson == artJson) ApplyArtFills(previewSet);
+        }
         string want = PreviewWanted();
         if (want.Length == 0)
         {
@@ -255,7 +267,9 @@ internal static partial class BattleCreator
         artTimelines.Clear();
         TrimPictures(next.Spec);
         // Filled in only from the draft's art as it is now; a newer load is on its way otherwise.
+        // While a file is being picked or copied, the fills wait for it (LoadPreview).
         RefreshArt();
+        previewFillsWaiting = previewJson == artJson && Busy;
         if (previewJson == artJson && !Busy) ApplyArtFills(next);
     }
 
@@ -281,6 +295,7 @@ internal static partial class BattleCreator
         ReleasePreview(ref previewSet);
         previewJson = previewNextJson = "";
         previewDue = -1;
+        previewFillsWaiting = false;
         previewShowing = "";
         previewClipShown = null;
         dragging = false;
@@ -338,8 +353,8 @@ internal static partial class BattleCreator
         }
         else if (set != null && anim != artSelected)
             note = draft?.HasArt(artSelected) == true ? "" : $"The {artSelected} isn't set, so {(anim == "idle" ? "the idle" : "the hurt")} plays instead.";
-        if (set != null && draft?.HasArt(artSelected) == true && PreviewClip(set, artSelected) == null && previewJson == artJson && set.Result.Failed.TryGetValue(artSelected, out var failed))
-            note = $"The {artSelected} can't be used: {failed}";
+        if (set != null && draft?.HasArt(artSelected) == true && PreviewClip(set, artSelected) == null && PreviewFailure(artSelected) is { } failed)
+            note = $"The {artSelected} can't be used: {failed}" + (artSelected == "idle" ? "" : $". {(anim == "idle" ? "The idle" : "The hurt")} plays instead.");
         previewNote!.text = Escape(note);
         if (clip == null)
         {
@@ -386,6 +401,19 @@ internal static partial class BattleCreator
     /// still cuts the same frames; the settings show at once, before the art loads again.
     /// </summary>
     private static ArtTimeline LiveTimeline(string anim, EnemyArt.Clip clip)
+    {
+        var t = DraftTimeline(anim, clip);
+        // A video whose file doesn't say how long it plays (an idle or a defeat may): the player's
+        // length, once it's prepared.
+        if (t.Length <= 0 && clip.Video is { Prepared: true, Failed: false } v && v.Player && v.Player.length > 0)
+        {
+            double length = v.Player.length / Math.Max(0.1, clip.Spec.Speed);
+            return new ArtTimeline { Length = length, Loop = t.Loop, Holds = new[] { (float)length }, Keep = new[] { 0 } };
+        }
+        return t;
+    }
+
+    private static ArtTimeline DraftTimeline(string anim, EnemyArt.Clip clip)
     {
         var loaded = previewSet?.Result.Measured.TryGetValue(anim, out var m) == true ? m : null;
         var now = artSpec?.Get(anim);
@@ -544,7 +572,7 @@ internal static partial class BattleCreator
         if (!show) return;
         float unit = PreviewUnit();
         var (wx, wy) = WholeOffset();
-        if (dragging && dragAnim == "idle") (wx, wy) = (wx + dragGame.x, wy + dragGame.y);
+        if (dragging && !dragOwn) (wx, wy) = (wx + dragGame.x, wy + dragGame.y);
         var feet = PreviewFeet(unit) + new Vector2((float)wx * unit, -(float)wy * unit);
         PlaceTop(previewGround.rectTransform, 0, -feet.y, PreviewW, 2);
         PlaceTop(previewFeet.rectTransform, feet.x - 1, -feet.y + 8, 2, 16);
@@ -614,6 +642,9 @@ internal static partial class BattleCreator
                 if (idle.Spec.Media.Type == MediaType.Mp4)
                     lines.Add("MP4 videos have no see-through parts, so they show as a rectangle. Use a WebM with transparency, a GIF, PNGs or a sprite sheet for a cut-out enemy.");
                 else if (!idle.Video.Alpha) lines.Add("This WebM has no see-through parts, so it shows as a rectangle.");
+                // A video's pixels aren't read, so its feet and width are the whole frame's.
+                if (idle.Spec.Feet == null && draft.ArtPair("idle", "offset") == null)
+                    lines.Add("A video stands on its frame's bottom edge, and its shadow is as wide as the frame. If the character stands higher, move the idle down with On shadow: up/down (or Shift+drag), and turn Shadow off if it's too big.");
             }
             else if (!idle.FeetFound && !idle.Spec.HasKey)
                 lines.Add("The idle has no see-through parts, so it shows as a rectangle. See-through colour can cut out a flat background.");
@@ -672,13 +703,13 @@ internal static partial class BattleCreator
         }
         else
         {
-            double speed = clip.Video != null ? Math.Max(0.1, clip.Spec.Speed) : 1;
-            SetHitTime(previewTime * speed);
+            SetHitAt(previewTime);
             Say($"The hit lands at {ArtEditing.Sec(previewTime)} s now.", 4f);
         }
     }
 
-    // Dragging the art in the box moves it: the idle moves the whole enemy, another animation only itself.
+    // Dragging the art in the box moves it: the idle moves the whole enemy (with Shift, only itself
+    // over its shadow), another animation only itself.
     private static void Drag(InputMouse? clicks)
     {
         var mouse = InputMouse.current;
@@ -694,8 +725,10 @@ internal static partial class BattleCreator
             if (!RectTransformUtility.RectangleContainsScreenPoint(previewBox!, pos, null)) return;
             string anim = PreviewAnim(previewSet);
             if (anim != artSelected || draft == null || !draft.HasArt(anim) || !EnemyEditable()) return;
+            var keyboard = InputKeyboard.current;
             dragging = true;
             dragAnim = anim;
+            dragOwn = anim != "idle" || (keyboard != null && Shift(keyboard));
             dragStart = pos;
             dragGame = Vector2.zero;
             return;
@@ -706,7 +739,7 @@ internal static partial class BattleCreator
         if (mouse.leftButton.isPressed) return;
         dragging = false;
         if (dragGame == Vector2.zero || draft == null) return;
-        if (dragAnim == "idle")
+        if (!dragOwn)
         {
             var (x, y) = WholeOffset();
             SetWholeOffset(x + dragGame.x, y + dragGame.y);
@@ -746,7 +779,10 @@ internal static partial class BattleCreator
         double? size = draft?.ArtNumber("", "size");
         var idle = previewSet?.Result.Measured.TryGetValue("idle", out var m) == true ? m : null;
         double shown = size ?? previewSet?.Result.Size ?? 0;
-        string looks = idle != null && shown > 0 ? $" (looks {ArtEditing.Num(Math.Round(idle.VisibleH * shown / idle.FrameH))} px tall; Mantis looks 47)" : "";
+        // A video's pixels aren't read, so all of its frame counts.
+        string looks = idle == null || shown <= 0 ? ""
+            : idle.Video != null ? " (a video: its whole frame; Mantis looks 47)"
+            : $" (looks {ArtEditing.Num(Math.Round(idle.VisibleH * shown / idle.FrameH))} px tall; Mantis looks 47)";
         if (size is double s) return $"Idle frame {ArtEditing.Num(s)} px{looks}";
         return shown > 0 ? $"Idle frame {ArtEditing.Num(Math.Round(shown))} px, automatic{looks}" : "Size: automatic";
     }

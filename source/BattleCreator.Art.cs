@@ -262,9 +262,12 @@ internal static partial class BattleCreator
         LineStepper(hit, 0, Col1W, ArtHitField, HitText, () => StepHit(-1), () => StepHit(1), label: () => HitByFrame(out _) ? "Hit on frame" : "Hit at (s)");
         var scale = ArtLine(() => isSet() && artSelected != "idle");
         LineStepper(scale, 0, Col1W, ArtScaleField, () => $"Size compared to Idle: {ArtEditing.Percent(Sel("scale") ?? 1)}", () => StepScale(-1), () => StepScale(1));
-        var move = ArtLine(() => isSet() && artSelected != "idle");
-        LineStepper(move, 0, half, ArtMoveXField, () => $"Sideways {ArtEditing.Num(OwnOffset().X)}", () => StepOwnOffset(-1, 0), () => StepOwnOffset(1, 0));
-        LineStepper(move, right, half, ArtMoveYField, () => $"Up/down {ArtEditing.Num(OwnOffset().Y)}", () => StepOwnOffset(0, -1), () => StepOwnOffset(0, 1));
+        // Its own move. The idle's moves it over its shadow (the whole enemy's, in the preview's
+        // column, moves the shadow too): a video, or art with no see-through parts, stands on its
+        // frame's bottom edge until it's moved down onto the shadow.
+        var move = ArtLine(isSet);
+        LineStepper(move, 0, half, ArtMoveXField, () => $"{OwnMoveLabel("Sideways")} {ArtEditing.Num(OwnOffset().X)}", () => StepOwnOffset(-1, 0), () => StepOwnOffset(1, 0));
+        LineStepper(move, right, half, ArtMoveYField, () => $"{OwnMoveLabel("Up/down")} {ArtEditing.Num(OwnOffset().Y)}", () => StepOwnOffset(0, -1), () => StepOwnOffset(0, 1));
 
         var key = ArtLine(() => isSet() && ArtKindOf(artSelected) != ArtKind.Video);
         var keyButton = LineButton(key, 0, half, "", CycleKey);
@@ -353,7 +356,7 @@ internal static partial class BattleCreator
         if (file == null)
             return label + (anim == "idle" ? "<color=#F2B02E>(not set: needed)</color>" : $"<color=#9D92B4>(not set: shows {StandInName(anim)})</color>");
         string what;
-        if ((artSpec != null && artSpec.Dropped.ContainsKey(anim)) || (previewSet != null && previewJson == artJson && previewSet.Result.Failed.ContainsKey(anim)))
+        if ((artSpec != null && artSpec.Dropped.ContainsKey(anim)) || PreviewFailure(anim) != null)
             what = "<color=#F2B02E>can't be used</color>";
         else what = artSpec?.Get(anim) is { } a ? Escape(ArtEditing.Summary(a, ArtTimelineOf(anim))) : "";
         return $"{label}{Escape(Path.GetFileName(file))}   <color=#9D92B4>{what}</color>";
@@ -366,6 +369,20 @@ internal static partial class BattleCreator
         _ => "Idle",
     };
 
+    /// <summary>
+    /// Why the preview's load of the draft's art as it is now can't use an animation: its file, or
+    /// a video that can't play (an error, or not ready in time). Null when it's fine or not loaded.
+    /// </summary>
+    private static string? PreviewFailure(string anim)
+    {
+        var set = previewSet;
+        if (set == null || previewJson != artJson) return null;
+        if (set.Result.Failed.TryGetValue(anim, out var why)) return why;
+        if (set.Clips.TryGetValue(anim, out var clip) && clip.Video is { Failed: true } v)
+            return $"{v.File} can't play ({v.Error ?? "it wasn't ready in time"})";
+        return null;
+    }
+
     private static string ArtProblemsText()
     {
         RefreshArt();
@@ -373,7 +390,8 @@ internal static partial class BattleCreator
         var set = previewSet;
         if (set != null && previewJson == artJson)
         {
-            foreach (var (anim, why) in set.Result.Failed) lines.Add($"{Cap(anim)} can't be used: {why}.");
+            foreach (var anim in ArtAnims)
+                if (PreviewFailure(anim) is { } why) lines.Add($"{Cap(anim)} can't be used: {why}.");
             foreach (var note in set.Result.Notes) lines.Add(ArtProblemText(note));
         }
         // The selected animation's first.
@@ -651,9 +669,11 @@ internal static partial class BattleCreator
                 continue;
             }
             artFills.Remove(anim);
-            if (!r.Measured.TryGetValue(anim, out var m) || r.Failed.ContainsKey(anim))
+            string? failed = r.Failed.TryGetValue(anim, out var why) ? why
+                : set.Clips.TryGetValue(anim, out var clip) && clip.Video is { Failed: true } video ? $"{video.File} can't play ({video.Error ?? "it wasn't ready in time"})" : null;
+            if (!r.Measured.TryGetValue(anim, out var m) || failed != null)
             {
-                said.Add($"{Cap(anim)} can't be used: {(r.Failed.TryGetValue(anim, out var why) ? why : "it couldn't be read")}.");
+                said.Add($"{Cap(anim)} can't be used: {failed ?? "it couldn't be read"}.");
                 continue;
             }
             if (!EnemyEditable()) return;
@@ -890,18 +910,18 @@ internal static partial class BattleCreator
         return t != null && t.Hit >= 0 ? $"Hit at {ArtEditing.Sec(t.Hit)} s (parry from {ArtEditing.Sec(t.Parry)} s{how})" : "Hit: when the attack's frames are read";
     }
 
+    // A time hit is shown, typed and stepped in the battle's seconds (after a video's speed).
     private static string HitValue()
     {
         if (HitByFrame(out var t)) return (t!.HitFrame + 1).ToString();
-        double speed = ArtKindOf("attack") == ArtKind.Video ? artSpec?.Get("attack")?.Speed ?? 1 : 1;
-        return t != null && t.Hit >= 0 ? ArtEditing.Sec(t.Hit * speed) : "";
+        return t != null && t.Hit >= 0 ? ArtEditing.Sec(t.Hit) : "";
     }
 
     private static void StepHit(int by)
     {
         if (!ArtEditable(out var d)) return;
         if (HitByFrame(out var t)) SetHitFrame(t!.HitFrame + by);
-        else if (t != null) SetHitTime(ArtKindOf("attack") == ArtKind.Video ? t.Hit * (artSpec?.Get("attack")?.Speed ?? 1) + by * 0.05 : t.Hit + by * 0.05);
+        else if (t != null) SetHitAt(t.Hit + by * 0.05);
         else Say("The attack's frames aren't read yet.", 3f);
     }
 
@@ -914,16 +934,22 @@ internal static partial class BattleCreator
         d.SetArtValue("attack", "hitTime", null);
     }
 
-    /// <summary>The hit at a time in the file's own seconds (a video's before its speed).</summary>
-    private static void SetHitTime(double seconds)
+    /// <summary>
+    /// The hit <paramref name="seconds"/> into the attack in the battle (the time the page shows);
+    /// battle.json keeps it in the file's own seconds (a video's before its speed).
+    /// </summary>
+    private static void SetHitAt(double seconds)
     {
         if (!ArtEditable(out var d)) return;
+        var a = artSpec?.Get("attack");
+        if (a == null)
+        {
+            Say("The attack can't be read yet, so its hit can't be set.", 3f);
+            return;
+        }
         artHitAuto = false;
         artFills.Remove("attack");
-        var t = ArtTimelineOf("attack");
-        double speed = ArtKindOf("attack") == ArtKind.Video ? artSpec?.Get("attack")?.Speed ?? 1 : 1;
-        double most = t != null ? Math.Min(t.Length, ArtTimeline.MaxHit) * speed : 600;
-        d.SetArtValue("attack", "hitTime", BattleDraft.ArtNumberNode(Math.Round(Math.Clamp(seconds, ArtTimeline.MinHit, Math.Max(ArtTimeline.MinHit, most)), 2)));
+        d.SetArtValue("attack", "hitTime", BattleDraft.ArtNumberNode(ArtEditing.HitTimeAt(a, seconds, ArtTimelineOf("attack"))));
         d.SetArtValue("attack", "hitFrame", null);
     }
 
@@ -934,6 +960,9 @@ internal static partial class BattleCreator
     }
 
     private static (double X, double Y) OwnOffset() => draft?.ArtPair(artSelected, "offset") ?? (0, 0);
+
+    // The idle's own move is over its shadow; another animation's is its own.
+    private static string OwnMoveLabel(string what) => artSelected == "idle" ? "On shadow: " + what.ToLowerInvariant() : what;
 
     private static void StepOwnOffset(int x, int y)
     {
@@ -1011,14 +1040,14 @@ internal static partial class BattleCreator
                 if (v < 1 || v > frames) throw new InvalidDataException($"The attack has frames 1 to {frames}.");
                 SetHitFrame((int)v.Value - 1);
             }
-            else SetHitTime(v.Value);
-        }, 0, 600, "Type the frame the hit lands on (a sheet or GIF) or its time in seconds, then Enter. Empty puts it back to automatic. Esc cancels.", optional: true);
+            else SetHitAt(v.Value);
+        }, 0, 600, "Type the frame the hit lands on (a sheet or GIF), or how many seconds into the attack it lands in the battle, then Enter. Empty puts it back to automatic. Esc cancels.", optional: true);
     private static readonly TextField ArtScaleField = ArtField("Size compared to Idle (%)", () => ArtEditing.Num((Sel("scale") ?? 1) * 100), v => SetSel("scale", v is double p && Math.Abs(p - 100) > 1e-9 ? p / 100 : null),
         5, 2000, "Type the size compared to the idle in %, then Enter. Esc cancels.", optional: true);
     private static readonly TextField ArtMoveXField = ArtField("Sideways", () => ArtEditing.Num(OwnOffset().X), v => SetOwnOffset(v ?? 0, OwnOffset().Y),
-        -EnemyArtReader.MaxOffset, EnemyArtReader.MaxOffset, "Type how many game pixels to move it right (left is negative), then Enter. Esc cancels.", optional: true);
+        -EnemyArtReader.MaxOffset, EnemyArtReader.MaxOffset, "Type how many game pixels to move it right (left is negative), then Enter. Esc cancels. The idle's moves it over its shadow.", optional: true);
     private static readonly TextField ArtMoveYField = ArtField("Up/down", () => ArtEditing.Num(OwnOffset().Y), v => SetOwnOffset(OwnOffset().X, v ?? 0),
-        -EnemyArtReader.MaxOffset, EnemyArtReader.MaxOffset, "Type how many game pixels to move it up (down is negative), then Enter. Esc cancels.", optional: true);
+        -EnemyArtReader.MaxOffset, EnemyArtReader.MaxOffset, "Type how many game pixels to move it up (down is negative), then Enter. Esc cancels. The idle's moves it over its shadow.", optional: true);
     private static readonly TextField ArtRangeField = ArtField("Range (%)", () => ArtEditing.Num((Sel("keyRange") ?? 0.15) * 100), v => SetSel("keyRange", v is double p ? p / 100 : null),
         0, 100, "Type how near a colour must be to the see-through colour to vanish, in % (15 is usual), then Enter. Esc cancels.", optional: true);
 }
