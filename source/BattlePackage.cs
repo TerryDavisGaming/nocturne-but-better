@@ -463,7 +463,8 @@ internal sealed class BattlePackage
     internal double PreviewStart;
     internal int Lanes;
     internal string ChartPath = DefaultChart;
-    internal string? DialoguePath;
+    /// <summary>The battle's dialogue, checked; empty sections when it has none.</summary>
+    internal BattleDialogueData Dialogue = new();
     internal EnemyDefinition Enemy = new();
     /// <summary>The player's gear in this battle ("player" mode unless battle.json sets it).</summary>
     internal GearDefinition Gear = new();
@@ -509,10 +510,13 @@ internal sealed class BattlePackage
     /// Loads a package from a folder with battle.json, or from a .nbbbattle file. A test play
     /// loads it with what the editors have in memory instead of some of its files:
     /// <paramref name="chartText"/> for the chart file, <paramref name="manifestJson"/> for
-    /// battle.json (checked the same way), and <paramref name="lanes"/> and
-    /// <paramref name="audio"/> over what battle.json and the chart say.
+    /// battle.json (checked the same way), <paramref name="lanes"/> and
+    /// <paramref name="audio"/> over what battle.json and the chart say, and
+    /// <paramref name="dialogueJson"/> (the dialogue object) over battle.json's "dialogue" and
+    /// the file it names.
     /// </summary>
-    internal static BattlePackage Load(string path, string? chartText = null, string? manifestJson = null, int? lanes = null, string? audio = null)
+    internal static BattlePackage Load(string path, string? chartText = null, string? manifestJson = null, int? lanes = null, string? audio = null,
+        string? dialogueJson = null)
     {
         PackageFiles files;
         if (Directory.Exists(path)) files = PackageFiles.Folder(path);
@@ -540,8 +544,7 @@ internal sealed class BattlePackage
             Title = Clean(manifest.title),
             Artist = Clean(manifest.artist),
             Author = Clean(manifest.author),
-            Lore = (manifest.lore ?? "").Trim(),
-            DialoguePath = manifest.dialogue.ValueKind == JsonValueKind.String ? PackageFiles.SafeName(manifest.dialogue.GetString() ?? "") : null
+            Lore = (manifest.lore ?? "").Trim()
         };
         if (song.Title.Length == 0) song.Title = Path.GetFileNameWithoutExtension(path.TrimEnd('\\', '/'));
         song.PreviewStart = Math.Max(0, Finite(manifest.previewStart, "\"previewStart\"", song.Problems) ?? 0);
@@ -625,6 +628,7 @@ internal sealed class BattlePackage
 
         song.Gear = ReadGear(manifest.gear, song.Problems);
         song.Level = LevelDefinition.Read(manifest.level, song.Problems);
+        song.Dialogue = ReadDialogue(manifest.dialogue, dialogueJson, song, Stamp);
 
         song.stampedFiles = stamped.Select(s => s.Name).ToArray();
         song.Fingerprint = FingerprintOf(path, stamped.Select(s => s.Stamp));
@@ -728,6 +732,27 @@ internal sealed class BattlePackage
         {
             problems.Add($"the enemy couldn't be read ({ex.Message}); {EnemyPlaceholders.Default} stands in with its own stats");
             return new EnemyDefinition();
+        }
+    }
+
+    // The dialogue never costs the battle: anything wrong in it is a problem, and at worst the
+    // battle plays without it. A test's dialogue (the battle creator's, saved or not) comes as
+    // text; the file battle.json names is then neither read nor stamped.
+    private static BattleDialogueData ReadDialogue(JsonElement dialogue, string? dialogueJson, BattlePackage song, Action<string> stamp)
+    {
+        try
+        {
+            if (dialogueJson != null)
+            {
+                using var doc = JsonDocument.Parse(dialogueJson, new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+                dialogue = doc.RootElement.Clone();
+            }
+            return DialogueReader.Read(dialogue, song.Files, song.Chart, song.Slots, song.Problems, stamp);
+        }
+        catch (Exception ex)
+        {
+            song.Problems.Add($"the dialogue couldn't be read ({(ex is JsonException ? ex.Message : $"{ex.GetType().Name}: {ex.Message}")}); the battle plays without it");
+            return new BattleDialogueData();
         }
     }
 

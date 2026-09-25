@@ -223,12 +223,12 @@ internal static class BattleFiles
     }
 
     /// <summary>
-    /// Of <paramref name="candidates"/> (paths inside the battle), the song, image and enemy art
-    /// files that the saved battle no longer names anywhere: not in battle.json, the enemy's file, a
-    /// JSON file they name (like the dialogue), or the chart's #MUSIC. Paths are compared as the
-    /// files they point at, so "audio/./a.ogg" and "audio/a.ogg" are the same file. Only files in
-    /// audio/, images/ and art/ are ever listed, and nothing is when a file that could name them
-    /// can't be read.
+    /// Of <paramref name="candidates"/> (paths inside the battle), the song, image, enemy art and
+    /// speaker picture files that the saved battle no longer names anywhere: not in battle.json,
+    /// the enemy's file, a JSON file they name (like the dialogue), or the chart's #MUSIC. Paths are
+    /// compared as the files they point at, so "audio/./a.ogg" and "audio/a.ogg" are the same file.
+    /// Only files in audio/, images/, art/ and portraits/ are ever listed, and nothing is when a
+    /// file that could name them can't be read.
     /// </summary>
     internal static List<string> Unreferenced(string folder, IEnumerable<string> candidates)
     {
@@ -258,7 +258,7 @@ internal static class BattleFiles
             string? full = FileIn(folder, candidate);
             if (full == null || used.Contains(full) || unused.Contains(full, StringComparer.OrdinalIgnoreCase)) continue;
             string inside = Path.GetRelativePath(folder, full).Replace('\\', '/');
-            if (!new[] { "audio/", "images/", "art/" }.Any(f => inside.StartsWith(f, StringComparison.OrdinalIgnoreCase))) continue;
+            if (!new[] { "audio/", "images/", "art/", "portraits/" }.Any(f => inside.StartsWith(f, StringComparison.OrdinalIgnoreCase))) continue;
             if (File.Exists(full)) unused.Add(full);
         }
         return unused;
@@ -474,7 +474,8 @@ internal static class BattleFiles
     /// <summary>
     /// The loader's problems with a battle, in the creator's words: the chart's as the Charts page
     /// says them (the difficulty tabs' names, lane counts), the enemy's as the Enemy page says it,
-    /// a beat 0 before the song as the Charts page's offset line says it, and game asset names like
+    /// a beat 0 before the song as the Charts page's offset line says it, the dialogue's as the
+    /// Dialogue page says them (the reader words each both ways), and game asset names like
     /// "EnemyData_Yako" as the enemy's name. The loader's own messages are made again from the
     /// same battle to find them; the rest stay as the loader words them.
     /// </summary>
@@ -503,6 +504,8 @@ internal static class BattleFiles
         // from 0 (the Timing tab's "-10 ms"). This is BattlePackage.Load's message for it.
         string offset = package.Offset.ToString("0.###", CultureInfo.InvariantCulture);
         string loaderOffset = $"#OFFSET is {offset} s, so beat 0 comes before the audio starts; notes in the chart's first {offset} s can't be played";
+        var dialogue = new Dictionary<string, string>();
+        foreach (var p in package.Dialogue.Problems) dialogue.TryAdd(p.Text, p.Plain);
 
         var words = new List<string>();
         bool chartDone = false;
@@ -523,6 +526,7 @@ internal static class BattleFiles
                 words.Add($"custom art needs an idle; until it has one, the enemy looks like {EnemyChoices.NameOf(look)}");
             else if (problem == scriptedBoss)
                 words.Add($"scripted bosses can't take custom art, so {EnemyChoices.NameOf(EnemyPlaceholders.Default)} fights instead (the Enemy page picks another)");
+            else if (dialogue.TryGetValue(problem, out var plain)) words.Add(plain);
             else words.Add(AssetName.Replace(problem, m => EnemyChoices.NameOf(m.Value)));
         }
         return words;
@@ -728,7 +732,8 @@ internal static class BattleFiles
         return string.Join("/", parts);
     }
 
-    // The loader's limits for each kind of file. Enemy art in art/ may be bigger than a card image.
+    // The loader's limits for each kind of file. Enemy art in art/ may be bigger than a card image,
+    // and a speaker's picture in portraits/ smaller.
     private static long LimitFor(string name)
     {
         string ext = Path.GetExtension(name).ToLowerInvariant();
@@ -736,8 +741,9 @@ internal static class BattleFiles
         {
             ".json" => BattlePackage.MaxJsonBytes,
             ".sm" or ".ssc" => BattlePackage.MaxChartBytes,
-            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" => name.StartsWith("art/", StringComparison.OrdinalIgnoreCase)
-                ? EnemyArtReader.MaxPictureBytes : BattlePackage.MaxImageBytes,
+            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" => name.StartsWith("art/", StringComparison.OrdinalIgnoreCase) ? EnemyArtReader.MaxPictureBytes
+                : name.StartsWith("portraits/", StringComparison.OrdinalIgnoreCase) ? DialogueReader.MaxPortraitBytes
+                : BattlePackage.MaxImageBytes,
             _ => BattlePackage.MaxAudioBytes,
         };
     }

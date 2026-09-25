@@ -100,6 +100,8 @@ internal static class FileDialogs
         internal static readonly Purpose EnemyGif = new("enemyart", PicturesFolder, Filters.Join(Filters.Gifs, Filters.AllFiles));
         internal static readonly Purpose EnemyVideo = new("enemyart", VideosFolder, Filters.Join(Filters.Videos, Filters.AllFiles));
         internal static readonly Purpose EnemySheet = new("enemyart", PicturesFolder, Filters.Join(Filters.SpriteSheets, Filters.AllFiles));
+        /// <summary>A dialogue speaker's pictures: PNG or JPEG, like the game decodes.</summary>
+        internal static readonly Purpose Portraits = new("portraits", PicturesFolder, Filters.Join(Filters.Pictures, Filters.AllFiles));
         /// <summary>For picking a whole song folder, like a StepMania song.</summary>
         internal static readonly Purpose SongFolders = new("songfolders", DownloadsFolder, Array.Empty<string>());
 
