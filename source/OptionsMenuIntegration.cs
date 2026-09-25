@@ -96,6 +96,13 @@ internal static class OptionsMenuIntegration
         // Picks up charts dropped into the folder by hand while the game was running.
         harmony.Patch(AccessTools.DeclaredMethod(typeof(GameplayOptionsMenu), "DidShow"),
             prefix: new HarmonyMethod(typeof(CustomChartOptions), nameof(CustomChartOptions.MenuShownPrefix)));
+        // The game scrolls to the newly selected row without checking there is one. When the row left
+        // selected can't be selected any more (one the chart page hid, say), SelectFirstSelectable clears
+        // the selection first, and that scroll throws and cuts the menu's showing short.
+        harmony.Patch(
+            AccessTools.DeclaredMethod(typeof(GameplayOptionsMenu), "OnCurrentSelectableChanged")
+                ?? throw new MissingMethodException(typeof(GameplayOptionsMenu).FullName, "OnCurrentSelectableChanged"),
+            prefix: new HarmonyMethod(typeof(OptionsMenuIntegration), nameof(SelectionChangedPrefix)));
         installed = true;
     }
 
@@ -150,6 +157,13 @@ internal static class OptionsMenuIntegration
             ModLog.Error($"Refreshing flat-scroll options failed: {ex}");
         }
         finally { refreshing = false; }
+    }
+
+    // No selected row: nothing to scroll to, so the game's scroll is skipped.
+    private static bool SelectionChangedPrefix(GameplayOptionsMenu __instance)
+    {
+        try { return !__instance || __instance.CurrentSelectable != null; }
+        catch { return true; }
     }
 
     private static void MenuReadyPostfix(GameplayOptionsMenu __instance)
@@ -285,6 +299,23 @@ internal static class OptionsMenuIntegration
             InsertIntoNavigation(rows);
             RefreshPreview(rows);
         }
+        KeepSelectionShown(rows);
+    }
+
+    /// <summary>
+    /// The row the menu has selected may be one the page just hid (the game selects Change Difficulty
+    /// each time the page shows, which the chart page hides). The chart page's first row takes over, or
+    /// else the selection is let go without a callback, so the game picks a row when it next focuses.
+    /// </summary>
+    private static void KeepSelectionShown(MenuRows rows)
+    {
+        var menu = rows.Menu;
+        if (!menu) return;
+        var selected = menu.CurrentSelectable;
+        if (selected == null || selected.IsSelectable) return;
+        var first = CustomChartsMenu.ChartsPage ? rows.Rows.FirstOrDefault(IsChartRow) : null;
+        if (first != null && first.Root.activeInHierarchy && menu.gameObject.activeInHierarchy) first.Button.Select(true);
+        else menu.currentSelectable = null;
     }
 
     private static bool IsChartRow(OptionRow row) => CustomChartOptions.Rows.Contains(row.Spec);
