@@ -578,15 +578,19 @@ internal static class OszConvert
     /// #ATTACKS with a player attack every 8 bars (beats 32, 64, ...) from 16 beats after the first
     /// note to the last one, or one at the last note when none fits: the chart editor's own format.
     /// </summary>
-    internal static string PlayerAttacks(OszTiming timing, int firstRow, int lastRow)
+    internal static string PlayerAttacks(OszTiming timing, int firstRow, int lastRow) =>
+        string.Join(":", PlayerAttackRows(firstRow, lastRow).Select(r =>
+            "TIME=" + timing.Clock.RowToSeconds(r).ToString("0.000", CultureInfo.InvariantCulture) + ":LEN=0.500:MODS=PlayerAttack 1"));
+
+    /// <summary>The rows <see cref="PlayerAttacks"/> puts a player attack on.</summary>
+    internal static List<int> PlayerAttackRows(int firstRow, int lastRow)
     {
         double first = firstRow / (double)RowsPerBeat, last = lastRow / (double)RowsPerBeat;
         var rows = new List<int>();
         for (int beat = 32; beat <= last; beat += 32)
             if (beat >= first + 16) rows.Add(beat * RowsPerBeat);
         if (rows.Count == 0) rows.Add(lastRow);
-        return string.Join(":", rows.Select(r =>
-            "TIME=" + timing.Clock.RowToSeconds(r).ToString("0.000", CultureInfo.InvariantCulture) + ":LEN=0.500:MODS=PlayerAttack 1"));
+        return rows;
     }
 
     // ---- the chart -------------------------------------------------------------------------------

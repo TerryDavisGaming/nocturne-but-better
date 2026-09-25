@@ -323,7 +323,8 @@ internal sealed class EditorUi
     /// Shows the list with <paramref name="index"/> picked and in view, and handles the mouse: a
     /// click picks a row (see <see cref="Chosen"/>), the wheel scrolls the rows.
     /// </summary>
-    internal void DrawList(string heading, string hint, List<string> items, int index)
+    /// <param name="tags">Words drawn right after a row's text, smaller and in amber (like "Beta, not recommended"); null for none.</param>
+    internal void DrawList(string heading, string hint, List<string> items, int index, IReadOnlyList<string?>? tags = null)
     {
         listTitle!.text = heading;
         listHint!.text = hint;
@@ -337,10 +338,16 @@ internal sealed class EditorUi
         for (int i = 0; i < listRows.Count; i++)
         {
             int item = listFirst + i;
-            if (item < items.Count) listRows[i].Label.text = Escape(items[item]);
+            if (item >= items.Count) continue;
+            string? tag = tags != null && item < tags.Count ? tags[item] : null;
+            listRows[i].Label.text = Escape(items[item]) + (tag == null ? "" : RowTag(tag, item == index));
         }
         UpdateButtons(mouse);
     }
+
+    // Amber doesn't read on the picked row's accent colour, so there the tag is dark like the row's text.
+    private static string RowTag(string tag, bool picked) =>
+        $"   <size=85%><color=#{(picked ? "16131F" : "F2B02E")}>{Escape(tag)}</color></size>";
 
     // ---- the status line: messages, and what's being typed ------------------------------------
 

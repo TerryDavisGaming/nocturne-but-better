@@ -434,9 +434,10 @@ internal static partial class ChartEditor
     /// <summary>
     /// The arcade only lists a battle whose playable chart the game's own reader takes
     /// (CustomBattles.CheckChart), so the same reader checks it here. If the reader itself fails,
-    /// the save goes ahead and the arcade reports it.
+    /// the save goes ahead and the arcade reports it. The battle creator checks a battle made from
+    /// an osu!mania beatmap with it too.
     /// </summary>
-    private static string? GameReaderProblem(string text, int lanes)
+    internal static string? GameReaderProblem(string text, int lanes)
     {
         var parsed = ChartText.Parse(text);
         string playable = parsed.BuildPlayableSong(parsed.SongSlots(lanes, new List<string>()));
