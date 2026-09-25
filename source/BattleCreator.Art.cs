@@ -269,10 +269,11 @@ internal static partial class BattleCreator
         LineStepper(move, 0, half, ArtMoveXField, () => $"{OwnMoveLabel("Sideways")} {ArtEditing.Num(OwnOffset().X)}", () => StepOwnOffset(-1, 0), () => StepOwnOffset(1, 0));
         LineStepper(move, right, half, ArtMoveYField, () => $"{OwnMoveLabel("Up/down")} {ArtEditing.Num(OwnOffset().Y)}", () => StepOwnOffset(0, -1), () => StepOwnOffset(0, 1));
 
-        // A video can't take a see-through colour; turned into frames (BattleCreator.ArtBake.cs) it's a sheet that can.
-        var frames = ArtLine(BakeShown);
-        LineButton(frames, 0, 260, "Turn into frames...", AskBake);
-        LineText(frames, 272, Col1W - 272, RowH, () => "Makes the video a sprite sheet, so a see-through colour works and it plays on any PC.", 16);
+        // A video can't take a see-through colour; turned into frames (BattleCreator.ArtBake.cs) it's a
+        // sheet that can. Until a save, the sheet can go back to the video.
+        var frames = ArtLine(BakeLineShown);
+        LineButton(frames, 0, 260, "", BakeLineClicked).Text = BakeButtonText;
+        LineText(frames, 272, Col1W - 272, RowH, BakeLineText, 16);
 
         var key = ArtLine(() => isSet() && ArtKindOf(artSelected) != ArtKind.Video);
         var keyButton = LineButton(key, 0, half, "", CycleKey);

@@ -33,11 +33,12 @@ internal static partial class EnemyArt
         private bool called, prepared, played, shownBefore, disposed;
         private float movedAt;
         private double lastTime = -1;
+        private long lastShown = -1;
         private string? error;
 
         /// <summary>Frames read so far.</summary>
         internal int Read;
-        /// <summary>Frames that are the one before again: the game couldn't keep up, or the video ended before the plan did.</summary>
+        /// <summary>Frames read late, as their own went by while the game couldn't keep up; and frames past the video's end (its last again).</summary>
         internal int Busy, PastEnd;
         internal string? Error => error;
         internal bool Prepared => prepared;
@@ -108,11 +109,13 @@ internal static partial class EnemyArt
         /// Plays it, to read a frame at each of <paramref name="times"/> (the video's own seconds).
         /// <paramref name="gap"/>, the shortest time between two of them, sets how fast it plays:
         /// slow enough that the game reads each as it passes (two game frames at 60 a second).
+        /// Reads closer together than the video's frames share them, so its frames set it then.
         /// </summary>
         internal void Start(double[] times, double gap)
         {
             readAt = times;
-            player!.playbackSpeed = (float)Math.Clamp(gap * 30, 0.25, 1);
+            double step = Math.Max(gap, 1 / Math.Max(1.0, player!.frameRate));
+            player.playbackSpeed = (float)Math.Clamp(step * 30, 0.25, 1);
             player.Play();
             movedAt = Time.realtimeSinceStartup;
         }
@@ -143,31 +146,31 @@ internal static partial class EnemyArt
             // A frame is read once the player has shown one for a whole game frame, so its picture is in the texture.
             bool ready = shown >= 0 && shownBefore;
             shownBefore = shown >= 0;
+            // More than one of the video's frames showed since the last game frame: the game fell behind.
+            bool skipped = lastShown >= 0 && shown > lastShown + 1;
+            lastShown = shown;
             if (ready)
             {
                 // At its end the player stops; any frames the plan still wants repeat its last one.
                 bool ended = played && !playing;
-                double half = 0.5 / Math.Max(1f, player.frameRate);
-                bool got = false;
-                int due = 0;
-                while (Read < readAt.Length && (ended || time >= readAt[Read] - half))
+                var (due, late) = ended ? (readAt.Length - Read, 0) : VideoBake.Reads(readAt, Read, time, player.frameRate);
+                if (due > 0)
                 {
-                    if (!got)
-                    {
-                        ReadTexture();
-                        got = true;
-                    }
-                    else if (ended) PastEnd++;
-                    else Busy++;
-                    onFrame(Read, frame);
-                    Read++;
-                    due++;
+                    ReadTexture();
+                    if (ended) PastEnd += due - 1;
+                    for (int i = 0; i < due; i++) onFrame(Read++, frame);
                 }
-                // More than one came due at once: the video got ahead of the game, so it slows down.
-                if (due > 1 && !ended) player.playbackSpeed = Math.Max(0.1f, player.playbackSpeed * 0.5f);
+                // Reads whose own frame went by unread: the video got ahead of the game, so it slows down.
+                if (late > 0 && skipped)
+                {
+                    Busy += late;
+                    player.playbackSpeed = Math.Max(0.1f, player.playbackSpeed * 0.5f);
+                }
             }
             if (Done) return false;
-            if (now - movedAt > StuckSeconds) error = shown < 0 ? "it didn't start playing" : $"it stopped moving at {ArtLoadResult.Sec(time)} s";
+            // Stuck: the time hasn't moved for a while, on top of how long one frame shows at this speed.
+            float frameShows = 1 / (Math.Max(1f, player.frameRate) * Math.Max(0.1f, player.playbackSpeed));
+            if (now - movedAt > StuckSeconds + frameShows) error = shown < 0 ? "it didn't start playing" : $"it stopped moving at {ArtLoadResult.Sec(time)} s";
             return error == null;
         }
 

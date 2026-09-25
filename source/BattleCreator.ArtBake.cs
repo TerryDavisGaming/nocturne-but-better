@@ -15,7 +15,8 @@ namespace NocturneFlatScroll;
 // nothing changes. Once it's saved the animation becomes a Sprite sheet through the draft like
 // the page's other settings, keeping its timing (the attack's hit on the matching frame), move,
 // mirror and feet (VideoBake.Settings); the video file goes to the Recycle Bin after a save once
-// nothing uses it, like any replaced file. Creator only.
+// nothing uses it, like any replaced file. Until then "Back to the video" puts it all back.
+// Creator only.
 internal static partial class BattleCreator
 {
     private enum BakeStage { Probe, Ready, Read, Save }
@@ -24,8 +25,10 @@ internal static partial class BattleCreator
     private sealed class Bake
     {
         internal BattleDraft Draft = null!;
-        internal string Anim = "", Video = "", Folder = "";
+        internal string Anim = "", Video = "", Folder = "", Playable = "";
         internal int Fps;
+        /// <summary>The biggest frame (BakeCap), from the preview when it started.</summary>
+        internal int CapW, CapH;
         internal ArtAnimationSpec Spec = null!;
         internal BakeStage Stage;
         /// <summary>The whole enemy's size when battle.json doesn't say (the preview's), kept when the idle becomes a sheet.</summary>
@@ -53,13 +56,48 @@ internal static partial class BattleCreator
         internal string File = "";
     }
 
+    /// <summary>What a finished bake changed, so Back to the video can put it back.</summary>
+    private sealed class BakeUndo
+    {
+        internal BattleDraft Draft = null!;
+        internal string Sheet = "", Video = "";
+        /// <summary>The animation's settings as they were (JSON); null when it was only its file's name.</summary>
+        internal string? Before;
+        /// <summary>Numbers it wrote in the others (anim "" is the art itself): what was there, and what it wrote.</summary>
+        internal readonly List<(string Anim, string Key, double? Old, double? Wrote)> Others = new();
+        internal bool SizeAuto;
+    }
+
     private static Bake? bake;
     private static bool bakePreviewPlaying;
     // What each sheet made from a video found about its background, by file: a see-through corner colour takes its range.
     private static readonly Dictionary<string, VideoBake.Background> bakedBackgrounds = new(StringComparer.OrdinalIgnoreCase);
+    // The last bake of each animation, by animation.
+    private static readonly Dictionary<string, BakeUndo> bakeUndos = new();
 
     /// <summary>Whether the selected animation is a video the page can turn into frames (its button shows then).</summary>
     private static bool BakeShown() => draft != null && CustomArtEnemy() && ArtKindOf(artSelected) == ArtKind.Video;
+
+    // The line under the moves: "Turn into frames..." on a video, "Back to the video" on a sheet a bake just made.
+    private static bool BakeLineShown() => BakeShown() || (CustomArtEnemy() && BakeUndoFor(artSelected) != null);
+    private static string BakeButtonText() => BakeShown() ? "Turn into frames..." : "Back to the video";
+    private static string BakeLineText() => BakeShown()
+        ? "Makes the video a sprite sheet, so a see-through colour works and it plays on any PC."
+        : "Undoes Turn into frames: the video comes back with its settings as they were.";
+
+    private static void BakeLineClicked()
+    {
+        if (BakeShown()) AskBake();
+        else BackToVideo();
+    }
+
+    /// <summary>
+    /// The last bake of an animation while its sheet is still the animation's file, and until a
+    /// save (the save's clean-up takes the video off the replaced files, and may move it to the Recycle Bin).
+    /// </summary>
+    private static BakeUndo? BakeUndoFor(string anim) =>
+        draft != null && bakeUndos.TryGetValue(anim, out var u) && u.Draft == draft && u.Sheet.Equals(draft.ArtFile(anim), StringComparison.OrdinalIgnoreCase)
+        && touched.Contains(u.Video, StringComparer.OrdinalIgnoreCase) ? u : null;
 
     /// <summary>The "Turn into frames" button: asks for the frame rate, then turns the selected video into a sheet.</summary>
     private static void AskBake()
@@ -88,12 +126,11 @@ internal static partial class BattleCreator
         string row = $"{fps} frames a second";
         var a = artSpec?.Get(anim);
         var facts = a?.Media.Video;
-        if (a != null && facts is { IndexFound: true, Seconds: > 0, Width: > 0, Height: > 0 })
+        if (a != null && facts is { IndexFound: true, Seconds: > 0, Width: > 0, Height: > 0 } && BakeCap(anim) is (int capW, int capH))
         {
             try
             {
                 var plan = VideoBake.Timing(anim, facts.Seconds, a.Speed, fps);
-                var (capW, capH) = BakeCap(anim, facts);
                 if (VideoBake.Lay(plan, facts.Width, facts.Height, capW, capH)) row += $": {ArtEditing.Frames(plan.Count)} of {plan.CellW} x {plan.CellH}";
             }
             catch (InvalidDataException) { }
@@ -101,34 +138,45 @@ internal static partial class BattleCreator
         return row + (fps == VideoBake.Rates[0] ? " (like the game's own enemies)" : fps == VideoBake.Rates[^1] ? " (smoother, a bigger file)" : "");
     }
 
-    /// <summary>The animation as the loader reads it, when it's a video that can be turned into frames; else null and why not.</summary>
+    /// <summary>
+    /// The animation as the loader reads it, when it's a video that can be turned into frames; else
+    /// null and why not. The frames are sized from the preview's video, so it waits for the preview
+    /// (by then the page has also filled in what it works out for a newly chosen file).
+    /// </summary>
     private static ArtAnimationSpec? BakeSpec(string anim, out string? why)
     {
         RefreshArt();
         why = null;
         var a = artSpec?.Get(anim);
-        if (artSpec != null && artSpec.Dropped.TryGetValue(anim, out var dropped)) why = $"The {anim} can't be used ({dropped}), so it can't be turned into frames.";
+        if (artSpec != null && artSpec.Dropped.TryGetValue(anim, out var dropped)) why = $"The {anim} can't be turned into frames: {dropped.TrimEnd('.')}.";
         else if (a == null || a.Kind != ArtKind.Video) why = $"The {anim} isn't a video.";
-        else if (PreviewFailure(anim) is { } failed) why = $"The {anim} can't play ({failed}), so it can't be turned into frames.";
+        else if (PreviewFailure(anim) is { } failed) why = $"The {anim} can't be turned into frames: {failed}.";
+        else if (anim != "idle" && (PreviewWanted().Length == 0 || PreviewFailure("idle") != null))
+            why = $"The {anim}'s frames are sized from the idle, so set an idle that works first.";
+        else if (previewError.Length > 0 && previewErrorJson == artJson) why = $"The preview stopped, so the {anim} can't be turned into frames. Change a setting to try again.";
+        else if (BakeCap(anim) == null || previewFillsWaiting) why = $"Wait for the preview to show the {anim}, then try again.";
         return why == null ? a : null;
     }
 
-    // The frame size the preview's video of this animation uses, else its own size up to 720 tall.
-    private static (int W, int H) BakeCap(string anim, VideoFacts facts)
+    // The biggest frame the battle keeps at full size: how big the preview's video of this animation
+    // is drawn, and not more of its pixels than MaxDensity per game pixel. Null until the preview shows
+    // the draft's art as it is now.
+    private static (int W, int H)? BakeCap(string anim)
     {
-        if (previewSet != null && previewJson == artJson && previewSet.Result.Videos.TryGetValue(anim, out var shown) && shown.TextureW > 0 && shown.TextureH > 0)
-            return (shown.TextureW, shown.TextureH);
-        int h = Math.Min(facts.Height, ArtDecode.MaxVideoTexture);
-        return ((int)Math.Max(1, Math.Round((double)facts.Width * h / facts.Height)), h);
+        var set = previewSet;
+        if (set == null || previewJson != artJson || !set.Result.Videos.TryGetValue(anim, out var video) || video.TextureW <= 0 || video.TextureH <= 0) return null;
+        // In game pixels, as the loader works it out (the idle's own size, the others' times their scale).
+        double shown = video.From.FrameH * set.Result.K * (anim == "idle" ? 1 : video.From.Spec.Scale);
+        return VideoBake.Cap(video.TextureW, video.TextureH, shown);
     }
 
     private static void StartBake(string anim, int fps)
     {
         if (draft == null || bake != null || !EnemyEditable()) return;
         var a = BakeSpec(anim, out string? why);
-        if (a == null)
+        if (a == null || BakeCap(anim) is not (int capW, int capH))
         {
-            Say(why!, 7f);
+            Say(why ?? $"Wait for the preview to show the {anim}, then try again.", 7f);
             return;
         }
         var d = draft;
@@ -142,6 +190,8 @@ internal static partial class BattleCreator
             Video = a.File,
             Folder = d.Folder,
             Fps = fps,
+            CapW = capW,
+            CapH = capH,
             Spec = a,
             Size = d.ArtNumber("", "size") == null && previewSet != null && previewJson == artJson && previewSet.Result.Size > 0 ? previewSet.Result.Size : null,
         };
@@ -202,13 +252,13 @@ internal static partial class BattleCreator
                 if (b.Probe.IsFaulted) throw Unwrap(b.Probe.Exception!);
                 var (path, facts) = b.Probe.Result;
                 b.Facts = facts;
-                // The frames are at most the size the preview's video uses: no more detail than the battle shows.
-                var (capW, capH) = BakeCap(b.Anim, facts);
+                b.Playable = path;
                 // A video that doesn't say how long it plays (an idle or a defeat may not) is planned for
                 // the most frames; the player's own length gives the real count once it's ready.
                 var plan = facts.Seconds > 0 ? VideoBake.Timing(b.Anim, facts.Seconds, b.Spec.Speed, b.Fps)
                     : new VideoBake.Plan { Count = ArtTimeline.MaxFrames };
-                if (!VideoBake.Lay(plan, facts.Width, facts.Height, capW, capH))
+                // The frames are at most the size the preview's video uses: no more detail than the battle shows.
+                if (!VideoBake.Lay(plan, facts.Width, facts.Height, b.CapW, b.CapH))
                     throw new InvalidDataException($"{b.Video}'s {plan.Count} frames don't fit in one sprite sheet");
                 b.Plan = plan;
                 if (b.Anim == "attack" && b.Draft.ArtNumber("attack", "hitTime") != null && facts.Seconds > 0)
@@ -223,13 +273,21 @@ internal static partial class BattleCreator
                 if (frames.Watch()) return;
                 if (frames.Error != null) throw new InvalidDataException($"{b.Video} can't play ({frames.Error})");
                 var plan = b.Plan!;
-                if (b.Facts!.Seconds <= 0)
+                if (plan.ReadAt.Length == 0)
                 {
+                    // Planned for the most frames: the real count, whose frames may be bigger. A
+                    // player of the bigger size gets ready again.
                     if (!(frames.Length > 0)) throw new InvalidDataException($"{b.Video} doesn't say how long it plays");
                     var timed = VideoBake.Timing(b.Anim, frames.Length, b.Spec.Speed, b.Fps);
-                    (timed.VideoW, timed.VideoH, timed.CellW, timed.CellH) = (plan.VideoW, plan.VideoH, plan.CellW, plan.CellH);
-                    if (!VideoBake.Regrid(timed)) throw new InvalidDataException($"{b.Video}'s frames don't fit in one sprite sheet");
+                    if (!VideoBake.Lay(timed, plan.VideoW, plan.VideoH, b.CapW, b.CapH))
+                        throw new InvalidDataException($"{b.Video}'s {timed.Count} frames don't fit in one sprite sheet");
                     b.Plan = plan = timed;
+                    if (plan.CellW != frames.Width || plan.CellH != frames.Height)
+                    {
+                        frames.Dispose();
+                        b.Frames = new EnemyArt.VideoFrames(b.Playable, b.Video, plan.CellW, plan.CellH);
+                        return;
+                    }
                 }
                 b.Sheet = new byte[plan.SheetW * plan.SheetH * 4];
                 frames.Start(plan.ReadAt, plan.Count > 1 ? plan.ReadAt.Zip(plan.ReadAt.Skip(1)).Min(t => t.Second - t.First) : 1);
@@ -369,34 +427,99 @@ internal static partial class BattleCreator
         touched.Add(b.Video);
         // Keys in any letter case, as the draft reads them.
         var video = JsonNode.Parse(d.ArtJson() ?? "{}", new JsonNodeOptions { PropertyNameCaseInsensitive = true })?[anim] as JsonObject;
+        var undo = new BakeUndo { Draft = d, Sheet = r.File, Video = b.Video, Before = video?.ToJsonString(), SizeAuto = artSizeAuto };
         d.SetArtAnimation(anim, r.File, ArtEditing.Json(ArtKind.Sheet));
         foreach (var (key, value) in VideoBake.Settings(plan, anim, video, b.Hit)) d.SetArtValue(anim, key, value);
+        var resized = new List<string>();
         if (anim == "idle")
         {
             // The others' sizes are measured against the idle's pixels, so they follow smaller frames;
             // and a size worked out from the video stays, not one worked out from the new frames.
             foreach (var other in ArtAnims.Where(o => o != "idle" && d.HasArt(o)))
-                if (VideoBake.OtherScale(plan, d.ArtNumber(other, "scale")) is double scale)
-                    d.SetArtValue(other, "scale", BattleDraft.ArtNumberNode(Math.Abs(scale - 1) < 1e-9 ? null : scale));
-            if (b.Size is double size && d.ArtNumber("", "size") == null) d.SetArtValue("", "size", BattleDraft.ArtNumberNode(size));
+            {
+                double? old = d.ArtNumber(other, "scale");
+                if (VideoBake.OtherScale(plan, old) is not double scale) continue;
+                d.SetArtValue(other, "scale", BattleDraft.ArtNumberNode(Math.Abs(scale - 1) < 1e-9 ? null : scale));
+                undo.Others.Add((other, "scale", old, d.ArtNumber(other, "scale")));
+                if (Math.Abs((d.ArtNumber(other, "scale") ?? 1) - (old ?? 1)) > 1e-9) resized.Add(other);
+            }
+            if (b.Size is double size && d.ArtNumber("", "size") == null)
+            {
+                d.SetArtValue("", "size", BattleDraft.ArtNumberNode(size));
+                undo.Others.Add(("", "size", null, d.ArtNumber("", "size")));
+                // Worked out, not typed: a new idle works it out again.
+                artSizeAuto = true;
+            }
         }
         var look = b.Background;
         if (look is { Flat: true }) bakedBackgrounds[r.File] = look;
+        // A corner colour carried over from the video takes the range its background needs, as a click to corner colour does.
+        bool ranged = look is { Flat: true } && look.Range > 0.15 + 1e-9 && d.ArtNumber(anim, "keyRange") == null
+                      && "corner".Equals(d.ArtText(anim, "keyColor"), StringComparison.OrdinalIgnoreCase);
+        if (ranged) d.SetArtValue(anim, "keyRange", BattleDraft.ArtNumberNode(look!.Range));
+        bakeUndos[anim] = undo;
         artSelected = anim;
         var frames = b.Frames;
         ModLog.Info($"Battle creator: turned the {anim} video {b.Video} into {r.File}: {plan.Count} frames of {plan.CellW} x {plan.CellH} " +
                     $"({plan.Columns} x {plan.Rows}) at {plan.Fps} a second{(plan.Thinned ? $", {plan.Count} of {plan.Frames}" : "")}, " +
-                    $"{(frames?.Busy ?? 0)} repeated while the game was busy, {(frames?.PastEnd ?? 0)} past the video's end, in {b.Clock.ElapsedMilliseconds} ms; " +
-                    $"background {(look is { Flat: true } ? $"{look.Name}, range {ArtEditing.Num(look.Range)}" : "not flat")}.");
+                    $"{(frames?.Busy ?? 0)} read late while the game was busy, {(frames?.PastEnd ?? 0)} past the video's end, in {b.Clock.ElapsedMilliseconds} ms; " +
+                    $"background {(look is { Flat: true } ? $"{look.Name}, range {ArtEditing.Num(look.Range)}" : "not flat")}" +
+                    $"{(resized.Count > 0 ? $"; scale changed for {string.Join(", ", resized)}" : "")}.");
         var said = new List<string> { $"{Cap(anim)} is a sprite sheet now: {ArtEditing.Frames(plan.Count)}, {plan.Fps} a second ({Path.GetFileName(r.File)})." };
         if (plan.Thinned) said.Add($"The video is long, so {plan.Count} of its {plan.Frames} frames are kept.");
         if (plan.CellH < plan.VideoH) said.Add($"Each frame is {plan.CellW} x {plan.CellH} (the video is {plan.VideoW} x {plan.VideoH}).");
-        if ((frames?.Busy ?? 0) > 0) said.Add($"{frames!.Busy} frames repeat the one before as the game was busy; turn the video into frames again if it looks jumpy.");
+        if (resized.Count > 0)
+            said.Add($"Size compared to Idle changed for the {(resized.Count == 1 ? resized[0] : string.Join(", ", resized.Take(resized.Count - 1)) + " and " + resized[^1])}, " +
+                     $"so {(resized.Count == 1 ? "it shows" : "they show")} as big as before.");
+        if ((frames?.Busy ?? 0) > 0) said.Add($"{frames!.Busy} frames were read late as the game was busy; turn the video into frames again if it looks jumpy.");
         if (d.ArtText(anim, "keyColor") == null)
             said.Add(look is { Flat: true }
                 ? $"Its background is {look.Name}: set See-through colour to corner colour to cut it out."
                 : "See-through colour can cut out a flat background now.");
-        said.Add("Save to keep it; the video then goes to the Recycle Bin if nothing else uses it.");
+        else if (ranged) said.Add($"Its {look!.Name} background is uneven, so Range is {ArtEditing.Percent(look.Range)} to cut all of it out.");
+        said.Add("Save to keep it; the video then goes to the Recycle Bin if nothing else uses it. Back to the video undoes it.");
         Say(string.Join(" ", said), 12f);
+    }
+
+    /// <summary>
+    /// Back to the video: the animation as it was before it was turned into frames, and the others'
+    /// sizes and the whole enemy's size the bake wrote (unless they were changed since). The sheet
+    /// goes after a save, like any file nothing names.
+    /// </summary>
+    private static void BackToVideo()
+    {
+        if (draft == null || !FinishTyping() || !EnemyEditable() || BakeUndoFor(artSelected) is not { } u) return;
+        var d = draft;
+        string anim = artSelected;
+        bakeUndos.Remove(anim);
+        if (!File.Exists(Path.Combine(d.Folder, u.Video.Replace('/', Path.DirectorySeparatorChar))))
+        {
+            Say($"{Path.GetFileName(u.Video)} isn't in the battle's art folder any more, so the {anim} stays a sprite sheet.", 6f);
+            return;
+        }
+        var before = u.Before == null ? null : JsonNode.Parse(u.Before, new JsonNodeOptions { PropertyNameCaseInsensitive = true }) as JsonObject;
+        d.SetArtAnimation(anim, u.Video, before?["kind"] is JsonValue k && k.TryGetValue(out string? kind) ? kind : ArtEditing.Json(ArtKind.Video));
+        foreach (var (key, value) in before ?? new JsonObject())
+            if (value != null && !key.Equals("file", StringComparison.OrdinalIgnoreCase) && !key.Equals("kind", StringComparison.OrdinalIgnoreCase))
+                d.SetArtValue(anim, key, JsonNode.Parse(value.ToJsonString()));
+        foreach (var (other, key, old, wrote) in u.Others)
+        {
+            double? now = d.ArtNumber(other, key);
+            if (key == "scale")
+            {
+                // Sizes compared to the idle follow its pixels back, whether they were set since or not.
+                if (!d.HasArt(other)) continue;
+                double scale = now == wrote ? old ?? 1 : VideoBake.ScaleUp((now ?? 1) * (old ?? 1) / (wrote ?? 1));
+                d.SetArtValue(other, key, BattleDraft.ArtNumberNode(Math.Abs(scale - 1) < 1e-9 ? null : scale));
+            }
+            else if (now == wrote)
+            {
+                d.SetArtValue(other, key, BattleDraft.ArtNumberNode(old));
+                artSizeAuto = u.SizeAuto;
+            }
+        }
+        artFills.Remove(anim);
+        ModLog.Info($"Battle creator: the {anim} of {d.Folder} is the video {u.Video} again (it was {u.Sheet}).");
+        Say($"{Cap(anim)} is the video again, as it was before Turn into frames. Save to keep it.", 6f);
     }
 }

@@ -23,6 +23,8 @@ internal static class VideoBake
     private const double SameBackground = 0.2;
     /// <summary>How much of the edge must be that colour for the background to count as flat.</summary>
     private const double FlatShare = 0.85;
+    /// <summary>How far past a read's own frame the showing one must be to count as late (a WebM's clock counts whole ms).</summary>
+    private const double LateMargin = 0.002;
 
     /// <summary>Which frames a video gives, and how they're laid out in the sheet.</summary>
     internal sealed class Plan
@@ -138,12 +140,31 @@ internal static class VideoBake
         return best;
     }
 
-    /// <summary>A plan made for more frames than the video turned out to have keeps its frame size and takes a grid for its own count.</summary>
-    internal static bool Regrid(Plan plan)
+    /// <summary>
+    /// The biggest frame for a video the battle now draws <paramref name="shown"/> game pixels tall
+    /// through a texture of textureW x textureH: at most that texture, and at most MaxDensity of its
+    /// pixels per game pixel. (The texture's own height is rounded up, and a sheet even a little
+    /// denser than MaxDensity is stored at half size.)
+    /// </summary>
+    internal static (int W, int H) Cap(int textureW, int textureH, double shown) =>
+        (textureW, (int)Math.Max(1, Math.Min(textureH, Math.Floor(ArtDecode.MaxDensity * shown * (1 + 1e-10)))));
+
+    /// <summary>
+    /// The reads a video frame showing at <paramref name="time"/> (the video's own seconds) takes,
+    /// from read <paramref name="next"/> on: each one it's the nearest frame to, or is already past.
+    /// Late are those whose own frame went by before it. Reads closer together than the video's
+    /// frames share one; they're not late.
+    /// </summary>
+    internal static (int Due, int Late) Reads(double[] readAt, int next, double time, double frameRate)
     {
-        if (Grid(plan.Count, plan.CellW, plan.CellH) is not (int columns, int rows)) return false;
-        (plan.Columns, plan.Rows) = (columns, rows);
-        return true;
+        double half = 0.5 / Math.Max(1, frameRate);
+        int due = 0, late = 0;
+        for (int i = next; i < readAt.Length && time >= readAt[i] - half; i++)
+        {
+            due++;
+            if (time > readAt[i] + half + LateMargin) late++;
+        }
+        return (due, late);
     }
 
     /// <summary>A frame of the plan's frame size (RGBA, top row first) into its cell of the sheet (RGBA, top row first).</summary>
@@ -196,7 +217,8 @@ internal static class VideoBake
         if (plan.TimesMs != null) set.Add(("times", new JsonArray(plan.TimesMs.Select(ms => (JsonNode?)Number(ms)).ToArray())));
         else set.Add(("fps", Number(plan.Fps)));
         if (anim == "attack" && hitSeconds is double hit) set.Add(("hitFrame", Number(HitFrame(plan, hit))));
-        if (video == null) return set;
+        // Written as just its file's name, it has no settings of its own (but smaller frames still take a scale).
+        video ??= new JsonObject();
         foreach (var (key, value) in video)
         {
             if (value == null) continue;
@@ -208,14 +230,14 @@ internal static class VideoBake
             // Smaller frames are drawn bigger to show the same size (the idle's size is in game pixels already).
             if (key.Equals("scale", StringComparison.OrdinalIgnoreCase) && anim != "idle" && Num(value) is double scale)
             {
-                set.Add((key, Number(Math.Clamp(Math.Round(scale / plan.Shrink, 3), 0.05, 20))));
+                set.Add((key, Number(ScaleUp(scale / plan.Shrink))));
                 continue;
             }
             if (Replaced.Contains(key)) continue;
             set.Add((key, JsonNode.Parse(value.ToJsonString())!));
         }
         if (anim != "idle" && plan.Shrink < 0.9995 && !set.Any(s => s.Item1.Equals("scale", StringComparison.OrdinalIgnoreCase)))
-            set.Add(("scale", Number(Math.Clamp(Math.Round(1 / plan.Shrink, 3), 0.05, 20))));
+            set.Add(("scale", Number(ScaleUp(1 / plan.Shrink))));
         // A video stands on its frame's bottom edge, and its own move was set for that; once a
         // see-through colour finds the character's feet, the move would count twice. So it keeps
         // standing where it did.
@@ -230,7 +252,13 @@ internal static class VideoBake
     /// measured against the idle's pixels, so it shrinks with them to show the same. Null when it stays.
     /// </summary>
     internal static double? OtherScale(Plan idle, double? scale) =>
-        idle.Shrink < 0.9995 ? Math.Clamp(Math.Round((scale ?? 1) * idle.Shrink, 3), 0.05, 20) : null;
+        idle.Shrink < 0.9995 ? ScaleUp((scale ?? 1) * idle.Shrink) : null;
+
+    /// <summary>
+    /// A size compared to the idle to 3 decimals, rounded up: never drawn smaller than asked, so
+    /// frames made as dense as the battle keeps (Cap) don't count as denser and get halved.
+    /// </summary>
+    internal static double ScaleUp(double scale) => Math.Clamp(Math.Ceiling(scale * 1000 - 1e-9) / 1000, 0.05, 20);
 
     // Whole numbers without ".0", as the creator writes them.
     private static JsonNode Number(double value) =>
