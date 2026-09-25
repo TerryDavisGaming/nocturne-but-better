@@ -960,6 +960,14 @@ internal sealed class BattleDraft
     /// <summary>Makes the last undone dialogue change again; false when there is none.</summary>
     internal bool RedoDialogue() => StepDialogue(dialogueRedo, dialogueUndo);
 
+    /// <summary>Every text in the dialogue's Undo and Redo steps: the pictures they can bring back, which stay out of the Recycle Bin while the battle is open.</summary>
+    internal HashSet<string> DialogueUndoTexts()
+    {
+        var texts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var json in dialogueUndo.Concat(dialogueRedo)) texts.UnionWith(Texts(ParseAny(json)));
+        return texts;
+    }
+
     private bool StepDialogue(List<string> from, List<string> to)
     {
         if (from.Count == 0 || DialogueLocked != null) return false;
@@ -1129,10 +1137,17 @@ internal sealed class BattleDraft
         foreach (var (name, value) in values) Put(speaker, name, value);
     });
 
-    /// <summary>A new speaker with a name and a picture; returns its key, made from the name (see <see cref="SpeakerKeyFor"/>).</summary>
-    internal string AddSpeaker(string name, string portrait)
+    /// <summary>
+    /// A new speaker with a name and a picture; returns its key, made from the name (see
+    /// <see cref="SpeakerKeyFor"/>). The key is never a speaker a line already names, nor one of
+    /// <paramref name="gameIds"/>: a speaker's key wins over a game character spelled the same,
+    /// so it would take over that character's lines.
+    /// </summary>
+    internal string AddSpeaker(string name, string portrait, IEnumerable<string>? gameIds = null)
     {
-        string key = SpeakerKeyFor(name, SpeakersNode?.Select(p => p.Key) ?? Enumerable.Empty<string>());
+        var said = Sections.SelectMany(s => Section(s) ?? new JsonArray()).OfType<JsonObject>().Select(line => TextOnly(line, "speaker")?.Trim() ?? "");
+        var taken = (SpeakersNode?.Select(p => p.Key) ?? Enumerable.Empty<string>()).Concat(said).Concat(gameIds ?? Enumerable.Empty<string>());
+        string key = SpeakerKeyFor(name, taken);
         EditDialogue(() =>
         {
             if (SpeakersNode is not { } all) Put(dialogue, "speakers", all = new JsonObject(NodeOptions));

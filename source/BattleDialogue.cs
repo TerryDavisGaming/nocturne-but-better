@@ -63,6 +63,7 @@ internal static partial class BattleDialogue
         var expressions = Method(typeof(PortraitManager), "GetExpressions");
         var bubble = Method(typeof(DialogueStyleNormal), "GetDialogueBubbleHeight");
         var canPause = Method(typeof(NocturneGui), "CanPauseGameState");
+        var togglePause = Method(typeof(NocturneGui), "TogglePause");
         var exit = Method(typeof(CombatManagerV3), "ExitCombat");
         harmony.Patch(ready, prefix: Hook(nameof(ReadyPrefix)));
         harmony.Patch(endRoutine, postfix: Hook(nameof(EndRoutinePostfix)));
@@ -70,6 +71,7 @@ internal static partial class BattleDialogue
         harmony.Patch(expressions, prefix: Hook(nameof(ExpressionsPrefix)));
         harmony.Patch(bubble, postfix: Hook(nameof(BubbleHeightPostfix)));
         harmony.Patch(canPause, postfix: Hook(nameof(CanPausePostfix)));
+        harmony.Patch(togglePause, prefix: Hook(nameof(TogglePausePrefix)));
         harmony.Patch(exit, postfix: Hook(nameof(ExitPostfix)));
         installed = true;
     }
@@ -174,6 +176,9 @@ internal static partial class BattleDialogue
     {
         if (__result && director?.GatesPause == true) __result = false;
     }
+
+    // A gamepad's Pause goes straight to the pause menu, without asking CanPauseGameState.
+    private static bool TogglePausePrefix() => director?.GatesPause != true;
 
     // Every way out of a battle: won, lost, quit, or back to the chart editor.
     private static void ExitPostfix()
@@ -419,6 +424,10 @@ internal static partial class BattleDialogue
                         QaDump(endType == 1 ? "after the lines after a loss" : "after the lines after a win");
                     }
                     break;
+                case Phase.Released:
+                    // The battle ended with no lines after it: a live line still up goes.
+                    if (liveStyle != null) HideLive();
+                    break;
             }
             QaUpdate();
         }
@@ -517,7 +526,13 @@ internal static partial class BattleDialogue
         private void UpdateSong()
         {
             var m = Manager();
-            if (m == null || !m.initializedSong || m.waitingForPlayerReady || m.endedSong || !conductor) return;
+            if (m == null || !m.initializedSong || m.waitingForPlayerReady || !conductor) return;
+            if (m.endedSong)
+            {
+                // The song is over: a live line still up goes (the lines after it hide it too).
+                if (liveStyle != null) HideLive();
+                return;
+            }
             if (conductor.Paused || AudioController.IsPausedCombat) return;
             var song = conductor.songPosition;
             if (song == null) return;
@@ -920,14 +935,17 @@ internal static partial class BattleDialogue
 
     /// <summary>
     /// A data cutscene of Dialogue actions. It is always repeatable: when a cutscene that isn't ends,
-    /// the game marks its caller as a seen scene in the loaded save.
+    /// the game marks its caller as a seen scene in the loaded save. It has no cinematic bars (the
+    /// constructor turns them on), which would slide over the battle and end with the overworld's
+    /// "cutscene out" sound. The actions go in as they are: Cutscene.Builder copies each one, and
+    /// the copy loses the name tag (overrideName and the names).
     /// </summary>
     private static Cutscene NewBlock(IEnumerable<SceneAction> actions)
     {
-        var builder = new Cutscene.Builder();
-        foreach (var action in actions) builder.AddAction(new ICutsceneAction(new CutsceneAction(action).Pointer));
-        var scene = builder.Build();
+        var scene = new Cutscene();
+        foreach (var action in actions) scene._actions.Add(action);
         scene._repeatable = true;
+        scene._letterbox = false;
         return scene;
     }
 }

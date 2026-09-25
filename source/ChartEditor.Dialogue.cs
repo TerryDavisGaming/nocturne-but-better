@@ -495,14 +495,14 @@ internal static partial class ChartEditor
     private static string SaveDialogue()
     {
         if (!cuesChanged || dialogueLink?.Save == null) return "";
-        bool saved;
-        try { saved = dialogueLink.Save(); }
+        string? problem;
+        try { problem = dialogueLink.Save(); }
         catch (Exception ex)
         {
             ModLog.Error("Chart editor: the battle creator's save failed: " + ex);
-            saved = false;
+            problem = ex.Message;
         }
-        if (!saved) return " battle.json with the dialogue lines wasn't saved: the Battle creator says why when it's back.";
+        if (problem != null) return $" battle.json with the dialogue lines wasn't saved: {problem.Trim().TrimEnd('.')}.";
         cuesChanged = false;
         ModLog.Info("Chart editor: the battle creator saved battle.json with the dialogue lines.");
         return " battle.json is saved too, with the dialogue lines (and the Battle creator's other unsaved changes).";

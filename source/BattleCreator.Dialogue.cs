@@ -1283,7 +1283,7 @@ internal static partial class BattleCreator
         if (screen == Screen.Pick) BackFromPicker();
         PickPortrait("Choose the speaker's picture", (d, file) =>
         {
-            string key = d.AddSpeaker(NameFromFile(file), file);
+            string key = d.AddSpeaker(NameFromFile(file), file, GameCharacters()?.Select(c => c.Id));
             chosenSpeaker = key;
             chosenFace = -1;
             if (onLine && d.IsLine(section, line))
@@ -1421,7 +1421,7 @@ internal static partial class BattleCreator
             {
                 if (draft == d && d.DialogueLocked == null) d.SetDuringCues(cues);
             },
-            Save = () => draft == d && Save(),
+            Save = () => draft != d ? "the battle isn't open in the Battle creator any more" : Save() ? null : saveProblem ?? "the Battle creator couldn't save just now",
             NameOf = id => draft == d ? SpeakerLabel(id) : id,
             Speakers = () => draft == d ? SpeakerChoices(all: false).Select(c => (c.Id, c.Label)).ToList() : new List<(string, string)>(),
             ShowInCreator = index =>

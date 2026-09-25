@@ -302,7 +302,8 @@ internal static class DialogueReader
     /// How a custom speaker's default face shows in the game's box: its size in game pixels, game
     /// pixels per picture pixel, and whether it is drawn sharp (a whole number of them). A picture
     /// up to 256 x 240 shows pixel for pixel, and a tiny one (under 96 tall) at a whole number up
-    /// to 4x; a bigger one is scaled down to fit 256 x 240. Every other face shows at this size.
+    /// to 4x, no wider than 256; a bigger one is scaled down to fit 256 x 240. Every other face
+    /// shows at this size.
     /// </summary>
     internal static (double Width, double Height, double Scale, bool Sharp) ShownSize(int width, int height)
     {
@@ -310,7 +311,7 @@ internal static class DialogueReader
         height = Math.Max(1, height);
         double k = 1;
         if (width > 256 || height > 240) k = Math.Min(256.0 / width, 240.0 / height);
-        else if (height < 96) k = Math.Max(1, Math.Min(4, Math.Floor(160.0 / height)));
+        else if (height < 96) k = Math.Max(1, Math.Min(Math.Min(4, Math.Floor(160.0 / height)), Math.Floor(256.0 / width)));
         return (width * k, height * k, k, k == Math.Floor(k));
     }
 
@@ -404,6 +405,7 @@ internal static class DialogueReader
         private bool picturesFull;
         private EditorChart? timing;
         private List<int>? noteRows;
+        private int? lastNoteRow;
 
         internal Reading(PackageFiles files, ChartText chart, IReadOnlyList<ChartText.NoteBlock?> slots, List<string> problems, Action<string> stamp)
         {
@@ -884,7 +886,8 @@ internal static class DialogueReader
             return rows;
         }
 
-        private int LastNoteRow() => slots.Where(s => s != null).Select(s => ChartText.LastNoteRow(s!)).DefaultIfEmpty(0).Max();
+        // Read once: every line during the song is checked against it.
+        private int LastNoteRow() => lastNoteRow ??= slots.Where(s => s != null).Select(s => ChartText.LastNoteRow(s!)).DefaultIfEmpty(0).Max();
 
         // ---- values: keys in any letter case, numbers as numbers or text -------------------------
 

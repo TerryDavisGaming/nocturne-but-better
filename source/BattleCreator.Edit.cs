@@ -66,7 +66,7 @@ internal static partial class BattleCreator
             },
             Choose = i =>
             {
-                if (i == 0) { if (Save()) CloseBattle(); else BackFromPicker(); }
+                if (i == 0) { if (Save(leaving: true)) CloseBattle(); else BackFromPicker(); }
                 else if (i == 1)
                 {
                     ModLog.Info($"Battle creator: left {d.Folder} without saving.");
@@ -86,7 +86,7 @@ internal static partial class BattleCreator
         StopDialoguePreview(true);
         ClearCardPreview();
         EndTyping();
-        CleanUnused();
+        CleanUnused(leaving: true);
         draft = null;
         song = null;
         audioLoad = null;
@@ -421,8 +421,12 @@ internal static partial class BattleCreator
 
     // ---- saving ----------------------------------------------------------------------------------
 
-    private static bool Save()
+    // Why the last save failed, for the chart editor's status line (the creator is hidden then).
+    private static string? saveProblem;
+
+    private static bool Save(bool leaving = false)
     {
+        saveProblem = null;
         if (draft == null || !FinishTyping()) return false;
         try
         {
@@ -433,10 +437,11 @@ internal static partial class BattleCreator
         {
             // Whatever went wrong, the creator stays open with the changes still in it.
             ModLog.Error("Battle creator: saving failed: " + ex);
+            saveProblem = ex.Message;
             Say("Saving failed: " + ex.Message, 7f);
             return false;
         }
-        CleanUnused();
+        CleanUnused(leaving);
         RefreshBattleInfo();
         RefreshArcade();
         Say("Saved.", 2.5f);
@@ -452,13 +457,24 @@ internal static partial class BattleCreator
         catch (Exception ex) { ModLog.Error("Battle creator: updating the arcade's battles failed: " + ex.Message); }
     }
 
-    /// <summary>Sends the songs, images and art that the saved battle no longer uses to the Recycle Bin, in the background.</summary>
-    private static void CleanUnused()
+    /// <summary>
+    /// Sends the songs, images and art that the saved battle no longer uses to the Recycle Bin, in
+    /// the background. A speaker's picture the dialogue's Undo can still bring back stays until
+    /// the battle is left (<paramref name="leaving"/>).
+    /// </summary>
+    private static void CleanUnused(bool leaving = false)
     {
         // One at a time: whatever is left waits for the next save or for leaving the battle.
         if (draft == null || touched.Count == 0 || cleanup != null) return;
         var candidates = touched.ToList();
         touched.Clear();
+        if (!leaving)
+        {
+            var undoable = draft.DialogueUndoTexts();
+            touched.AddRange(candidates.Where(undoable.Contains));
+            candidates.RemoveAll(undoable.Contains);
+            if (candidates.Count == 0) return;
+        }
         string folder = draft.Folder;
         IntPtr owner = gameWindow;
         cleanup = OnShellThread(() =>

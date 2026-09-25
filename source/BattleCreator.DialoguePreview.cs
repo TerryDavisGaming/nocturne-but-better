@@ -255,7 +255,7 @@ internal static partial class BattleCreator
         // own that can't be used, speaks as the Narrator.
         if (!Speaks(speaker))
         {
-            shot.Note = who == Who.Custom ? $"{SpeakerName(speaker)} can't be used (see the problems), so the Narrator says this line."
+            shot.Note = who == Who.Custom ? $"{SpeakerName(speaker)} can't be used (the Speakers tab says why), so the Narrator says this line."
                 : $"The game has no character \"{speaker}\", so the Narrator says this line.";
             who = Who.Narrator;
         }

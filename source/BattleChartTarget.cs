@@ -140,8 +140,8 @@ internal sealed class DialogueLink
     internal Func<List<DialogueCue>> Get = () => new List<DialogueCue>();
     /// <summary>Puts the editor's lines in the draft, in its order; null when they can't be changed.</summary>
     internal Action<List<DialogueCue>>? Set;
-    /// <summary>The battle creator's Save (battle.json, and the dialogue's own file); true when it saved.</summary>
-    internal Func<bool>? Save;
+    /// <summary>The battle creator's Save (battle.json, and the dialogue's own file); null when it saved, else why it didn't.</summary>
+    internal Func<string?>? Save;
     /// <summary>The name a speaker shows as (the battle's own speaker's name, a game character's, "Narrator").</summary>
     internal Func<string, string> NameOf = id => id;
     /// <summary>Who the editor offers for a line: the battle's own speakers, the game characters it uses, the Narrator.</summary>
