@@ -365,7 +365,7 @@ internal sealed class BattleDraft
         inferredLanes = null;
     }
 
-    /// <summary>Where the arcade's preview of the song starts, in seconds.</summary>
+    /// <summary>Where the creator's Play 10 s starts, in seconds (the arcade plays no song previews).</summary>
     internal double PreviewStart
     {
         get => Math.Max(0, GetNumber(root, "previewStart") ?? 0);

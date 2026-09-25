@@ -353,10 +353,10 @@ internal static partial class BattleCreator
 
     private static readonly TextField PreviewField = new()
     {
-        Label = "Preview start",
+        Label = "Play from",
         Max = 10,
         Get = () => draft == null ? "" : Num(draft.PreviewStart),
-        Set = text => draft!.PreviewStart = ParseNumber(text, 0, 3600, "The preview start") ?? 0,
+        Set = text => draft!.PreviewStart = ParseNumber(text, 0, 3600, "Play from") ?? 0,
         Empty = () => "0",
         Hint = "Type the time in seconds, like 42.5, then Enter. Esc cancels.",
     };

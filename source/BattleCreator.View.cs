@@ -305,13 +305,13 @@ internal static partial class BattleCreator
         AddField(p, 0, ref y, Col1W, AuthorField);
         AddField(p, 0, ref y, Col1W, LoreField, h: 300);
         AddText(p, 0, ref y, Col1W, 66, LoreHint, 16);
-        AddHeader(p, 0, ref y, Col1W, "Arcade preview");
+        AddHeader(p, 0, ref y, Col1W, "Listen to the song");
         float row = y;
         AddField(p, 0, ref y, 560, PreviewField);
         var play = AddButton(p, 576, row, Col1W - 576, RowH, "", TogglePreview);
         play.Text = () => PreviewOn ? "Stop" : "Play 10 s";
         play.Active = () => PreviewOn;
-        AddText(p, 0, ref y, Col1W, 26, () => "Where the arcade's preview of the song starts, in seconds.", 16);
+        AddText(p, 0, ref y, Col1W, 26, () => "Where Play 10 s starts, in seconds (only for listening here).", 16);
 
         // The arcade card and its picture (BattleCreator.Card.cs).
         BuildCardSection(p);
