@@ -448,8 +448,10 @@ internal static class CustomMusic
                 fade = 1f - t;
             }
             if (p.Failed != null) throw new InvalidOperationException(p.Failed);
-            // The file ended (the player stops by itself once its end has been heard).
-            if (!paused && !p.Playing)
+            // The file ended: the player stops by itself once its end has been heard. A pause in the
+            // moment after that (the last buffer's silence) leaves it at its end too, and resuming
+            // would start the song over, so that ends it as well.
+            if ((!paused && !p.Playing) || p.Ended)
             {
                 Stop();
                 return;

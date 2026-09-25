@@ -48,6 +48,15 @@ internal sealed class EditorAudio : IDisposable
     internal bool Playing { get { lock (gate) return playing; } }
     internal double Speed { get { lock (gate) return speed; } }
 
+    /// <summary>
+    /// Stopped at the song's end, where <see cref="Play"/> starts it over: it played to the end,
+    /// or it was paused after its last sample was heard, before it stopped by itself.
+    /// </summary>
+    internal bool Ended { get { lock (gate) return !playing && AtEnd; } }
+
+    // At the song's end (read under gate); Play starts over from here.
+    private bool AtEnd => sourceFrame >= frames - 1;
+
     /// <param name="stereo">Interleaved stereo 16-bit samples at <paramref name="sampleRate"/>.</param>
     /// <param name="leadIn">
     /// How far before the first sample it can be seeked, playing silence there, so a song can start
@@ -98,7 +107,7 @@ internal sealed class EditorAudio : IDisposable
         lock (gate)
         {
             if (playing) return;
-            if (sourceFrame >= frames - 1) sourceFrame = 0;
+            if (AtEnd) sourceFrame = 0;
             ResetDevice(sourceFrame / rate);
             playing = true;
         }
@@ -110,6 +119,7 @@ internal sealed class EditorAudio : IDisposable
         lock (gate)
         {
             if (!playing) return;
+            // Paused in the silence after the file's last sample, it stays at the end (Ended).
             double now = CurrentTimeLocked();
             playing = false;
             draining = false;
