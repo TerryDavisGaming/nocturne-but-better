@@ -184,10 +184,7 @@ internal static partial class EnemyArt
             }, cancel);
         }
 
-        string? IArtLoadHost.VideoUnsupported(VideoFacts facts) =>
-            facts.Container == "mp4" && !MediaFoundation.Value
-                ? "needs Windows Media Foundation, which this PC doesn't have (Windows N needs the Media Feature Pack), so use a VP8 WebM"
-                : null;
+        string? IArtLoadHost.VideoUnsupported(VideoFacts facts) => EnemyArt.VideoUnsupported(facts);
 
         Task IArtLoadHost.Frames(PackedAnimation packed, bool smooth, CancellationToken cancel) =>
             OnMain(() => { Upload(packed, smooth); return true; }, cancel);
@@ -407,6 +404,12 @@ internal static partial class EnemyArt
 
     [DllImport("kernel32", CharSet = CharSet.Unicode)]
     private static extern IntPtr LoadLibraryW(string name);
+
+    /// <summary>Why this PC can't play a video (written to follow its file's name), or null.</summary>
+    internal static string? VideoUnsupported(VideoFacts facts) =>
+        facts.Container == "mp4" && !MediaFoundation.Value
+            ? "needs Windows Media Foundation, which this PC doesn't have (Windows N needs the Media Feature Pack), so use a VP8 WebM"
+            : null;
 
     /// <summary>Runs <paramref name="work"/> on the main thread (the next time the queue is pumped).</summary>
     private static Task<T> OnMain<T>(Func<T> work, CancellationToken cancel)
