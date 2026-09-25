@@ -153,8 +153,7 @@ internal static partial class ChartEditor
         ticksDirty = true;
         peaks = null;
 
-        audio?.Dispose();
-        audio = null;
+        ReleaseAudio();
         music = null;
         audioOrigin = 0;
         musicState = "Loading music...";

@@ -61,8 +61,7 @@ internal static partial class ChartEditor
 
     private static void Close()
     {
-        audio?.Dispose();
-        audio = null;
+        ReleaseAudio();
         music = null;
         loading = null;
         testHidden = false;

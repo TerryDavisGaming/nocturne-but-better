@@ -37,6 +37,20 @@ internal static partial class ChartEditor
 
     // The clock: the music's when it's loaded, otherwise a plain timer.
     private static EditorAudio? audio;
+
+    /// <summary>Lets go of the editor's player; closing the sound device takes tens of ms, so it's done on a worker.</summary>
+    private static void ReleaseAudio()
+    {
+        var old = audio;
+        audio = null;
+        if (old == null) return;
+        Task.Run(() =>
+        {
+            try { old.Dispose(); }
+            catch { }
+        });
+    }
+
     private static Task<SongAudio.Result>? loading;
     private static string musicState = "";
     private static double manualTime, manualLength = 120;
@@ -91,8 +105,7 @@ internal static partial class ChartEditor
         ticksDirty = true;
         peaks = null;
 
-        audio?.Dispose();
-        audio = null;
+        ReleaseAudio();
         music = null;
         musicState = "Loading music...";
         string songName = song!.name;

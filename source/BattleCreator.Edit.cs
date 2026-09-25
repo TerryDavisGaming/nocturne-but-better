@@ -685,7 +685,12 @@ internal static partial class BattleCreator
     private static (short[] Stereo, int Rate)? song;
     private static string audioState = "";
     private static EditorAudio? preview;
-    private static double previewEnd;
+    // The sound device opens (about 0.1 s) and closes off the main thread, so Play doesn't hitch the screen.
+    private static Task<EditorAudio>? previewOpening;
+    private static double previewStart, previewEnd;
+
+    /// <summary>Whether the song's preview is playing or about to.</summary>
+    private static bool PreviewOn => preview != null || previewOpening != null;
 
     /// <summary>Decodes the battle's song in the background, for its length and the preview.</summary>
     private static void StartAudioLoad()
@@ -727,29 +732,38 @@ internal static partial class BattleCreator
     /// <summary>Plays 10 seconds of the song from the preview start, or stops it.</summary>
     private static void TogglePreview()
     {
-        if (preview != null) { StopPreview(); return; }
+        if (PreviewOn) { StopPreview(); return; }
         if (draft == null || !FinishTyping()) return;
         if (song == null) { Say(audioLoad != null ? "The song is still loading." : "The song can't play: it " + audioState, 4f); return; }
         var (stereo, rate) = song.Value;
         double length = stereo.Length / 2.0 / rate;
-        double start = Math.Clamp(draft.PreviewStart, 0, Math.Max(0, length - 0.5));
-        try
-        {
-            preview = new EditorAudio(stereo, rate);
-            preview.Seek(start);
-            preview.Play();
-            previewEnd = Math.Min(length, start + 10);
-        }
-        catch (Exception ex)
-        {
-            StopPreview();
-            ModLog.Error("Battle creator: playing the preview failed: " + ex.Message);
-            Say("The song can't play: " + ex.Message, 5f);
-        }
+        previewStart = Math.Clamp(draft.PreviewStart, 0, Math.Max(0, length - 0.5));
+        previewEnd = Math.Min(length, previewStart + 10);
+        previewOpening = Task.Run(() => new EditorAudio(stereo, rate));
     }
 
     private static void UpdatePreview()
     {
+        if (previewOpening != null)
+        {
+            if (!previewOpening.IsCompleted) return;
+            var opened = previewOpening;
+            previewOpening = null;
+            try
+            {
+                preview = opened.Result;
+                preview.Seek(previewStart);
+                preview.Play();
+            }
+            catch (Exception ex)
+            {
+                var reason = Unwrap(ex);
+                StopPreview();
+                ModLog.Error("Battle creator: playing the preview failed: " + reason.Message);
+                Say("The song can't play: " + reason.Message, 5f);
+                return;
+            }
+        }
         if (preview == null) return;
         if (preview.Failed != null) { Say("The song stopped: " + preview.Failed, 4f); StopPreview(); return; }
         if (!preview.Playing || preview.Time >= previewEnd - 0.01) StopPreview();
@@ -757,8 +771,23 @@ internal static partial class BattleCreator
 
     private static void StopPreview()
     {
-        preview?.Dispose();
+        // A player still opening is closed once it's open; closing takes tens of ms, so it's done on a worker.
+        var opening = previewOpening;
+        previewOpening = null;
+        opening?.ContinueWith(t =>
+        {
+            if (t.Status != TaskStatus.RanToCompletion) return;
+            try { t.Result.Dispose(); }
+            catch { }
+        }, TaskScheduler.Default);
+        var playing = preview;
         preview = null;
+        if (playing == null) return;
+        Task.Run(() =>
+        {
+            try { playing.Dispose(); }
+            catch { }
+        });
     }
 
     private static void ReplaceSong()

@@ -309,8 +309,8 @@ internal static partial class BattleCreator
         float row = y;
         AddField(p, 0, ref y, 560, PreviewField);
         var play = AddButton(p, 576, row, Col1W - 576, RowH, "", TogglePreview);
-        play.Text = () => preview != null ? "Stop" : "Play 10 s";
-        play.Active = () => preview != null;
+        play.Text = () => PreviewOn ? "Stop" : "Play 10 s";
+        play.Active = () => PreviewOn;
         AddText(p, 0, ref y, Col1W, 26, () => "Where the arcade's preview of the song starts, in seconds.", 16);
 
         // The arcade card and its picture (BattleCreator.Card.cs).
