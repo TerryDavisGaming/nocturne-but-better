@@ -194,6 +194,10 @@ internal sealed class BattleManifest
     public string? author { get; set; }
     public string? lore { get; set; }
     public string? card { get; set; }
+    // How the card's picture fills the arcade card's square (CardLayout); read loosely, so a wrong one is only noted.
+    public JsonElement cardFit { get; set; }
+    public JsonElement cardFocus { get; set; }
+    public JsonElement cardSmooth { get; set; }
     public string? audio { get; set; }
     public double? previewStart { get; set; }
     public int? lanes { get; set; }
@@ -459,6 +463,8 @@ internal sealed class BattlePackage
     internal string Author = "";
     internal string Lore = "";
     internal string? CardPath;
+    /// <summary>How the card's picture fills the arcade card's square ("cardFit", "cardFocus", "cardSmooth").</summary>
+    internal CardLayout.Look CardLook = CardLayout.Look.Default;
     internal string AudioPath = "";
     internal double PreviewStart;
     internal int Lanes;
@@ -583,6 +589,8 @@ internal sealed class BattlePackage
                 else song.CardPath = card;
             }
         }
+        // The card's keys only matter with a card to show.
+        song.CardLook = CardLayout.Read(manifest.cardFit, manifest.cardFocus, manifest.cardSmooth, song.CardPath != null ? song.Problems : null);
 
         song.Enemy = ReadEnemy(manifest.enemy, files, song.Problems, Stamp);
         if (song.Enemy.stats is EnemyStats stats)

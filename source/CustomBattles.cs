@@ -538,14 +538,13 @@ internal static class CustomBattles
             try
             {
                 var bytes = package.Files.ReadAllBytes(package.CardPath, BattlePackage.MaxImageBytes);
-                // Cards are kept for the session, so a big image is kept at the size the arcade needs.
-                var texture = CardImages.Decode(bytes, package.ScoreKey + "/card", CardImages.MaxCardSide, out float scale, out string? why);
-                if (texture != null)
+                // Cards are kept for the session, so only what the card shows is kept, at the size the arcade needs.
+                var card = CardImages.Make(bytes, package.ScoreKey + "/card", package.CardLook, keepPart: true, out string? why);
+                if (card != null)
                 {
-                    made.Add(texture);
-                    var sprite = CardImages.ToSprite(texture, scale);
-                    made.Add(sprite);
-                    return (sprite, texture);
+                    made.Add(card.Texture);
+                    made.Add(card.Sprite);
+                    return (card.Sprite, card.Texture);
                 }
                 Note($"Custom battle {package.Title}: {package.CardPath} {why}, so its card is plain for now.");
             }
@@ -557,7 +556,12 @@ internal static class CustomBattles
         return (CardImages.Placeholder, null);
     }
 
-    /// <summary>Card images as textures and sprites; the battle creator shows its card preview with them too.</summary>
+    /// <summary>
+    /// Card images as textures and sprites; the battle creator shows its card preview with them too.
+    /// The arcade card's picture slot is square and the game fits a sprite whole into it, so what
+    /// the card shows (the square it fills, or the whole picture), its size and its filter are all
+    /// in the sprite and its texture (<see cref="CardLayout"/>).
+    /// </summary>
     internal static class CardImages
     {
         // ImageConversion.LoadImage was stripped from the game's managed code, but Unity still
@@ -567,8 +571,8 @@ internal static class CustomBattles
         private static bool looked;
         private static Sprite? placeholder;
 
-        /// <summary>The longest side an arcade card is kept at; a bigger image is scaled down to it.</summary>
-        internal const int MaxCardSide = 1024;
+        /// <summary>The longest side an arcade card is kept at; a bigger image is scaled down to it (see <see cref="Make"/>).</summary>
+        internal const int MaxCardSide = CardLayout.KeepSide;
         /// <summary>
         /// A card image bigger than this on a side isn't decoded at all (8192 x 8192 is 256 MB while
         /// decoding); a 50 MP phone photo (8160 x 6120) still is.
@@ -592,7 +596,9 @@ internal static class CustomBattles
             scale = 1f;
             var texture = Load(bytes, name, MaxDecodeSide, "card images", readable: false, out why);
             if (texture == null || keepSide <= 0 || (texture.width <= keepSide && texture.height <= keepSide)) return texture;
-            var smaller = ScaledDown(texture, keepSide);
+            float factor = keepSide / (float)Math.Max(texture.width, texture.height);
+            var smaller = Resampled(texture, Math.Clamp((int)Math.Round(texture.width * factor), 1, keepSide),
+                Math.Clamp((int)Math.Round(texture.height * factor), 1, keepSide), null);
             if (smaller != null)
             {
                 scale = smaller.width / (float)texture.width;
@@ -600,6 +606,77 @@ internal static class CustomBattles
                 texture = smaller;
             }
             return texture;
+        }
+
+        /// <summary>A card picture made for the arcade's square slot, and what was worked out for it.</summary>
+        internal sealed class Card
+        {
+            internal Texture2D Texture = null!;
+            internal Sprite Sprite = null!;
+            /// <summary>The picture file's own size.</summary>
+            internal int FileWidth, FileHeight;
+            /// <summary>What was kept and shown (<see cref="CardLayout.Work"/>); its own size when making it smaller failed.</summary>
+            internal CardLayout.Plan Plan;
+        }
+
+        /// <summary>
+        /// A card picture as the arcade shows it, or null with why it can't be shown
+        /// (<paramref name="why"/>, written to follow the file's name): at most
+        /// <see cref="CardLayout.KeepSide"/> across the slot, showing the square it fills (or the
+        /// whole picture), crisp or smooth, as <paramref name="look"/> says. The texture keeps no copy
+        /// in system memory.
+        /// </summary>
+        /// <param name="keepPart">
+        /// Keep only the part the card shows when the picture is big (the arcade, which keeps its
+        /// cards for the session). Otherwise the texture is the whole picture at the kept size and
+        /// the sprite shows the part (the battle creator's preview, whose square can move:
+        /// <see cref="Reframe"/>). The pixels shown are the same either way.
+        /// </param>
+        internal static Card? Make(byte[] bytes, string name, CardLayout.Look look, bool keepPart, out string? why)
+        {
+            var texture = Load(bytes, name, MaxDecodeSide, "card images", readable: false, out why);
+            if (texture == null) return null;
+            int fileWidth = texture.width, fileHeight = texture.height;
+            var plan = CardLayout.Work(fileWidth, fileHeight, look);
+            var part = new Rect(plan.X, plan.Y, plan.PartWidth, plan.PartHeight);
+            // A small picture is kept whole (its sprite shows the part); a long one, like 500 x 8000, only its part.
+            if (plan.Smaller || (keepPart && plan.Cropped && Math.Max(plan.Width, plan.Height) > CardLayout.KeepSide))
+            {
+                var made = Resampled(texture, plan.Width, plan.Height, keepPart ? part : null);
+                if (made != null)
+                {
+                    Object.Destroy(texture);
+                    texture = made;
+                    if (keepPart) part = new Rect(0f, 0f, made.width, made.height);
+                }
+                else
+                {
+                    // Kept at its own size (see Resampled); the sprite still shows only the card's part.
+                    plan = CardLayout.Work(fileWidth, fileHeight, look, int.MaxValue);
+                    part = new Rect(plan.X, plan.Y, plan.PartWidth, plan.PartHeight);
+                }
+            }
+            texture.filterMode = plan.Crisp ? FilterMode.Point : FilterMode.Bilinear;
+            var sprite = ToSprite(texture, part, texture.width / (float)fileWidth);
+            return new Card { Texture = texture, Sprite = sprite, FileWidth = fileWidth, FileHeight = fileHeight, Plan = plan };
+        }
+
+        /// <summary>
+        /// Shows another part of a card made with keepPart false (the battle creator's preview while
+        /// its square moves, or its crispness changes): a new sprite, and the old one destroyed. The
+        /// look must fill or not as it did when the card was made (the kept size depends on it).
+        /// </summary>
+        internal static void Reframe(Card card, CardLayout.Look look)
+        {
+            var plan = CardLayout.Work(card.FileWidth, card.FileHeight, look, card.Plan.Smaller ? CardLayout.KeepSide : int.MaxValue);
+            var part = new Rect(plan.X, plan.Y, plan.PartWidth, plan.PartHeight);
+            card.Plan = plan;
+            var filter = plan.Crisp ? FilterMode.Point : FilterMode.Bilinear;
+            if (card.Texture.filterMode != filter) card.Texture.filterMode = filter;
+            if (card.Sprite && card.Sprite.rect == part) return;
+            var old = card.Sprite;
+            card.Sprite = ToSprite(card.Texture, part, card.Texture.width / (float)card.FileWidth);
+            if (old) Object.Destroy(old);
         }
 
         /// <summary>
@@ -640,13 +717,13 @@ internal static class CustomBattles
             return texture;
         }
 
-        // Scales a texture down on the graphics card, halving it in steps so no pixels are skipped,
-        // and reads the result into a new texture. Null (and the full-size texture is used) if that fails.
-        private static Texture2D? ScaledDown(Texture2D source, int maxSide)
+        // Scales a texture to width x height on the graphics card (halving it in steps first, so no
+        // pixels are skipped) and reads the result, or only its part, into a new texture. Null (and
+        // the full-size texture is used) if that fails.
+        private static Texture2D? Resampled(Texture2D source, int width, int height, Rect? part)
         {
-            float factor = maxSide / (float)Math.Max(source.width, source.height);
-            int width = Math.Clamp((int)Math.Round(source.width * factor), 1, maxSide);
-            int height = Math.Clamp((int)Math.Round(source.height * factor), 1, maxSide);
+            var read = part ?? new Rect(0f, 0f, width, height);
+            int readWidth = Math.Max(1, (int)read.width), readHeight = Math.Max(1, (int)read.height);
             RenderTexture? previous = null, current = null;
             Texture2D? result = null;
             try
@@ -663,8 +740,9 @@ internal static class CustomBattles
                 }
                 current = Blit(from, width, height, current);
                 RenderTexture.active = current;
-                result = new Texture2D(width, height, TextureFormat.RGBA32, false) { name = source.name, hideFlags = HideFlags.HideAndDontSave };
-                result.ReadPixels(new Rect(0f, 0f, width, height), 0, 0, false);
+                result = new Texture2D(readWidth, readHeight, TextureFormat.RGBA32, false) { name = source.name, hideFlags = HideFlags.HideAndDontSave };
+                // Counted from the bottom left, like the texture's own pixels.
+                result.ReadPixels(new Rect(read.x, read.y, readWidth, readHeight), 0, 0, false);
                 // A copy that came out empty (nothing drawn) would leave the card blank; the full-size image is better.
                 if (Blank(result)) throw new InvalidOperationException("the scaled image came out empty");
                 // Uploaded, and the copy in memory freed.
@@ -717,9 +795,12 @@ internal static class CustomBattles
         }
 
         /// <param name="scale">The texture's size over the image's, so a scaled-down card keeps the size the image would have.</param>
-        internal static Sprite ToSprite(Texture2D texture, float scale = 1f)
+        internal static Sprite ToSprite(Texture2D texture, float scale = 1f) => ToSprite(texture, new Rect(0f, 0f, texture.width, texture.height), scale);
+
+        /// <summary>A sprite of a part of a texture: the arcade fits that part, and only it, into the card's slot.</summary>
+        internal static Sprite ToSprite(Texture2D texture, Rect part, float scale)
         {
-            var sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f),
+            var sprite = Sprite.Create(texture, part, new Vector2(0.5f, 0.5f),
                 100f * scale, 0u, SpriteMeshType.FullRect, Vector4.zero);
             sprite.name = texture.name;
             sprite.hideFlags = HideFlags.HideAndDontSave;
@@ -745,7 +826,8 @@ internal static class CustomBattles
                     name = RuntimePrefix + "card",
                     hideFlags = HideFlags.HideAndDontSave,
                     wrapMode = TextureWrapMode.Clamp,
-                    filterMode = FilterMode.Bilinear
+                    // Drawn 76 menu units wide: crisp keeps its edge a line, like the game's own pixel-art cards.
+                    filterMode = FilterMode.Point
                 };
                 texture.SetPixels32(pixels);
                 texture.Apply(false, false);
