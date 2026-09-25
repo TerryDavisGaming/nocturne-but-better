@@ -54,7 +54,7 @@ internal static class TestPlay
 
     private static Phase phase;
     private static Run? run;
-    private static float startedAt, claimedAt;
+    private static float startedAt, claimedAt, onAt;
     private static int prevDifficulty;
     private static bool installed;
     private static (float Percent, bool FullCombo, int Misses)? score;
@@ -62,7 +62,7 @@ internal static class TestPlay
     private static ArcadeMenuV2? bankMenu;
     private static ArcadeSongInfo? bankInfo;
     private static float returnedAt = -1f;
-    private static bool loggedClaim, loggedSaveBlock, loggedRelabel, reportedUpdate;
+    private static bool loggedClaim, loggedFadeIn, loggedSaveBlock, loggedRelabel, reportedUpdate;
     private static readonly HashSet<string> Reported = new();
 
     // The pause menu's exit button while it reads "Back to the editor".
@@ -140,8 +140,15 @@ internal static class TestPlay
             why = "A test is already starting.";
             return false;
         }
-        bool title;
-        try { title = GameManager.GameState == GameStates.MainMenu && !ArcadeUtility.IsRunning && !ArcadeSession.Active; }
+        bool title, intro = false;
+        try
+        {
+            title = GameManager.GameState == GameStates.MainMenu && !ArcadeUtility.IsRunning && !ArcadeSession.Active;
+            // The game's startup intro (TitleScreen: a black card with the PRACY STUDIOS logo, then
+            // the nocturne logo) sits on its own overlay canvas above everything, a battle included,
+            // until it ends; its main menu is already there under it.
+            if (title) intro = !TitleScreen.IsTitleScreenComplete;
+        }
         catch (Exception ex)
         {
             Report("checking for the title screen", ex);
@@ -150,6 +157,11 @@ internal static class TestPlay
         if (!title)
         {
             why = "Test works from the title screen. Open the chart editor from Options there.";
+            return false;
+        }
+        if (intro)
+        {
+            why = "The title screen is still starting. Test again in a moment.";
             return false;
         }
         // Right after a test the game is still fading back in; a battle started then would run
@@ -219,7 +231,7 @@ internal static class TestPlay
             score = null;
             outcome = null;
             returnedAt = -1f;
-            loggedClaim = loggedSaveBlock = false;
+            loggedClaim = loggedFadeIn = loggedSaveBlock = false;
             ModLog.Info($"Test play: starting {next.Kind} \"{next.Label}\" from {next.T0:0.000} s (first note row {next.FirstRow}, " +
                         $"{next.Notes} notes, {next.Events} events, {next.Carried} carried), music: {next.MusicName}.");
             // The game's own start (private in the game): the sting, the fade to black, then the battle.
@@ -357,8 +369,9 @@ internal static class TestPlay
                 {
                     // The screen is black: the editor hides now and the game's menus work again.
                     phase = Phase.Running;
+                    onAt = Time.unscaledTime;
                     EditorOverlay.Suspend();
-                    ModLog.Info($"Test play: the battle is on (after {Time.unscaledTime - startedAt:0.0} s).");
+                    ModLog.Info($"Test play: the battle is on (after {onAt - startedAt:0.0} s).");
                     return;
                 }
                 if (run != null && run.Conductor != IntPtr.Zero)
@@ -371,7 +384,12 @@ internal static class TestPlay
                 return;
             }
             // Left, whichever way: black again, and the title's menus are back under the editor.
-            if (state != GameStates.Combat) End();
+            if (state != GameStates.Combat)
+            {
+                End();
+                return;
+            }
+            if (!loggedFadeIn && !Transitioning) FadedIn();
         }
         catch (Exception ex)
         {
@@ -384,6 +402,21 @@ internal static class TestPlay
             }
             catch (Exception inner) { Report("ending the test", inner); }
         }
+    }
+
+    // Once the battle is on, the game's start fades in from its curtain (1.5 s) and then lets go
+    // of Loading: from then the battle is on screen, unless the title's startup intro is still
+    // drawn over it (CanStart refuses a test then, so this only says so).
+    private static void FadedIn()
+    {
+        loggedFadeIn = true;
+        ModLog.Info($"Test play: the battle faded in ({Time.unscaledTime - onAt:0.0} s after it went on).");
+        try
+        {
+            if (!TitleScreen.IsTitleScreenComplete)
+                ModLog.Error("Test play: the game's startup intro is still showing over the battle.");
+        }
+        catch (Exception ex) { Report("checking for the title's startup intro", ex); }
     }
 
     /// <summary>How the last test ended, once; null when there's nothing new.</summary>
