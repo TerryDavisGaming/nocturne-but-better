@@ -41,11 +41,11 @@ internal static class TestPlay
 
         /// <summary>
         /// Whether the battle's lines before the fight play: a battle's test with dialogue on,
-        /// from the song's start (a test from partway in has none), with such lines. They play
-        /// while the Ready prompt is held back, so such a test asks for the prompt even with
-        /// <see cref="SkipReady"/>; the dialogue then starts the countdown itself.
+        /// from the song's start (a test from partway in has none), with such lines, and the
+        /// dialogue's hooks in. They play while the Ready prompt is held back, so such a test asks
+        /// for the prompt even with <see cref="SkipReady"/>; the dialogue then starts the countdown itself.
         /// </summary>
-        internal bool HoldsForDialogue => Kind == Kind.Battle && DialogueOn && T0 <= 0 && Battle?.Package.Dialogue.Before.Count > 0;
+        internal bool HoldsForDialogue => Kind == Kind.Battle && DialogueOn && T0 <= 0 && BattleDialogue.Installed && Battle?.Package.Dialogue.Before.Count > 0;
     }
 
     /// <summary>How a test ended, for the editor's status line.</summary>

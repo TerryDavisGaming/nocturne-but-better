@@ -83,12 +83,20 @@ internal static class CustomMusic
     private static double origin;
     private static string playingName = "";
     private static bool paused, silencePosted;
+    private static bool held;   // the battle's dialogue keeps the song stopped (the lines after a loss)
     private static float fadeStart = -1f, fadeLength;
     private static (string Key, Song Song)? decoded;   // the last song decoded, for a quick retry
     private static bool reportedError;
     private static bool loggedFollow;   // "the chart follows the song file", once per song
 
     internal static bool Active => player != null;
+
+    /// <summary>
+    /// Keeps the song paused while on, whatever the battle does: the lines after a loss play over a
+    /// stopped song, and a song that has ended no longer follows the conductor's pause. Letting go
+    /// of the song (Stop) lets go of this too.
+    /// </summary>
+    internal static void Hold(bool on) => held = on;
 
     internal static void Install(HarmonyLib.Harmony harmony)
     {
@@ -458,7 +466,7 @@ internal static class CustomMusic
             }
             // A song paused when its battle ends (quit from the pause menu) stays paused while it
             // fades, rather than playing on for a moment as the game unpauses.
-            bool pause = (paused && (!live || fadeStart >= 0)) || (live && (AudioController.IsPausedCombat || c.Paused));
+            bool pause = held || (paused && (!live || fadeStart >= 0)) || (live && (AudioController.IsPausedCombat || c.Paused));
             if (pause != paused)
             {
                 paused = pause;
@@ -553,6 +561,7 @@ internal static class CustomMusic
         catch { }
         conductor = null;
         paused = false;
+        held = false;
         fadeStart = -1f;
     }
 
