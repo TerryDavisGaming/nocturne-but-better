@@ -471,10 +471,11 @@ internal static partial class BattleCreator
 
     private static string SlotName(int slot) => slot >= 0 && slot < ChartText.GameDifficultyLabels.Length ? ChartText.GameDifficultyLabels[slot] : "any difficulty";
 
-    // The chart editor closed: the creator shows again with the chart as it is now.
+    // The chart editor closed: the creator shows again with the chart as it is now. Not over a
+    // test play's battle, though: if the editor went during one, the creator waits for its end.
     private static void ChartsClosed()
     {
-        if (!IsOpen || !handedOver) return;
+        if (!IsOpen || !handedOver || TestPlay.Active) return;
         handedOver = false;
         ignoreKeysFrame = Time.frameCount;
         clicksFrom = Time.unscaledTime + ClickDelay;

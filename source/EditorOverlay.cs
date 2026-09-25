@@ -164,7 +164,11 @@ internal static class EditorOverlay
                 pendingUnlock = false;
                 LockGameInput(false);
             }
-            if (IsOpen && !suspended) FreeCursor();
+            if (IsOpen && !suspended)
+            {
+                FreeCursor();
+                KeepNavigationOff();
+            }
             // Folders chosen in a file dialog are saved to the player prefs here, on the main thread.
             FileDialogs.Update();
         }
@@ -222,6 +226,19 @@ internal static class EditorOverlay
             }
         }
         catch (Exception ex) { ModLog.Error("Locking the menus for the editor failed: " + ex.Message); }
+    }
+
+    // The game sets menu navigation from its own input lock whenever that lock changes: on when
+    // it's let go, as at the end of a fade (after a test play's battle, say). With an editor
+    // open it's turned off again on the same frame, before the menus underneath read a key.
+    private static void KeepNavigationOff()
+    {
+        var events = UnityEngine.EventSystems.EventSystem.current;
+        if (events == null || !events || !events.sendNavigationEvents) return;
+        // No event system when the screen opened: this is the first lock, and notes the setting.
+        if (lockedEvents == null) LockGameInput(true);
+        else if (lockedEvents && lockedEvents.Pointer == events.Pointer) events.sendNavigationEvents = false;
+        else Relock();
     }
 
     // ---- the cursor ---------------------------------------------------------------------------

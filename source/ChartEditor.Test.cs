@@ -15,6 +15,7 @@ internal static partial class ChartEditor
     // can only start partway on it, since the game's own music can't seek.
     private static SongAudio.Result? music;
     private static double testFrom;       // the play position when Test was pressed
+    private static bool testFromStart;    // whether that test was from the start (Shift)
     private static float inputFrom;       // keys and clicks count again from this time
     private static bool testHidden;
     private static bool testSkipReady;    // QA only: no Ready prompt
@@ -27,6 +28,13 @@ internal static partial class ChartEditor
         try
         {
             if (screen != Screen.Edit || chart == null || closePrompt || exportDialog != null) return;
+            // Typed text only counts once Enter takes it. F5 can't get here while typing; a click on
+            // Test can, and would leave the text behind without a word.
+            if (typing != TextField.None)
+            {
+                Say("Press Enter to finish typing first (Esc cancels it).", 4f);
+                return;
+            }
             if (!TestPlay.CanStart(out string why))
             {
                 Say(why, 6f);
@@ -37,24 +45,25 @@ internal static partial class ChartEditor
                 Say("The music is still loading. Test again in a moment.", 3f);
                 return;
             }
-            typing = TextField.None;
-            keyMap.Rebinding = null;
-            drag = DragKind.None;
-            looping = false;
             testNotice = null;
             double at = Now;
             var run = battle != null ? BattleTestRun(at, fromStart) : SongTestRun(at, fromStart);
             if (run == null) return;
             run.SkipReady = testSkipReady;
-            // The editor's music waits where it is; the battle plays its own.
-            audio?.Pause();
-            manualPlaying = false;
-            testFrom = at;
             if (!TestPlay.Start(run, out why))
             {
                 Say(why, 8f);
                 return;
             }
+            // Only once the test is on: the editor's music waits where it is (the battle plays its
+            // own), and a loop, a drag or a key being set stops. A refused test leaves them be.
+            audio?.Pause();
+            manualPlaying = false;
+            looping = false;
+            drag = DragKind.None;
+            keyMap.Rebinding = null;
+            testFrom = at;
+            testFromStart = fromStart;
             testHidden = false;
             Say(testNotice ?? (run.T0 > 0 || run.FirstRow > 0 ? $"Starting the test from {ShortTime(at)}..." : "Starting the test from the start..."), 30f);
         }
@@ -328,16 +337,18 @@ internal static partial class ChartEditor
         testHidden = false;
         inputFrom = Time.unscaledTime + 0.4f;
         if (chart != null) SeekTo(testFrom);
-        string key = ShortKey(EditorAction.TestHere);
+        // The key that runs the same test again: from the start after a Shift test.
+        string key = ShortKey(testFromStart ? EditorAction.TestFromStart : EditorAction.TestHere);
+        string where = testFromStart ? "from the start" : "from here";
         if (!outcome.Started)
             Say("The test didn't start. If the game behind stays dark, restart it.", 10f);
         else if (outcome.Finished)
         {
             string percent = (outcome.Percent ?? 0f).ToString("0.0", CultureInfo.InvariantCulture);
             string misses = outcome.FullCombo ? "full combo" : outcome.Misses == 0 ? "no misses" : outcome.Misses == 1 ? "1 miss" : $"{outcome.Misses} misses";
-            Say($"Test finished: {percent}%, {misses}.{(key.Length > 0 ? $" {key} tests again." : "")}", 10f);
+            Say($"Test finished: {percent}%, {misses}.{(key.Length > 0 ? $" {key} tests again {where}." : "")}", 10f);
         }
-        else Say($"Back from the test.{(key.Length > 0 ? $" {key} tests again from here." : "")}", 6f);
+        else Say($"Back from the test.{(key.Length > 0 ? $" {key} tests again {where}." : "")}", 6f);
     }
 
     // ---- text ----------------------------------------------------------------------------------

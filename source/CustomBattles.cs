@@ -55,7 +55,8 @@ internal static class CustomBattles
     internal static bool EndGuarded { get; private set; }
 
     // A test play's battle, built from the chart editor's unsaved chart. It isn't in the arcade:
-    // only Find knows it. Kept until the next test or until the editor closes.
+    // only Find knows it. Kept until the next test or until the editor closes (or, when the
+    // editor closes during a test, until that test ends).
     private static Battle? test;
 
     internal static string Folder
@@ -111,12 +112,16 @@ internal static class CustomBattles
         return built;
     }
 
-    /// <summary>Destroys the last test's battle, unless it's still being played.</summary>
+    /// <summary>
+    /// Destroys the last test's battle, unless it's still being played. While a test is starting
+    /// or running it's kept (the game's start is about to use it); the test drops it when it ends.
+    /// </summary>
     internal static void DropTest()
     {
         var t = test;
+        if (t == null || TestPlay.Active) return;
         test = null;
-        if (t != null) Retire(t);
+        Retire(t);
     }
 
     /// <summary>Whether a SongData or EnemyData name is one of the mod's runtime objects.</summary>

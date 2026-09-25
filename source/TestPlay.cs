@@ -43,14 +43,18 @@ internal static class TestPlay
     internal sealed record Outcome(bool Started, bool Finished, float? Percent, bool FullCombo, int Misses, string? Problem);
 
     private const string BackLabel = "Back to the editor";
-    // A launch that hasn't reached the battle by then is dead; once the battle's conductor has
-    // taken the test it is loading, which can take longer.
-    private const float StartTimeout = 15f, ClaimedTimeout = 60f;
-    private static readonly float[] RelockAfter = { 0.5f, 1.5f };
+    // A launch that hasn't reached the battle by then is dead. The conductor takes the test inside
+    // the game's StartCombat, and the game turns Combat as soon as that returns (the same step of
+    // its start routine), so a claimed test that still isn't Combat a moment later is dead too.
+    private const float StartTimeout = 15f, ClaimGrace = 2f;
+    // With the game's state unreadable, a start is only given up on this late.
+    private const float ErrorTimeout = 60f;
+    // The return's relock waits for the game's fade back in, at most this long.
+    private const float RelockLimit = 10f;
 
     private static Phase phase;
     private static Run? run;
-    private static float startedAt;
+    private static float startedAt, claimedAt;
     private static int prevDifficulty;
     private static bool installed;
     private static (float Percent, bool FullCombo, int Misses)? score;
@@ -58,7 +62,6 @@ internal static class TestPlay
     private static ArcadeMenuV2? bankMenu;
     private static ArcadeSongInfo? bankInfo;
     private static float returnedAt = -1f;
-    private static int relocksDone;
     private static bool loggedClaim, loggedSaveBlock, loggedRelabel, reportedUpdate;
     private static readonly HashSet<string> Reported = new();
 
@@ -149,7 +152,32 @@ internal static class TestPlay
             why = "Test works from the title screen. Open the chart editor from Options there.";
             return false;
         }
+        // Right after a test the game is still fading back in; a battle started then would run
+        // its fade against that one (the game's start doesn't check).
+        if (Transitioning)
+        {
+            why = "The game is still fading back in. Test again in a moment.";
+            return false;
+        }
         return true;
+    }
+
+    // Whether the game is between screens (fading or loading), as far as it can be read.
+    private static bool Transitioning
+    {
+        get
+        {
+            try
+            {
+                var transitions = SceneTransitionController.Instance?.TryCast<SceneTransitionController>();
+                return transitions != null && transitions && transitions.Loading;
+            }
+            catch (Exception ex)
+            {
+                Report("checking the game's screen transition", ex);
+                return false;
+            }
+        }
     }
 
     /// <summary>The difficulty a game song's test plays: the player's story difficulty, else the arcade's last one.</summary>
@@ -298,6 +326,7 @@ internal static class TestPlay
         if (r == null || phase == Phase.Idle || conductor == null || !conductor || songData == null || !songData) return null;
         if (!r.Song || songData.Pointer != r.Song.Pointer) return null;
         r.Conductor = conductor.Pointer;
+        claimedAt = Time.unscaledTime;
         if (!loggedClaim)
         {
             loggedClaim = true;
@@ -332,8 +361,13 @@ internal static class TestPlay
                     ModLog.Info($"Test play: the battle is on (after {Time.unscaledTime - startedAt:0.0} s).");
                     return;
                 }
-                float limit = run != null && run.Conductor != IntPtr.Zero ? ClaimedTimeout : StartTimeout;
-                if (Time.unscaledTime - startedAt > limit) Fail("the battle didn't start");
+                if (run != null && run.Conductor != IntPtr.Zero)
+                {
+                    // Taken but not Combat: the game's StartCombat threw after the conductor
+                    // started, and its start routine died with it. Nothing more will come.
+                    if (Time.unscaledTime - claimedAt > ClaimGrace) Fail("the battle didn't start: the game stopped partway, after the conductor took the test");
+                }
+                else if (Time.unscaledTime - startedAt > StartTimeout) Fail("the battle didn't start");
                 return;
             }
             // Left, whichever way: black again, and the title's menus are back under the editor.
@@ -346,7 +380,7 @@ internal static class TestPlay
             try
             {
                 if (phase == Phase.Running && GameManager.GameState != GameStates.Combat) End();
-                else if (phase == Phase.Starting && Time.unscaledTime - startedAt > ClaimedTimeout) Fail("the battle didn't start");
+                else if (phase == Phase.Starting && Time.unscaledTime - startedAt > ErrorTimeout) Fail("the battle didn't start");
             }
             catch (Exception inner) { Report("ending the test", inner); }
         }
@@ -375,10 +409,10 @@ internal static class TestPlay
         ReloadLatestSave();
         EditorOverlay.Resume();
         returnedAt = Time.unscaledTime;
-        relocksDone = 0;
         outcome = new Outcome(true, result != null, result?.Percent, result?.FullCombo ?? false, result?.Misses ?? 0, null);
         phase = Phase.Idle;
         run = null;
+        DropBattleIfEditorGone();
         ModLog.Info($"Test play: back in the chart editor after {took:0.0} s ({(result != null ? "finished" : "left early")}).");
         ModLog.Info($"Test play: arcade state restored (IsRunning off, difficulty {prevDifficulty}).");
     }
@@ -386,12 +420,20 @@ internal static class TestPlay
     // The battle never came: the same restore, without the save (nothing has touched it).
     private static void Fail(string reason)
     {
-        ModLog.Error($"Test play: {reason} in {Time.unscaledTime - startedAt:0} s; the editor is back.");
+        ModLog.Error($"Test play: {reason} ({Time.unscaledTime - startedAt:0.0} s after Test); the editor is back.");
         RestoreArcade();
         if (EditorOverlay.Suspended) EditorOverlay.Resume();
         outcome = new Outcome(false, false, null, false, 0, reason);
         phase = Phase.Idle;
         run = null;
+        DropBattleIfEditorGone();
+    }
+
+    // The test's battle is kept while a test uses it, even when the editor closes; with the
+    // editor gone, nobody else drops it once the test is over.
+    private static void DropBattleIfEditorGone()
+    {
+        if (!ChartEditor.IsOpen) Try("dropping the test battle", CustomBattles.DropTest);
     }
 
     private static void RestoreArcade()
@@ -421,13 +463,15 @@ internal static class TestPlay
         catch (Exception ex) { Report("reloading the latest save", ex); }
     }
 
-    // A panel of the title that comes back late would take keys meant for the editor; the menus
-    // are locked again a moment after the return.
+    // The game brings the title's panels back while it leaves the battle, behind its fade back
+    // in; once that fade is over the menus are locked again, those panels included. (Navigation
+    // itself is kept off every frame by EditorOverlay: the game turns it back on when the fade
+    // lets go of its input lock.)
     private static void RunRelocks()
     {
-        if (returnedAt < 0 || relocksDone >= RelockAfter.Length) return;
-        if (Time.unscaledTime < returnedAt + RelockAfter[relocksDone]) return;
-        relocksDone++;
+        if (returnedAt < 0) return;
+        if (Transitioning && Time.unscaledTime < returnedAt + RelockLimit) return;
+        returnedAt = -1f;
         if (phase == Phase.Idle && EditorOverlay.IsOpen) EditorOverlay.Relock();
     }
 
