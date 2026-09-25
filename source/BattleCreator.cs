@@ -35,6 +35,13 @@ internal static partial class BattleCreator
     private static int ignoreKeysFrame = -1;
     private static bool Live => Time.frameCount > ignoreKeysFrame;
 
+    // Clicks wait a moment after the screen changes, so the second click of a double-click (or a
+    // click that lands where the button that opened the screen was) doesn't choose on the new one.
+    // Two prompts in a row count as a change, so a double-click can't answer both.
+    private const float ClickDelay = 0.5f;
+    private static float clicksFrom;
+    private static bool ClicksLive => Time.unscaledTime >= clicksFrom;
+
     private static string Root => CustomBattles.Folder;
 
     // ---- opening and closing ----------------------------------------------------------------
@@ -47,6 +54,7 @@ internal static partial class BattleCreator
         {
             ui = new EditorUi("NocturneButBetter Battle Creator");
             Ui.BuildList();
+            BuildListBack();
             BuildEdit();
             EditorOverlay.Enter(OverlayOwner);
             ignoreKeysFrame = Time.frameCount;
@@ -84,6 +92,9 @@ internal static partial class BattleCreator
         touched.Clear();
         pagePanels.Clear();
         controls.Clear();
+        barControls.Clear();
+        markerOn = null;
+        fittedField = null;
         ModLog.Info("Battle creator: closed.");
     }
 
@@ -105,6 +116,8 @@ internal static partial class BattleCreator
             }
             FinishCleanup();
             if (handedOver) { UpdateHandedOver(); return; }
+            // On every screen, so the preview stops on time behind a prompt too.
+            UpdatePreview();
             var keyboard = InputKeyboard.current;
             if (keyboard == null) return;
             FinishPending();
@@ -118,7 +131,7 @@ internal static partial class BattleCreator
         }
         catch (Exception ex)
         {
-            ModLog.Error("Battle creator failed: " + ex);
+            ModLog.Error("Battle creator: failed, so it closes (unsaved changes are lost): " + ex);
             if (ui != null) Close();
         }
     }
@@ -126,8 +139,40 @@ internal static partial class BattleCreator
     private static void ShowScreen(Screen next)
     {
         screen = next;
+        clicksFrom = Time.unscaledTime + ClickDelay;
         Ui.ListPanel!.gameObject.SetActive(next != Screen.Edit);
         editPanel!.gameObject.SetActive(next == Screen.Edit);
+    }
+
+    /// <summary>
+    /// Whether a list row was picked, like <see cref="EditorUi.Chosen"/>, except that a click in
+    /// the first moment after the screen changed doesn't count (Enter always does).
+    /// </summary>
+    private static bool Chosen(InputKeyboard keyboard, int count, ref int index)
+    {
+        int before = index;
+        bool chosen = Ui.Chosen(keyboard, count, ref index);
+        if (!chosen || ClicksLive || Pressed(keyboard, Key.Enter) || Pressed(keyboard, Key.NumpadEnter)) return chosen;
+        index = before;
+        return false;
+    }
+
+    // The list screens' button for the mouse: Close on the list of battles, Back on a prompt or a
+    // picker. Esc does the same.
+    private static void BuildListBack()
+    {
+        var b = Ui.MakeButton(Ui.ListPanel!, "", () =>
+        {
+            if (!Live || Busy || !ClicksLive) return;
+            if (screen == Screen.List) Close();
+            else if (picker is { } p)
+            {
+                picker = null;
+                p.Back();
+            }
+        });
+        b.Text = () => (screen == Screen.List ? "Close" : "Back") + " <size=65%><color=#9D92B4>Esc</color></size>";
+        Place(b.Rect, new Vector2(1, 0), new Vector2(-16, 20), new Vector2(170, 52), new Vector2(1, 0));
     }
 
     private static void Say(string text, float seconds = 4f) => ui?.Say(text, seconds);
@@ -240,7 +285,7 @@ internal static partial class BattleCreator
         if (live && Pressed(keyboard, Key.F5)) { Rescan(); Say("Read the battles folder again.", 2f); }
         if (live) listIndex = MoveInList(keyboard, listIndex, count);
         // A row clicked with the mouse is chosen on the next update.
-        bool chosen = Ui.Chosen(keyboard, count, ref listIndex);
+        bool chosen = Chosen(keyboard, count, ref listIndex);
         if (live && chosen)
         {
             ChooseListRow(listIndex);
@@ -271,6 +316,12 @@ internal static partial class BattleCreator
     private static string ListHint(int index)
     {
         if (Ui.MessageShowing) return Ui.Message;
+        string hint = RowHint(index);
+        return (hint.Length > 0 ? hint + "  " : "") + "Esc leaves.";
+    }
+
+    private static string RowHint(int index)
+    {
         switch (index)
         {
             case 0: return "Pick a song file, and a battle is made around it. Then chart it and set up its enemy.";
@@ -283,7 +334,7 @@ internal static partial class BattleCreator
         if (e.IsZip) return "A zip can't be edited as it is. Choose it to unpack it into a battle folder you can edit.";
         if (e.Problems.Count > 0)
             return (e.Broken ? "Can't open it: " : "Problem: ") + e.Problems[0] + (e.Problems.Count > 1 ? $" (and {e.Problems.Count - 1} more)" : "");
-        return "Click a battle to edit it, or Up/Down and Enter.  F5 reads the folder again.  Esc leaves.";
+        return "Click a battle to edit it, or Up/Down and Enter.  F5 reads the folder again.";
     }
 
     private static void ChooseListRow(int index)
@@ -297,7 +348,7 @@ internal static partial class BattleCreator
         int i = index - ActionRows;
         if (i < 0 || i >= entries.Count) return;
         var e = entries[i];
-        if (e.IsZip) AskImportZip(e);
+        if (e.IsZip) AskImportZip(e.Path, e.Title);
         else if (e.Broken) Say("battle.json can't be read: " + (e.Problems.FirstOrDefault() ?? "unknown problem"), 6f);
         else OpenBattle(e.Path);
     }
@@ -325,6 +376,8 @@ internal static partial class BattleCreator
 
     private static void ShowPicker(Picker next)
     {
+        // A prompt or a list interrupts the song's preview.
+        StopPreview();
         picker = next;
         ShowScreen(Screen.Pick);
     }
@@ -343,7 +396,7 @@ internal static partial class BattleCreator
         bool live = Live && !Busy;
         if (live && Pressed(keyboard, Key.Escape)) { picker = null; p.Back(); return; }
         if (live) p.Index = MoveInList(keyboard, p.Index, p.Rows.Count);
-        bool chosen = Ui.Chosen(keyboard, p.Rows.Count, ref p.Index);
+        bool chosen = Chosen(keyboard, p.Rows.Count, ref p.Index);
         if (live && chosen)
         {
             picker = null;
@@ -356,12 +409,18 @@ internal static partial class BattleCreator
         Ui.DrawList(Escape(p.Heading), Escape(hint), p.Rows, p.Index);
     }
 
-    private static Picker Confirm(string heading, string no, string yes, string hint, Action onYes, Action onNo) => new()
+    /// <summary>A yes or no prompt, with the cursor on no.</summary>
+    /// <param name="yesFirst">
+    /// Yes on the first row instead of the second: a second prompt right after a first one
+    /// then has its No where the first one had its Yes.
+    /// </param>
+    private static Picker Confirm(string heading, string no, string yes, string hint, Action onYes, Action onNo, bool yesFirst = false) => new()
     {
         Heading = heading,
-        Rows = new List<string> { no, yes },
+        Rows = yesFirst ? new List<string> { yes, no } : new List<string> { no, yes },
+        Index = yesFirst ? 1 : 0,
         Hint = _ => hint,
-        Choose = i => { if (i == 1) onYes(); else onNo(); },
+        Choose = i => { if (i == (yesFirst ? 0 : 1)) onYes(); else onNo(); },
         Back = onNo,
     };
 
@@ -374,11 +433,10 @@ internal static partial class BattleCreator
     /// <summary>Opens the battle's chart in the chart editor, on a difficulty slot (0 to 5) or -1 for its choice.</summary>
     private static void EditCharts(int slot)
     {
-        if (draft == null) return;
-        EndTyping(commit: true);
+        if (draft == null || !FinishTyping()) return;
         StopPreview();
         string? chart = PackageFiles.SafeName(draft.ChartPath);
-        string? audio = PackageFiles.SafeName(draft.Audio);
+        string? audio = PackageFiles.SafeName(draft.EffectiveAudio);
         if (chart == null || audio == null) { Say("The battle needs a chart file and a song first.", 4f); return; }
         handedOver = true;
         handOverFrame = Time.frameCount;
@@ -421,7 +479,15 @@ internal static partial class BattleCreator
         if (!IsOpen || !handedOver) return;
         handedOver = false;
         ignoreKeysFrame = Time.frameCount;
+        clicksFrom = Time.unscaledTime + ClickDelay;
         Ui.SetVisible(true);
+        if (draft != null)
+        {
+            // The chart may have changed, and with it the #MUSIC a battle without "audio" plays.
+            string audio = draft.EffectiveAudio;
+            draft.ChartChanged();
+            if (draft.EffectiveAudio != audio) StartAudioLoad();
+        }
         RefreshBattleInfo();
         ModLog.Info("Battle creator: back from the chart editor.");
     }

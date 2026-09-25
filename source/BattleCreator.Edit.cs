@@ -22,7 +22,7 @@ internal static partial class BattleCreator
     // Files copied in or replaced while editing (paths inside the battle). After a save or when
     // leaving, the ones the saved battle.json doesn't use go to the Recycle Bin.
     private static readonly List<string> touched = new();
-    private static Task<List<string>>? cleanup;
+    private static Task<(List<string> Moved, List<string> Kept)>? cleanup;
 
     // ---- opening and leaving a battle -------------------------------------------------------------
 
@@ -49,7 +49,7 @@ internal static partial class BattleCreator
     /// <summary>Back to the list: asks first when something isn't saved.</summary>
     private static void RequestBack()
     {
-        EndTyping(commit: true);
+        if (!FinishTyping()) return;
         if (draft == null) { ShowScreen(Screen.List); return; }
         if (!draft.Dirty) { CloseBattle(); return; }
         var d = draft;
@@ -115,10 +115,12 @@ internal static partial class BattleCreator
     {
         if (draft == null) { ShowScreen(Screen.List); return; }
         FinishAudioLoad();
-        UpdatePreview();
+        // Clicks wait a moment after the screen changed (see ClickDelay).
+        var clicks = ClicksLive ? mouse : null;
         // A click anywhere finishes the field being typed in (clicking it again starts it again).
-        if (typing != null && mouse != null && mouse.leftButton.wasPressedThisFrame && !Busy) CommitTyping();
-        Ui.UpdateButtons(mouse);
+        // A value the field refuses stays open with the reason showing, and the click does nothing else.
+        if (typing != null && clicks != null && clicks.leftButton.wasPressedThisFrame && !Busy && !CommitTyping()) clicks = null;
+        Ui.UpdateButtons(clicks);
         if (!IsOpen || screen != Screen.Edit || draft == null) return;
         if (Live && !Busy)
         {
@@ -163,6 +165,8 @@ internal static partial class BattleCreator
         internal int Max = 80;
         internal bool MultiLine;
         internal string Hint = "Type, then Enter. Esc cancels.";
+        /// <summary>A part of the enemy, which can't change while the enemy's file can't be read.</summary>
+        internal bool Enemy;
     }
 
     private static TextField? typing;
@@ -171,11 +175,22 @@ internal static partial class BattleCreator
     private static void StartTyping(TextField field)
     {
         if (draft == null) return;
-        if (typing != null) CommitTyping();
+        if (!FinishTyping()) return;
+        if (field.Enemy && !EnemyEditable()) return;
         typing = field;
         typed = field.Get();
         BeginText();
-        Say(field.MultiLine ? "Type, then Enter. Shift+Enter starts a new line. Esc cancels." : field.Hint, 3600f);
+        SayTypingHint();
+    }
+
+    // The hint while typing; the long texts also show how much of them is used.
+    private static void SayTypingHint()
+    {
+        var field = typing;
+        if (field == null) return;
+        string hint = field.MultiLine ? "Type, then Enter. Shift+Enter starts a new line. Esc cancels." : field.Hint;
+        if (field.Max >= 100) hint += $"   {typed.Length} / {field.Max}";
+        Say(hint, 3600f);
     }
 
     private static void UpdateTyping(InputKeyboard k)
@@ -186,30 +201,54 @@ internal static partial class BattleCreator
         bool enter = Pressed(k, Key.Enter) || Pressed(k, Key.NumpadEnter);
         if (enter && field.MultiLine && Shift(k))
         {
-            if (typed.Length < field.Max) typed += "\n";
+            if (typed.Length < field.Max)
+            {
+                typed += "\n";
+                SayTypingHint();
+            }
             return;
         }
-        TypeText(k, ref typed, field.Max);
+        if (TypeText(k, ref typed, field.Max)) SayTypingHint();
         if (enter) CommitTyping();
     }
 
-    private static void CommitTyping()
+    /// <summary>
+    /// Keeps what was typed. False when the field refuses it (like "abc" for HP): the field stays
+    /// open with the reason showing, and nothing is saved until it's fixed or Esc cancels it.
+    /// </summary>
+    private static bool CommitTyping()
     {
         var field = typing;
-        if (field == null) return;
-        EndTyping();
+        if (field == null) return true;
         try { field.Set(typed); }
-        catch (InvalidDataException ex) { Say(ex.Message, 5f); }
+        catch (InvalidDataException ex)
+        {
+            Say(ex.Message + "  Fix it, or Esc keeps the old value.", 3600f);
+            return false;
+        }
+        EndTyping();
+        return true;
     }
 
-    /// <param name="commit">Keep what was typed so far (otherwise it's dropped).</param>
-    private static void EndTyping(bool commit = false)
+    /// <summary>Keeps what is being typed, if anything; false when the field refused it (see <see cref="CommitTyping"/>).</summary>
+    private static bool FinishTyping() => typing == null || CommitTyping();
+
+    /// <summary>Stops typing and drops what was typed.</summary>
+    private static void EndTyping()
     {
         if (typing == null) return;
-        if (commit) { CommitTyping(); return; }
         typing = null;
         EndText();
         Say("", 0f);
+    }
+
+    // The enemy can't change while its own file can't be read (see BattleDraft.EnemyLocked).
+    private static bool EnemyEditable()
+    {
+        if (draft == null) return false;
+        if (draft.EnemyLocked == null) return true;
+        Say(draft.EnemyLocked, 8f);
+        return false;
     }
 
     private static string Num(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
@@ -285,6 +324,7 @@ internal static partial class BattleCreator
     {
         Label = "Name",
         Max = 60,
+        Enemy = true,
         Get = () => draft?.EnemyName ?? "",
         Set = text => draft!.EnemyName = text,
         Empty = () => $"{EnemyChoices.NameOf(draft?.Placeholder)} (the enemy's own name)",
@@ -304,19 +344,23 @@ internal static partial class BattleCreator
     {
         Label = s.Label,
         Max = 12,
+        Enemy = true,
         Get = () => draft?.Stat(s.Key) is double v ? Num(v) : "",
         Set = text => draft!.SetStat(s.Key, ParseNumber(text, s.Min, s.Max, s.Label)),
         Empty = () => EnemyChoices.Find(draft?.Placeholder) is { } c ? $"{c.Name}'s own: {Num(c.OwnStat(s.Key))}" : "the enemy's own",
         Hint = "Type a number, then Enter. Leave it empty for the enemy's own. Esc cancels.",
     }).ToArray();
 
+    // In the battle, a box without a title shows the enemy's own Name (not the placeholder's), or
+    // no title when it has none. A box shows when it has a title or a text.
     private static readonly TextField[] InfoTitleFields = Enumerable.Range(0, EnemyPlaceholders.MaxInfoBoxes).Select(i => new TextField
     {
         Label = $"Box {i + 1} title",
         Max = 60,
+        Enemy = true,
         Get = () => draft?.InfoBox(i).Title ?? "",
         Set = text => draft!.SetInfoBox(i, text, null),
-        Empty = () => i == 0 ? "(the enemy's name)" : "(empty: not shown)",
+        Empty = () => draft?.EnemyName is { Length: > 0 } name ? $"(empty: shows the Name, {name})" : "(empty: no title)",
     }).ToArray();
 
     private static readonly TextField[] InfoTextFields = Enumerable.Range(0, EnemyPlaceholders.MaxInfoBoxes).Select(i => new TextField
@@ -324,6 +368,7 @@ internal static partial class BattleCreator
         Label = $"Box {i + 1} text",
         Max = 300,
         MultiLine = true,
+        Enemy = true,
         Get = () => draft?.InfoBox(i).Description ?? "",
         Set = text => draft!.SetInfoBox(i, null, text),
         Empty = () => "(empty)",
@@ -333,8 +378,7 @@ internal static partial class BattleCreator
 
     private static bool Save()
     {
-        if (draft == null) return false;
-        EndTyping(commit: true);
+        if (draft == null || !FinishTyping()) return false;
         try
         {
             draft.Save();
@@ -375,12 +419,21 @@ internal static partial class BattleCreator
         cleanup = OnShellThread(() =>
         {
             var moved = new List<string>();
+            var kept = new List<string>();
             foreach (var path in BattleFiles.Unreferenced(folder, candidates))
             {
-                BattleFiles.Recycle(path, folder, owner);
-                moved.Add(path);
+                // A file Windows can't put in the Recycle Bin stays where it is (it is never deleted for good).
+                try
+                {
+                    BattleFiles.Recycle(path, folder, owner);
+                    moved.Add(path);
+                }
+                catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
+                {
+                    kept.Add($"{path} ({ex.Message})");
+                }
             }
-            return moved;
+            return (moved, kept);
         });
     }
 
@@ -389,9 +442,15 @@ internal static partial class BattleCreator
         if (cleanup == null || !cleanup.IsCompleted) return;
         var task = cleanup;
         cleanup = null;
-        if (task.IsFaulted) ModLog.Error("Battle creator: moving unused files to the Recycle Bin failed: " + Unwrap(task.Exception!).Message);
-        else
-            foreach (var path in task.Result) ModLog.Info($"Battle creator: moved {path} to the Recycle Bin (the battle doesn't use it any more).");
+        if (task.IsFaulted)
+        {
+            ModLog.Error("Battle creator: moving unused files to the Recycle Bin failed: " + Unwrap(task.Exception!).Message);
+            return;
+        }
+        var (moved, kept) = task.Result;
+        foreach (var path in moved) ModLog.Info($"Battle creator: moved {path} to the Recycle Bin (the battle doesn't use it any more).");
+        foreach (var path in kept) ModLog.Info($"Battle creator: left {path} in the battle's folder; the battle doesn't use it any more.");
+        if (kept.Count > 0) Say("Songs or images the battle doesn't use any more stay in its folder: Windows can't put them in the Recycle Bin.", 6f);
     }
 
     // ---- new battles, imports and exports ------------------------------------------------------------
@@ -431,19 +490,25 @@ internal static partial class BattleCreator
         Run(FileDialogs.Open(FileDialogs.Purpose.BattlePacks, "Import a battle"), "Choose a .nbbbattle file in the window that opened...", path =>
         {
             if (path == null) return;
-            // One already in the battles folder is unpacked in its place, like choosing its row.
-            ImportZip(path, fromRoot: BattleFiles.IsInside(path, Root));
+            // A zip the arcade reads from the battles folder is unpacked in its place, like
+            // choosing its row, and asks first the same way. Any other zip stays where it is.
+            if (BattleFiles.IsScanned(Root, path))
+            {
+                var listed = entries.FirstOrDefault(e => e.IsZip && string.Equals(Path.GetFullPath(e.Path), Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase));
+                AskImportZip(path, listed?.Title ?? Path.GetFileNameWithoutExtension(path));
+            }
+            else ImportZip(path, fromRoot: false);
         });
     }
 
-    private static void AskImportZip(BattleFiles.BattleEntry zip)
+    private static void AskImportZip(string zip, string title)
     {
-        ShowPicker(Confirm($"Unpack \"{zip.Title}\" to edit it?", "Cancel", "Unpack it",
+        ShowPicker(Confirm($"Unpack \"{title}\" to edit it?", "Cancel", "Unpack it",
             "It becomes a battle folder you can edit. The zip goes to the Recycle Bin, so the arcade doesn't list the battle twice.",
-            () => ImportZip(zip.Path, fromRoot: true), () => ShowScreen(Screen.List)));
+            () => ImportZip(zip, fromRoot: true), () => ShowScreen(Screen.List)));
     }
 
-    /// <param name="fromRoot">The zip is in the battles folder: the new folder replaces it.</param>
+    /// <param name="fromRoot">The zip is one of the battles in the battles folder: the new folder replaces it.</param>
     private static void ImportZip(string zip, bool fromRoot)
     {
         string root = Root;
@@ -452,6 +517,7 @@ internal static partial class BattleCreator
         {
             var result = BattleFiles.Import(zip, root, fromRoot ? zip : null);
             string zipNote = "";
+            bool zipStays = false;
             if (fromRoot)
             {
                 // With both the zip and the folder (one id), the arcade would load the zip and skip the folder.
@@ -464,11 +530,20 @@ internal static partial class BattleCreator
                 {
                     string aside = zip + ".imported";
                     if (File.Exists(aside)) aside = zip + "." + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".imported";
-                    File.Move(zip, aside);
-                    zipNote = $"; the zip couldn't go to the Recycle Bin ({ex.Message}), so it was renamed to {Path.GetFileName(aside)}";
+                    try
+                    {
+                        File.Move(zip, aside);
+                        zipNote = $"; the zip couldn't go to the Recycle Bin ({ex.Message}), so it was renamed to {Path.GetFileName(aside)}";
+                    }
+                    catch (Exception moveEx) when (moveEx is IOException or UnauthorizedAccessException)
+                    {
+                        // The folder is made all the same; the zip, still there, hides it in the arcade.
+                        zipStays = true;
+                        zipNote = $"; the zip couldn't go to the Recycle Bin ({ex.Message}) or be renamed ({moveEx.Message}), so it is still there and the arcade plays it instead of the folder";
+                    }
                 }
             }
-            return (result.Folder, result.NewId, zipNote);
+            return (result.Folder, result.NewId, zipNote, zipStays);
         }), "Importing...", imported =>
         {
             ModLog.Info($"Battle creator: imported {zip} to {imported.Folder}" +
@@ -476,14 +551,15 @@ internal static partial class BattleCreator
             Rescan();
             SelectInList(imported.Folder);
             OpenBattle(imported.Folder);
-            Say(imported.NewId ? "Imported. A battle with the same id was already here, so this copy has its own id." : "Imported.", 6f);
+            if (imported.zipStays)
+                Say($"Imported, but {Path.GetFileName(zip)} couldn't be moved, so the arcade plays the zip instead of this folder. Move the zip out of the battles folder.", 10f);
+            else Say(imported.NewId ? "Imported. A battle with the same id was already here, so this copy has its own id." : "Imported.", 6f);
         });
     }
 
     private static void StartExport()
     {
-        if (draft == null) return;
-        EndTyping(commit: true);
+        if (draft == null || !FinishTyping()) return;
         if (draft.Dirty && !Save()) return;
         var d = draft;
         string name = BattleFiles.SafeFolderName(d.Title) + BattlePackage.Extension;
@@ -502,12 +578,12 @@ internal static partial class BattleCreator
 
     private static void AskDelete()
     {
-        if (draft == null) return;
-        EndTyping(commit: true);
+        if (draft == null || !FinishTyping()) return;
         var d = draft;
+        // The second prompt has its Yes on the other row, so one spot clicked twice can't answer both.
         ShowPicker(Confirm($"Delete \"{d.Title}\"?", "No, keep it", "Yes, delete it", "Deleting moves the whole battle folder to the Recycle Bin.",
             () => ShowPicker(Confirm($"Really delete \"{d.Title}\"?", "No, keep it", "Yes, move it to the Recycle Bin",
-                "Its charts, song and images go with it. You can get them back from the Recycle Bin.", () => DeleteBattle(d), BackFromPicker)),
+                "Its charts, song and images go with it. You can get them back from the Recycle Bin.", () => DeleteBattle(d), BackFromPicker, yesFirst: true)),
             BackFromPicker));
     }
 
@@ -548,9 +624,10 @@ internal static partial class BattleCreator
         song = null;
         audioLoad = null;
         if (draft == null) return;
-        string? name = PackageFiles.SafeName(draft.Audio);
+        string audio = draft.EffectiveAudio;
+        string? name = PackageFiles.SafeName(audio);
         string path = name == null ? "" : Path.Combine(draft.Folder, name.Replace('/', Path.DirectorySeparatorChar));
-        if (name == null || !File.Exists(path)) { audioState = name == null ? "no song file named" : $"{draft.Audio} is missing"; return; }
+        if (name == null || !File.Exists(path)) { audioState = name == null ? "no song file named" : $"{audio} is missing"; return; }
         if (new FileInfo(path).Length > BattlePackage.MaxAudioBytes) { audioState = "the song file is too big"; return; }
         audioState = "reading the song...";
         audioLoad = Task.Run(() => AudioFile.Decode(File.ReadAllBytes(path), path));
@@ -582,8 +659,7 @@ internal static partial class BattleCreator
     private static void TogglePreview()
     {
         if (preview != null) { StopPreview(); return; }
-        if (draft == null) return;
-        EndTyping(commit: true);
+        if (draft == null || !FinishTyping()) return;
         if (song == null) { Say(audioLoad != null ? "The song is still loading." : "The song can't play: it " + audioState, 4f); return; }
         var (stereo, rate) = song.Value;
         double length = stereo.Length / 2.0 / rate;
@@ -618,8 +694,7 @@ internal static partial class BattleCreator
 
     private static void ReplaceSong()
     {
-        if (draft == null) return;
-        EndTyping(commit: true);
+        if (draft == null || !FinishTyping()) return;
         var d = draft;
         Run(FileDialogs.Open(FileDialogs.Purpose.Songs, "Choose the battle's new song"), "Choose a song in the window that opened...", path =>
         {
@@ -628,7 +703,9 @@ internal static partial class BattleCreator
             {
                 if (draft != d) return;
                 if (added.Copied) touched.Add(added.Path);
-                if (!d.Audio.Equals(added.Path, StringComparison.OrdinalIgnoreCase)) touched.Add(d.Audio);
+                // The old song goes after a save if nothing names it then (the same file under another spelling stays).
+                string old = d.EffectiveAudio;
+                if (old.Length > 0 && !old.Equals(added.Path, StringComparison.OrdinalIgnoreCase)) touched.Add(old);
                 StopPreview();
                 d.Audio = added.Path;
                 StartAudioLoad();
@@ -640,8 +717,7 @@ internal static partial class BattleCreator
 
     private static void ChooseCard()
     {
-        if (draft == null) return;
-        EndTyping(commit: true);
+        if (draft == null || !FinishTyping()) return;
         var d = draft;
         Run(FileDialogs.Open(FileDialogs.Purpose.Images, "Choose the battle's card image"), "Choose an image in the window that opened...", path =>
         {
@@ -669,8 +745,7 @@ internal static partial class BattleCreator
 
     private static void ChooseEnemy()
     {
-        if (draft == null) return;
-        EndTyping(commit: true);
+        if (draft == null || !FinishTyping() || !EnemyEditable()) return;
         var d = draft;
         var list = EnemyChoices.List(d.Advanced);
         string current = EnemyChoices.Normalize(d.Placeholder);
@@ -695,12 +770,17 @@ internal static partial class BattleCreator
 
     private static void ToggleAdvanced()
     {
-        if (draft == null) return;
+        if (draft == null || !EnemyEditable()) return;
         draft.Advanced = !draft.Advanced;
         Say(draft.Advanced ? "Advanced bosses are in the enemy list now. They are built around scripted fights and may not play well." : "Advanced bosses are off.", 5f);
     }
 
-    private static void ToggleOwnInfo() => draft?.SetOwnInfo(!draft.OwnInfo);
+    // Switching back to the battle's own boxes brings back what they held (until the creator closes).
+    private static void ToggleOwnInfo()
+    {
+        if (draft == null || !EnemyEditable()) return;
+        draft.SetOwnInfo(!draft.OwnInfo);
+    }
 
     // ---- gear ------------------------------------------------------------------------------------------
 

@@ -8,7 +8,8 @@ namespace NocturneFlatScroll;
 
 // The battle's pages, laid out like the chart editor: a top bar with the battle's name, the pages
 // down the left, the page itself in the middle, and the file buttons along the bottom. Every
-// button is clickable; the keyboard moves a marker through the page's buttons (Up/Down, Enter).
+// button is clickable; the keyboard moves a marker through the page's buttons and then the
+// bottom bar's (Up/Down, Enter).
 internal static partial class BattleCreator
 {
     private enum Page { Info, Song, Charts, Enemy, Gear, Dialogue }
@@ -18,13 +19,12 @@ internal static partial class BattleCreator
     // Two columns on the pages: the first from 0, the second from Col2.
     private const float Col1W = 820f, Col2 = 880f, Col2W = 640f;
 
-    /// <summary>A button on a page that the keyboard can reach.</summary>
+    /// <summary>A button that the keyboard can reach.</summary>
     private sealed class Control
     {
         internal UiButton Button = null!;
         internal Func<bool>? Shown;
         internal Action Activate = null!;
-        internal float X, Y, W, H;
         internal bool Visible => Shown?.Invoke() ?? true;
     }
 
@@ -33,8 +33,12 @@ internal static partial class BattleCreator
     private static RectTransform? editPanel, pagesArea;
     private static TMP_Text? titleText;
     private static Image? focusMarker, cardImage;
+    // The button the marker sits on (it is moved into that button, just left of it).
+    private static UiButton? markerOn;
     private static readonly Dictionary<Page, RectTransform> pagePanels = new();
     private static readonly Dictionary<Page, List<Control>> controls = new();
+    // The bottom bar's buttons, after each page's own in the keyboard's order.
+    private static readonly List<Control> barControls = new();
 
     private static readonly (Page Page, string Name)[] Pages =
     {
@@ -47,6 +51,8 @@ internal static partial class BattleCreator
     {
         pagePanels.Clear();
         controls.Clear();
+        barControls.Clear();
+        markerOn = null;
         editPanel = MakeRect("Edit", Ui.CanvasRect);
         Stretch(editPanel, 0, 0, 0, 0);
 
@@ -65,7 +71,7 @@ internal static partial class BattleCreator
         BuildEnemyPage();
         BuildGearPage();
         BuildDialoguePage();
-        // The keyboard's marker: a bar left of the button it's on.
+        // The keyboard's marker: a bar left of the button it's on (see DrawEdit).
         focusMarker = MakeImage("Focus", pagesArea, Accent);
         focusMarker.gameObject.SetActive(false);
 
@@ -118,7 +124,7 @@ internal static partial class BattleCreator
         Ui.AddLiveText(about, AboutText);
         var keys = MakeText("Keys", left, 15, TextAlignmentOptions.BottomLeft);
         keys.color = DimText;
-        keys.text = "Tab: next page\nUp/Down, Enter: buttons\nCtrl+S: save\nEsc: back";
+        keys.text = "Tab: next page\nUp/Down, Enter: any button\nCtrl+S: save\nEsc: back";
         keys.rectTransform.anchorMin = new Vector2(0, 0);
         keys.rectTransform.anchorMax = new Vector2(1, 0);
         keys.rectTransform.pivot = new Vector2(0, 0);
@@ -142,18 +148,22 @@ internal static partial class BattleCreator
         float x = 16;
         foreach (var (label, doIt, width) in buttons)
         {
-            var b = Ui.MakeButton(bar, label, () => { if (!Busy) doIt(); });
+            Action act = () => { if (!Busy) doIt(); };
+            var b = Ui.MakeButton(bar, label, act);
             if (label == "Save")
             {
                 b.Text = () => "Save <size=65%><color=#9D92B4>Ctrl+S</color></size>";
                 b.Active = () => draft?.Dirty ?? false;
             }
             Place(b.Rect, new Vector2(0, 0.5f), new Vector2(x, 0), new Vector2(width, 52), new Vector2(0, 0.5f));
+            barControls.Add(new Control { Button = b, Activate = act });
             x += width + 12;
         }
-        var back = Ui.MakeButton(bar, "Back", () => { if (!Busy) RequestBack(); });
+        Action goBack = () => { if (!Busy) RequestBack(); };
+        var back = Ui.MakeButton(bar, "Back", goBack);
         back.Text = () => "Back <size=65%><color=#9D92B4>Esc</color></size>";
         Place(back.Rect, new Vector2(1, 0.5f), new Vector2(-16, 0), new Vector2(170, 52), new Vector2(1, 0.5f));
+        barControls.Add(new Control { Button = back, Activate = goBack });
     }
 
     // ---- page building blocks ----------------------------------------------------------------------
@@ -163,7 +173,7 @@ internal static partial class BattleCreator
         var b = Ui.MakeButton(pagePanels[p], text, () => { if (!Busy) click(); });
         PlaceTop(b.Rect, x, y, w, h);
         if (shown != null) b.Visible = shown;
-        controls[p].Add(new Control { Button = b, Shown = shown, Activate = click, X = x, Y = y, W = w, H = h });
+        controls[p].Add(new Control { Button = b, Shown = shown, Activate = click });
         return b;
     }
 
@@ -171,15 +181,16 @@ internal static partial class BattleCreator
     private static UiButton AddField(Page p, float x, ref float y, float w, TextField field, Func<bool>? shown = null, float h = RowH)
     {
         var b = AddButton(p, x, y, w, h, "", () => StartTyping(field), shown);
-        b.Text = () => FieldText(field);
+        b.Text = () => FieldText(field, b);
         b.Active = () => typing == field;
         b.Label.alignment = field.MultiLine ? TextAlignmentOptions.TopLeft : TextAlignmentOptions.Left;
         b.Label.margin = new Vector4(16, field.MultiLine ? 10 : 0, 12, field.MultiLine ? 8 : 0);
         b.Label.fontSize = 19;
         if (field.MultiLine)
         {
+            // A long text ends in "..." when it doesn't fit; while it's typed, its end shows instead (FieldText).
             b.Label.enableWordWrapping = true;
-            b.Label.overflowMode = TextOverflowModes.Truncate;
+            b.Label.overflowMode = TextOverflowModes.Ellipsis;
         }
         y -= h + (RowStep - RowH);
         return b;
@@ -242,14 +253,41 @@ internal static partial class BattleCreator
         return t;
     }
 
-    private static string FieldText(TextField field)
+    // What is being typed, as last fitted to its row: it is measured again only when it changes.
+    private static TextField? fittedField;
+    private static string fittedText = "", fittedShown = "";
+
+    private static string FieldText(TextField field, UiButton button)
     {
-        string value = typing == field ? Escape(typed) + "_" : field.Get();
-        bool empty = typing != field && value.Trim().Length == 0;
-        string shown = empty ? $"<color=#9D92B4>{Escape(field.Empty?.Invoke() ?? "(click to set)")}</color>" : typing == field ? value : Escape(value);
         // While typing the row is lit in the accent colour, where the dim label wouldn't read.
         string label = typing == field ? field.Label : $"<color=#9D92B4>{field.Label}</color>";
-        return field.MultiLine ? $"{label}\n{shown}" : $"{label}<pos=32%>{shown}";
+        string Row(string shown) => field.MultiLine ? $"{label}\n{shown}" : $"{label}<pos=32%>{shown}";
+        if (typing == field)
+        {
+            // The end of the text, where the "_" cursor is, always shows: what doesn't fit is cut from the start.
+            if (fittedField != field || fittedText != typed)
+            {
+                fittedField = field;
+                fittedText = typed;
+                fittedShown = TextTail.Fit(typed, shown => Fits(button, field.MultiLine, Row(Escape(shown) + "_"), Escape(shown) + "_"));
+            }
+            return Row(Escape(fittedShown) + "_");
+        }
+        string value = field.Get();
+        return Row(value.Trim().Length == 0 ? $"<color=#9D92B4>{Escape(field.Empty?.Invoke() ?? "(click to set)")}</color>" : Escape(value));
+    }
+
+    /// <summary>Whether a field's row text fits in its button, measured the way TextMeshPro lays it out.</summary>
+    private static bool Fits(UiButton button, bool multiLine, string row, string value)
+    {
+        var text = button.Label;
+        var margin = text.margin;
+        var size = button.Rect.rect.size;
+        float width = size.x - margin.x - margin.z, height = size.y - margin.y - margin.w;
+        if (width <= 0 || height <= 0) return true;
+        if (multiLine) return text.GetPreferredValues(row, width, 0).y <= height;
+        // One line: the value starts at 32% of the width (the <pos=32%> in the row).
+        return text.GetPreferredValues(value).x <= width * 0.68f - 4;
     }
 
     // ---- the pages ------------------------------------------------------------------------------------
@@ -262,7 +300,7 @@ internal static partial class BattleCreator
         AddField(p, 0, ref y, Col1W, TitleField);
         AddField(p, 0, ref y, Col1W, ArtistField);
         AddField(p, 0, ref y, Col1W, AuthorField);
-        AddField(p, 0, ref y, Col1W, LoreField, h: 190);
+        AddField(p, 0, ref y, Col1W, LoreField, h: 300);
         AddText(p, 0, ref y, Col1W, 26, () => "The lore is the text on the battle's arcade card. Shift+Enter starts a new line.", 16);
         AddHeader(p, 0, ref y, Col1W, "Arcade preview");
         float row = y;
@@ -348,10 +386,12 @@ internal static partial class BattleCreator
         AddHeader(p, Col2, ref y2, Col2W, "Info boxes (top right in the battle)");
         AddToggle(p, Col2, ref y2, Col2W, () => (draft?.OwnInfo ?? false) ? "Info boxes: this battle's own" : "Info boxes: the enemy's own",
             () => draft?.OwnInfo ?? false, ToggleOwnInfo);
+        Func<bool> own = () => draft?.OwnInfo ?? false;
+        AddText(p, Col2, ref y2, Col2W, 44, () => "A box shows when it has a title or a text. A box without a title shows the Name, if the enemy has one.", 16, own);
         for (int i = 0; i < EnemyPlaceholders.MaxInfoBoxes; i++)
         {
-            AddField(p, Col2, ref y2, Col2W, InfoTitleFields[i], () => draft?.OwnInfo ?? false);
-            AddField(p, Col2, ref y2, Col2W, InfoTextFields[i], () => draft?.OwnInfo ?? false, 86);
+            AddField(p, Col2, ref y2, Col2W, InfoTitleFields[i], own);
+            AddField(p, Col2, ref y2, Col2W, InfoTextFields[i], own, 170);
         }
     }
 
@@ -398,7 +438,7 @@ internal static partial class BattleCreator
 
     private static void SetPage(Page next)
     {
-        EndTyping(commit: true);
+        if (!FinishTyping()) return;
         page = next;
         focus = -1;
         foreach (var (p, panel) in pagePanels) panel.gameObject.SetActive(p == page);
@@ -406,7 +446,13 @@ internal static partial class BattleCreator
         if (page == Page.Gear) RefreshGear();
     }
 
-    private static List<Control> VisibleControls() => controls.TryGetValue(page, out var list) ? list.Where(c => c.Visible).ToList() : new List<Control>();
+    /// <summary>The buttons the keyboard can reach now, in order: the page's own that are showing, then the bottom bar's.</summary>
+    private static List<Control> VisibleControls()
+    {
+        var shown = controls.TryGetValue(page, out var list) ? list.Where(c => c.Visible).ToList() : new List<Control>();
+        shown.AddRange(barControls);
+        return shown;
+    }
 
     private static void DrawEdit()
     {
@@ -418,8 +464,19 @@ internal static partial class BattleCreator
         if (focus >= 0 && typing == null)
         {
             var c = shown[focus];
-            focusMarker!.gameObject.SetActive(true);
-            PlaceTop(focusMarker.rectTransform, c.X - 14, c.Y, 6, c.H);
+            if (markerOn != c.Button)
+            {
+                // Inside the button, just left of it, so it goes wherever the button is (a page or the bottom bar).
+                var rect = focusMarker!.rectTransform;
+                rect.SetParent(c.Button.Rect, false);
+                rect.anchorMin = new Vector2(0, 0);
+                rect.anchorMax = new Vector2(0, 1);
+                rect.pivot = new Vector2(1, 0.5f);
+                rect.sizeDelta = new Vector2(6, 0);
+                rect.anchoredPosition = new Vector2(-8, 0);
+                markerOn = c.Button;
+            }
+            if (!focusMarker!.gameObject.activeSelf) focusMarker.gameObject.SetActive(true);
         }
         else if (focusMarker!.gameObject.activeSelf) focusMarker.gameObject.SetActive(false);
         string status = Ui.MessageShowing ? Escape(Ui.Message) : "";
@@ -444,9 +501,11 @@ internal static partial class BattleCreator
     private static string SongText()
     {
         if (draft == null) return "";
+        string audio = draft.EffectiveAudio;
         var lines = new List<string>
         {
-            $"<color=#9D92B4>File</color><pos=22%>{Escape(draft.Audio.Length > 0 ? draft.Audio : "(none)")}",
+            $"<color=#9D92B4>File</color><pos=22%>{Escape(audio.Length > 0 ? audio : "(none)")}" +
+            (draft.AudioFromChart && audio.Length > 0 ? "  <color=#9D92B4>(named by the chart's #MUSIC)</color>" : ""),
             $"<color=#9D92B4>Length</color><pos=22%>{Escape(audioState)}",
         };
         if (charts != null && charts.Found)
@@ -479,6 +538,7 @@ internal static partial class BattleCreator
     private static string EnemyWarning()
     {
         if (draft == null) return "";
+        if (draft.EnemyLocked != null) return Escape(draft.EnemyLocked);
         string? problem = EnemyChoices.Problem(draft.Placeholder, draft.Advanced);
         if (problem != null) return Escape(problem);
         if (draft.EnemyMode.Equals("custom", StringComparison.OrdinalIgnoreCase)) return "This enemy is set to custom art, which comes later; it plays as its placeholder for now.";
