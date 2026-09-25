@@ -95,3 +95,27 @@ internal sealed record BattleChartTarget(string Folder, string ChartPath, string
         Path.Combine(Folder, (PackageFiles.SafeName(name) ?? throw new InvalidDataException($"\"{name}\" must be a file inside the battle folder"))
             .Replace('/', Path.DirectorySeparatorChar));
 }
+
+/// <summary>
+/// One line during the song as the chart editor edits it: the values it shows and changes, and
+/// the line as battle.json has it, so whatever else the line has is kept (see
+/// BattleDraft.SetDuringCues). This file has no Unity or game dependencies.
+/// </summary>
+internal sealed class DialogueCue
+{
+    /// <summary>The line as written (a JSON object).</summary>
+    internal string Json = "{}";
+    internal string Speaker = "";
+    internal string? Expression;
+    /// <summary>The line's own name tag, shown but not changed here.</summary>
+    internal string? Name;
+    internal string Text = "";
+    /// <summary>When it plays: seconds on the song's clock, or a beat (which wins when both are set).</summary>
+    internal double? Time, Beat;
+    /// <summary>Seconds on screen; null works it out from the text.</summary>
+    internal double? Duration;
+    /// <summary>The song stops for this line.</summary>
+    internal bool Pause;
+
+    internal DialogueCue Copy() => (DialogueCue)MemberwiseClone();
+}
