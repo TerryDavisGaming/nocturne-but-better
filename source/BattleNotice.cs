@@ -32,8 +32,11 @@ internal static class BattleNotice
     internal static readonly GearSlot[] SlotOrder =
         { GearSlot.MainHand, GearSlot.Body, GearSlot.Head, GearSlot.OffHand, GearSlot.Amulet, GearSlot.Consumable };
 
-    /// <summary>The most a card's tag holds at its size.</summary>
-    internal const int BadgeMax = 21;
+    /// <summary>
+    /// The most a card's tag holds at its size: its font is monospaced, and the QA pictures show 18 characters whole
+    /// ("Set gear &amp; level 5") and 19 cut ("Set gear &amp; level 12" showed as "Set gear &amp; level …").
+    /// </summary>
+    internal const int BadgeMax = 18;
 
     /// <summary>The box's own font size in the arcade (its label's): the sizes here are in these points.</summary>
     internal const float BoxFontSize = 7f;
@@ -155,12 +158,18 @@ internal static class BattleNotice
         : $"Level {level} (yours: {own}).";
 
     // All the items when shown == Items.Count, else the first ones and "…"; then the health upgrades when the battle sets them.
+    // The battle empties every slot it doesn't fill, so a list that leaves slots out says "only": without it, "Gear: Pool
+    // Noodle." reads as if only the weapon changed and the rest stayed yours.
     private static string GearLine(NoticeInput n, int shown)
     {
         var line = new StringBuilder("Gear: ");
         if (n.Items.Count == 0) line.Append("none.");
-        else if (shown < n.Items.Count) line.Append(string.Join(", ", n.Items.Take(Math.Max(1, shown)))).Append(Ellipsis);
-        else line.Append(string.Join(", ", n.Items)).Append('.');
+        else
+        {
+            if (n.Items.Count < SlotOrder.Length) line.Append("only ");
+            if (shown < n.Items.Count) line.Append(string.Join(", ", n.Items.Take(Math.Max(1, shown)))).Append(Ellipsis);
+            else line.Append(string.Join(", ", n.Items)).Append('.');
+        }
         if (n.ExtraHealth is int h) line.Append($" Health upgrades: {h}.");
         return line.ToString();
     }
@@ -204,9 +213,12 @@ internal static class BattleNotice
 
     // ---- the card and the creator's list ----------------------------------------------------------
 
-    /// <summary>The card's tag, like "Set gear &amp; level 12"; null when the battle sets neither.</summary>
+    /// <summary>
+    /// The card's tag, like "Set gear, level 12" (the creator's list row in its words); null when the battle sets
+    /// neither. Never longer than <see cref="BadgeMax"/>, so the level always shows.
+    /// </summary>
     internal static string? Badge(NoticeInput n) =>
-        n.GearSet && n.Level is int both ? $"Set gear & level {both}"
+        n.GearSet && n.Level is int both ? $"Set gear, level {both}"
         : n.GearSet ? "Set gear"
         : n.Level is int level ? $"Set level {level}"
         : null;

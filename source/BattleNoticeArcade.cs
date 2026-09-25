@@ -12,7 +12,7 @@ namespace NocturneFlatScroll;
 /// the level, the items), in smaller text when that is what it takes to show it all, then shows the
 /// battle's lore if there is room; the game has that box (its lore box) but keeps it hidden, so it
 /// is shown for custom battles only. The battle's card gets a
-/// short tag under its melody, like "Set gear &amp; level 12". The game reuses its score views and
+/// short tag under its melody, like "Set gear, level 12". The game reuses its score views and
 /// cards for every song, so both are hidden again for the game's own songs. The text comes from
 /// <see cref="BattleNotice"/>, as the battle creator's preview does.
 /// </summary>
