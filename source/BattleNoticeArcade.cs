@@ -139,6 +139,7 @@ internal static class BattleNoticeArcade
                 float most = BattleNotice.BoxLines * line + 0.5f;
                 return text => label.GetPreferredValues(text, width, 0f).y <= most;
             }
+            Note("Arcade notice: the box's text measures 0 high, so its size is estimated.");
         }
         catch (Exception ex) { Note("Arcade notice: the box's text can't be measured, so its size is estimated: " + ex.Message); }
         return text => BattleNotice.FitsLines(text);
