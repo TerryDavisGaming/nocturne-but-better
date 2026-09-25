@@ -55,15 +55,22 @@ internal static partial class BattleCreator
         int index = rows.FindIndex(r => r.Kind == kind && r.Difficulty == about);
         if (index < 0 && about != null) index = rows.FindIndex(r => r.Difficulty == about);
         if (index < 0) index = rows.FindIndex(r => r.Kind == kind);
-        ShowPicker(new Picker
+        var summary = new Picker
         {
             Heading = OszSummary.Heading,
             Rows = rows.Select(r => r.Text).ToList(),
             Hint = i => i >= 0 && i < rows.Count ? rows[i].Hint : "",
             Index = Math.Max(0, index),
-            Choose = i => { if (i >= 0 && i < rows.Count) ChooseOszRow(rows[i]); },
             Back = CancelOsz,
-        });
+        };
+        summary.Choose = i =>
+        {
+            if (i < 0 || i >= rows.Count) return;
+            // A row that only tells: its hint already shows, so the summary just stays as it is.
+            if (rows[i].Info) picker = summary;
+            else ChooseOszRow(rows[i]);
+        };
+        ShowPicker(summary);
     }
 
     private static void ChooseOszRow(OszSummaryRow row)
@@ -75,18 +82,20 @@ internal static partial class BattleCreator
         {
             case OszRow.Make: MakeOszBattle(); return;
             case OszRow.Cancel: CancelOsz(); return;
-            case OszRow.Lanes when row.Say == null: ShowOszLanes(plan); return;
+            case OszRow.Lanes: ShowOszLanes(plan); return;
             case OszRow.Slot or OszRow.Excluded when row.Difficulty != null: ShowOszSlot(row.Difficulty); return;
-            case OszRow.Speed when row.Say == null: ShowOszSpeeds(plan, choices); return;
+            case OszRow.Speed: ShowOszSpeeds(plan, choices); return;
             case OszRow.Details: ShowOszDetails(plan, choices); return;
             case OszRow.Attacks:
                 choices.PlayerAttacks = !choices.PlayerAttacks;
                 ShowOszSummary(OszRow.Attacks, null);
                 return;
+            case OszRow.HeadsUp:
+                choices.LeaveOutOpening = !choices.LeaveOutOpening;
+                ShowOszSummary(OszRow.HeadsUp, null);
+                return;
         }
-        // Rows that only tell: the summary stays, with the row's words for a while.
         ShowOszSummary(row.Kind, row.Difficulty);
-        Say(row.Say ?? row.Hint, 5f);
     }
 
     /// <summary>Back to the list; nothing was written.</summary>

@@ -131,7 +131,7 @@ internal sealed class OszLaneGroup
     internal OszTiming Timing = null!;
     internal readonly Dictionary<OszDifficulty, OszChart> Charts = new();
     internal readonly Dictionary<OszDifficulty, OszSpeeds> Speeds = new();
-    /// <summary>"No speed changes": only the filler beats' ratios, which keep them looking even.</summary>
+    /// <summary>"No speed changes": only the stretched sections' ratios, which keep them looking even.</summary>
     internal OszSpeeds BaseScrolls = null!;
     internal readonly OszDifficulty?[] DefaultSlots = new OszDifficulty?[6];
     /// <summary>Whose speed changes the battle has at first; null for none.</summary>
@@ -140,8 +140,8 @@ internal sealed class OszLaneGroup
     internal readonly List<double> Bookmarks = new();
     internal double PreviewStart;
 
-    /// <summary>Whether a difficulty's speed changes change anything (more than the filler beats').</summary>
-    internal bool HasSpeedChanges(OszDifficulty d) => Speeds.TryGetValue(d, out var s) && s.Tag != BaseScrolls.Tag;
+    /// <summary>Whether a difficulty has speed changes of its own (more than the stretched sections').</summary>
+    internal bool HasSpeedChanges(OszDifficulty d) => Speeds.TryGetValue(d, out var s) && s.Own.Count > 0 && s.Tag != BaseScrolls.Tag;
 }
 
 /// <summary>What the player picked on the import's summary.</summary>
@@ -153,6 +153,8 @@ internal sealed class OszChoices
     internal OszDifficulty? SpeedsFrom;
     /// <summary>5 lanes: a player attack every 8 bars (osu! has none, and the enemy can't be hurt without them).</summary>
     internal bool PlayerAttacks;
+    /// <summary>Leave out the notes in the song's first <see cref="OszConvert.OpeningSeconds"/>, which come before a battle has shown them.</summary>
+    internal bool LeaveOutOpening;
 
     internal static OszChoices Default(OszPlan plan, int lanes)
     {
@@ -166,7 +168,7 @@ internal sealed class OszChoices
 
     internal OszChoices Copy()
     {
-        var copy = new OszChoices { Lanes = Lanes, SpeedsFrom = SpeedsFrom, PlayerAttacks = PlayerAttacks };
+        var copy = new OszChoices { Lanes = Lanes, SpeedsFrom = SpeedsFrom, PlayerAttacks = PlayerAttacks, LeaveOutOpening = LeaveOutOpening };
         Array.Copy(Slots, copy.Slots, 6);
         return copy;
     }
@@ -203,6 +205,11 @@ internal static class OszImport
     internal const int MaxRedLines = 2000;
     internal const long MinGuessedSongBytes = 100 * 1024;
     internal const int MaxBookmarks = 1000;
+    /// <summary>A song file bigger than this that would unpack to more than <see cref="MaxSongPacking"/> times its packed size is refused.</summary>
+    internal const long MinPackedSongBytes = 16L * 1024 * 1024;
+    internal const int MaxSongPacking = 20;
+    /// <summary>The longest song the import takes (an hour).</summary>
+    internal const double MaxSongSeconds = 3600;
     /// <summary>The importer's version, kept in battle.json's "source".</summary>
     internal const int Version = 1;
 
@@ -291,15 +298,20 @@ internal static class OszImport
             if (LooksLikeOsu(head, n)) throw new OszRefused("that's a single .osu difficulty, not a whole beatmap. Choose the .osz file.");
             throw new OszRefused(NotAZip);
         }
-        string? problem = CheckDirectory(stream);
+        string? problem = CheckDirectory(stream, out long directoryBytes);
         if (problem != null) throw new OszRefused(problem);
         stream.Position = 0;
+        var capped = new CappedStream(stream);
         ZipArchive? zip = null;
         try
         {
-            zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
-            // The list of files is read here, where a damaged one still means "not a zip".
+            zip = new ZipArchive(capped, ZipArchiveMode.Read, leaveOpen: true);
+            // The list of files is read here, where a damaged one still means "not a zip". .NET
+            // reads no more of it than the check above walked; if it ever did (a file changed in
+            // between, or a way to the list the check doesn't know), the read stops there.
+            capped.Budget = directoryBytes + 4096;
             _ = zip.Entries.Count;
+            capped.Budget = long.MaxValue;
             return zip;
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or ArgumentException or NotSupportedException or OverflowException)
@@ -307,6 +319,38 @@ internal static class OszImport
             zip?.Dispose();
             throw new OszRefused(NotAZip);
         }
+    }
+
+    /// <summary>The .osz as the zip reader sees it, with a limit on how much a read may take for a while.</summary>
+    private sealed class CappedStream : Stream
+    {
+        private readonly Stream inner;
+        internal long Budget = long.MaxValue;
+
+        internal CappedStream(Stream inner) => this.inner = inner;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => inner.Length;
+
+        public override long Position
+        {
+            get => inner.Position;
+            set => inner.Position = value;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int n = inner.Read(buffer, offset, count);
+            if ((Budget -= n) < 0) throw new InvalidDataException("the list of files is longer than the check found");
+            return n;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+        public override void Flush() { }
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private static bool LooksLikeOsu(byte[] head, int n)
@@ -325,11 +369,15 @@ internal static class OszImport
     /// .NET reads every record of a zip's central directory into memory when it opens the zip, and
     /// it reads records until one doesn't start like one, whatever count the zip gives. So a
     /// crafted file could make it take any amount. This walks the records the same way first,
-    /// from where the End of Central Directory record (or its Zip64 form) says they start, and
-    /// stops past 4000 records or 16 MB. Returns why it's refused, or null.
+    /// from every place .NET could start them, and stops past 4000 records or 16 MB. Returns why
+    /// it's refused, or null.
     /// </summary>
-    internal static string? CheckDirectory(Stream stream)
+    internal static string? CheckDirectory(Stream stream) => CheckDirectory(stream, out _);
+
+    /// <param name="directoryBytes">The most any walk took, so the open can hold .NET to it.</param>
+    internal static string? CheckDirectory(Stream stream, out long directoryBytes)
     {
+        directoryBytes = 0;
         long length = stream.Length;
         int tail = (int)Math.Min(length, 22 + 65535);
         var buffer = new byte[tail];
@@ -343,23 +391,23 @@ internal static class OszImport
         long entries = U16(buffer, eocd + 10);
         long size = U32(buffer, eocd + 12);
         var starts = new List<long> { U32(buffer, eocd + 16) };
-        if (entries == 0xFFFF || U16(buffer, eocd + 8) == 0xFFFF || size == 0xFFFFFFFF || starts[0] == 0xFFFFFFFF)
+        // Zip64: .NET goes to the Zip64 record when the End record's disk number, entry count or
+        // offset is at its maximum, through a locator it looks for anywhere in the 32 bytes before
+        // the End record's last 16 (so starting 48 to 20 bytes before it). Every locator there is
+        // followed, whatever the End record says, so the walk below covers wherever .NET starts.
+        var locator = new byte[20];
+        var record = new byte[56];
+        for (long at = eocdAt - 20; at >= Math.Max(0, eocdAt - 48); at--)
         {
-            // Zip64: a locator just before the record points at the Zip64 record with the real numbers.
-            var locator = new byte[20];
-            var record = new byte[56];
-            for (long at = eocdAt - 20; at >= Math.Max(0, eocdAt - 40); at--)
-            {
-                stream.Position = at;
-                if (ReadFull(stream, locator, 20) < 20 || locator[0] != 'P' || locator[1] != 'K' || locator[2] != 6 || locator[3] != 7) continue;
-                long recordAt = (long)Math.Min(U64(locator, 8), long.MaxValue);
-                if (recordAt < 0 || recordAt > length - 56) continue;
-                stream.Position = recordAt;
-                if (ReadFull(stream, record, 56) < 56 || record[0] != 'P' || record[1] != 'K' || record[2] != 6 || record[3] != 6) continue;
-                entries = Math.Max(entries, (long)Math.Min(U64(record, 32), long.MaxValue));
-                size = Math.Max(size, (long)Math.Min(U64(record, 40), long.MaxValue));
-                starts.Add((long)Math.Min(U64(record, 48), long.MaxValue));
-            }
+            stream.Position = at;
+            if (ReadFull(stream, locator, 20) < 20 || locator[0] != 'P' || locator[1] != 'K' || locator[2] != 6 || locator[3] != 7) continue;
+            long recordAt = (long)Math.Min(U64(locator, 8), long.MaxValue);
+            if (recordAt < 0 || recordAt > length - 56) continue;
+            stream.Position = recordAt;
+            if (ReadFull(stream, record, 56) < 56 || record[0] != 'P' || record[1] != 'K' || record[2] != 6 || record[3] != 6) continue;
+            entries = Math.Max(entries, (long)Math.Min(U64(record, 32), long.MaxValue));
+            size = Math.Max(size, (long)Math.Min(U64(record, 40), long.MaxValue));
+            starts.Add((long)Math.Min(U64(record, 48), long.MaxValue));
         }
         if (entries > BattleFiles.MaxZipEntries) return TooManyFiles;
         if (size > MaxDirectoryBytes) return DirectoryTooBig;
@@ -373,11 +421,12 @@ internal static class OszImport
             while (ReadFull(stream, header, 46) == 46 && header[0] == 'P' && header[1] == 'K' && header[2] == 1 && header[3] == 2)
             {
                 if (++count > BattleFiles.MaxZipEntries) return TooManyFiles;
-                long record = 46L + U16(header, 28) + U16(header, 30) + U16(header, 32);
-                walked += record;
+                long bytes = 46L + U16(header, 28) + U16(header, 30) + U16(header, 32);
+                walked += bytes;
                 if (walked > MaxDirectoryBytes) return DirectoryTooBig;
-                stream.Position += record - 46;
+                stream.Position += bytes - 46;
             }
+            directoryBytes = Math.Max(directoryBytes, walked);
         }
         return null;
     }
@@ -496,6 +545,10 @@ internal static class OszImport
         string songLeaf = Shorten(Leaf(songEntry.Name), 60);
         if (songEntry.Entry.Length > BattlePackage.MaxAudioBytes)
             throw new OszRefused($"its song file is too big ({TooBig(songEntry.Entry.Length, BattlePackage.MaxAudioBytes)}).");
+        // Songs hardly pack down (MP3, OGG and FLAC not at all, WAV a little). One that would unpack
+        // to many times what it takes in the .osz is a zip bomb, however small the file.
+        if (songEntry.Entry.Length > MinPackedSongBytes && songEntry.Entry.Length > MaxSongPacking * songEntry.Entry.CompressedLength)
+            throw new OszRefused($"its song ({songLeaf}) is packed in a way no real song is (it would unpack to over {MaxSongPacking} times its size).");
         byte[] bytes;
         try { bytes = ReadEntryBytes(songEntry.Entry); }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -503,6 +556,9 @@ internal static class OszImport
             throw new OszRefused($"its song ({songLeaf}) can't be unpacked (it's damaged or packed in a way that can't be read).");
         }
         guard.Check();
+        // A song over an hour is refused before it's decoded, where its header says how long it is.
+        if (SongSecondsFromHeader(bytes) is double claimed && claimed > MaxSongSeconds)
+            throw new OszRefused(TooLong(songLeaf, claimed));
         var song = new OszSong
         {
             EntryIndex = songEntry.Index,
@@ -521,11 +577,12 @@ internal static class OszImport
         catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
         {
             plan.Detail = ex.Message;
-            throw new OszRefused($"its song ({songLeaf}) can't be played.");
+            throw new OszRefused($"its song ({songLeaf}) can't be played{SongProblem(ex, Leaf(songEntry.Name), AudioFile.IsMp3(bytes))}.");
         }
         bytes = Array.Empty<byte>();
         guard.Check();
-        if (!(song.Seconds > 0)) throw new OszRefused($"its song ({songLeaf}) can't be played.");
+        if (!(song.Seconds > 0)) throw new OszRefused($"its song ({songLeaf}) can't be played (it has no sound in it).");
+        if (song.Seconds > MaxSongSeconds) throw new OszRefused(TooLong(songLeaf, song.Seconds));
         plan.Song = song;
 
         // ---- the lane groups -------------------------------------------------------------------
@@ -637,6 +694,57 @@ internal static class OszImport
         return copy.Length == copy.Capacity ? copy.GetBuffer() : copy.ToArray();
     }
 
+    /// <summary>
+    /// How long a song says it is, without decoding it: a WAV's data size (a WAV decodes to up to
+    /// four times its size), or an MP3's frame count when it has a Xing, Info or VBRI header. Null
+    /// when it doesn't say; the length after decoding is checked too.
+    /// </summary>
+    internal static double? SongSecondsFromHeader(byte[] b)
+    {
+        if (b.Length >= 12 && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F' && b[8] == 'W' && b[9] == 'A')
+        {
+            var (fmt, fmtSize) = WavFile.Chunk(b, "fmt ");
+            var (_, dataSize) = WavFile.Chunk(b, "data");
+            if (fmt < 0 || fmtSize < 16) return null;
+            long channels = U16(b, fmt + 2), rate = U32(b, fmt + 4), bits = U16(b, fmt + 14);
+            long frameBytes = channels * (bits / 8);
+            return frameBytes > 0 && rate > 0 ? dataSize / frameBytes / (double)rate : null;
+        }
+        if (AudioFile.IsMp3(b) && Mp3Info.Parse(b) is { Frames: > 0, SampleRate: > 0 } mp3)
+            return mp3.Frames * (double)mp3.SamplesPerFrame / mp3.SampleRate;
+        return null;
+    }
+
+    private static string TooLong(string songLeaf, double seconds) =>
+        $"its song ({songLeaf}) is {OszConvert.Clock(seconds)} long; a battle's song can be at most {MaxSongSeconds / 60:0} minutes.";
+
+    /// <summary>
+    /// Why the decoder can't play the song, to go after "can't be played": what Windows is
+    /// missing, else the first part of the decoder's own reason in brackets. Nothing when that
+    /// reason is .NET's own.
+    /// </summary>
+    internal static string SongProblem(Exception ex, string fileName, bool mp3)
+    {
+        for (var e = ex; e != null; e = e.InnerException)
+            if (e.Message == MediaFoundationAudio.MissingMessage)
+                return mp3
+                    ? ": this copy of Windows has no MP3 decoder (Windows N needs the Media Feature Pack)"
+                    : ": this copy of Windows can't decode it (Windows N needs the Media Feature Pack)";
+        string reason = ex.Message;
+        if (reason.StartsWith(fileName + ": ", StringComparison.Ordinal)) reason = reason.Substring(fileName.Length + 2);
+        foreach (string end in new[] { " (", ";" })
+        {
+            int cut = reason.IndexOf(end, StringComparison.Ordinal);
+            if (cut >= 0) reason = reason.Substring(0, cut);
+        }
+        reason = reason.Trim().TrimEnd('.');
+        // "song.ogg couldn't be decoded (...)" is the decoder's own trouble, and says nothing new.
+        if (reason.Length == 0 || reason.StartsWith(fileName, StringComparison.Ordinal) || reason.Contains("Exception") || reason.Contains("System.")) return "";
+        if (reason.StartsWith("isn't ", StringComparison.Ordinal) || reason.StartsWith("is ", StringComparison.Ordinal) || reason.StartsWith("has ", StringComparison.Ordinal))
+            reason = "it " + reason;
+        return $" ({Shorten(reason, 100)})";
+    }
+
     /// <summary>A name for a copied file in the battle: safe on Windows and in an .sm tag.</summary>
     private static string BattleFileName(string leaf, string fallback)
     {
@@ -654,32 +762,42 @@ internal static class OszImport
         double shiftMs = song.Shift * 1000, endMs = (song.Seconds + song.Shift) * 1000;
         // Only notes the song plays over count for the timing: from its start to its end.
         double first = double.PositiveInfinity, last = double.NegativeInfinity;
+        var times = new List<double>();
         foreach (var d in diffs.ToList())
         {
             double dFirst = double.PositiveInfinity, dLast = double.NegativeInfinity;
+            int before = times.Count;
             foreach (var o in d.File!.Objects)
             {
                 guard.Step();
                 if (o.Time < shiftMs - 0.5 || o.Time >= endMs) continue;
                 dFirst = Math.Min(dFirst, o.Time);
                 dLast = Math.Max(dLast, o.IsHold ? Math.Min(o.EndTime, endMs) : o.Time);
+                times.Add(o.Time);
+                if (o.IsHold && o.EndTime < endMs) times.Add(o.EndTime);
             }
             if (double.IsPositiveInfinity(dFirst))
             {
                 d.Unusable = "all its notes are before the song starts or after it ends";
                 diffs.Remove(d);
+                times.RemoveRange(before, times.Count - before);
                 continue;
             }
             first = Math.Min(first, dFirst);
             last = Math.Max(last, dLast);
         }
         if (diffs.Count == 0) return null;
+        // Every time a note starts or a hold ends, once: where a filler beat goes depends on them.
+        times.Sort();
+        var noteMs = new List<double>(times.Count);
+        foreach (double t in times)
+            if (noteMs.Count == 0 || noteMs[^1] != t) noteMs.Add(t);
 
         var group = new OszLaneGroup { Lanes = lanes };
         diffs.Sort((a, b) => a.File!.Objects.Count != b.File!.Objects.Count ? a.File.Objects.Count.CompareTo(b.File.Objects.Count)
             : a.OverallDifficulty != b.OverallDifficulty ? a.OverallDifficulty.CompareTo(b.OverallDifficulty) : a.Order.CompareTo(b.Order));
         group.TimingFrom = diffs[^1];
-        group.Timing = OszConvert.Timing(group.TimingFrom.File!, first, last, song.Shift, guard);
+        group.Timing = OszConvert.Timing(group.TimingFrom.File!, first, last, song.Shift, noteMs.ToArray(), guard);
         var clock = group.Timing.Clock;
 
         int firstRow = int.MaxValue, lastRow = -1;

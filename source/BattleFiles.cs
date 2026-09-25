@@ -164,8 +164,10 @@ internal static class BattleFiles
         var speeds = choices.SpeedsFrom != null && group.Speeds.TryGetValue(choices.SpeedsFrom, out var chosen) ? chosen : group.BaseScrolls;
         string summary = string.Join(", ", parts)
             + (choices.SpeedsFrom != null
-                ? $"; {OszConvert.Count(speeds.Count, "speed change", "speed changes")} from \"{choices.SpeedsFrom.Name}\""
-                : $"; no speed changes{(speeds.Count > 0 ? $" ({speeds.Count} for filler beats)" : "")}")
+                ? $"; {OszConvert.Count(speeds.Own.Count, "speed change", "speed changes")} from \"{choices.SpeedsFrom.Name}\""
+                : "; no speed changes")
+            + (speeds.Evening > 0 ? $" ({speeds.Evening} for stretched beats)" : "")
+            + (choices.LeaveOutOpening ? $"; the notes in the first {OszConvert.OpeningSeconds.ToString("0.#", CultureInfo.InvariantCulture)} s left out" : "")
             + (choices.Lanes == 5 ? (choices.PlayerAttacks ? "; player attacks every 8 bars" : "; no player attacks") : "")
             + (plan.Card != null ? $"; card {plan.Card.FileName}" : "; no card");
         return (folder, text, summary, counts);

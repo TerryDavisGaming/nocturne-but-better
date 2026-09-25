@@ -19,8 +19,8 @@ internal sealed class OszSummaryRow
     /// <summary>The difficulty a Slot, Excluded, Unusable or OtherLanes row is about.</summary>
     internal OszDifficulty? Difficulty;
     internal string Text = "", Hint = "";
-    /// <summary>What choosing it says, for a row that has nothing to change; null when choosing it does something.</summary>
-    internal string? Say;
+    /// <summary>The row only tells (its hint says it all): choosing it does nothing.</summary>
+    internal bool Info;
 }
 
 /// <summary>A set of speed changes some of a lane group's difficulties share.</summary>
@@ -51,7 +51,7 @@ internal static class OszSummary
     internal const string DetailsHeading = "Changed or left out";
     internal const string Made = "Made from the osu!mania beatmap (beta). Test play each chart before you share it; everything can be edited in the chart editor.";
     /// <summary>A first note sooner than this into the song gets a heads-up row: a battle starts with the song.</summary>
-    internal const double HeadsUpSeconds = 1.5;
+    internal const double HeadsUpSeconds = OszConvert.OpeningSeconds;
     // A beatmap's names in a row are cut shorter than in a hint, so the rest of the row still shows.
     private const int RowName = 40, HintName = 60;
     /// <summary>The hint line holds about three lines of text.</summary>
@@ -69,10 +69,10 @@ internal static class OszSummary
         if (group != null)
         {
             for (int s = 0; s < choices.Slots.Length; s++)
-                if (choices.Slots[s] is { } d && group.Charts.TryGetValue(d, out var chart)) rows.Add(SlotRow(s, d, chart, group));
+                if (choices.Slots[s] is { } d && group.Charts.TryGetValue(d, out var chart)) rows.Add(SlotRow(s, d, chart, group, choices));
             bool full = choices.Slots.All(d => d != null);
             foreach (var d in group.Usable)
-                if (choices.SlotOf(d) < 0) rows.Add(ExcludedRow(d, group.Charts[d], group, full));
+                if (choices.SlotOf(d) < 0) rows.Add(ExcludedRow(d, group.Charts[d], group, full, choices));
         }
         foreach (var d in plan.Difficulties)
             if (d.Unusable != null) rows.Add(UnusableRow(d));
@@ -84,7 +84,7 @@ internal static class OszSummary
             rows.Add(SpeedRow(plan, group, choices));
             if (choices.Lanes == 5) rows.Add(AttacksRow(group, choices));
             rows.Add(TempoRow(group, choices));
-            if (FirstNoteSeconds(group, choices) is double first && first < HeadsUpSeconds) rows.Add(HeadsUpRow(first));
+            if (FirstNoteSeconds(group, choices) is double first && first < HeadsUpSeconds) rows.Add(HeadsUpRow(first, group, choices));
         }
         if (plan.Song != null) rows.Add(SongRow(plan, plan.Song));
         int details = OszConvert.Details(plan, choices).Count;
@@ -105,6 +105,8 @@ internal static class OszSummary
         var group = plan.Group(choices.Lanes);
         if (group == null || plan.Song == null || !choices.Slots.Any(d => d != null && group.Charts.ContainsKey(d)))
             return "Give at least one difficulty a slot first.";
+        if (!choices.Slots.Any(d => d != null && group.Charts.TryGetValue(d, out var chart) && OszConvert.KeptCount(chart, choices) > 0))
+            return $"All the notes of the charts with a slot are in the first {Seconds(HeadsUpSeconds)} s. Keep those notes first.";
         long bytes = ChartBytes(plan, choices);
         if (bytes > BattlePackage.MaxChartBytes)
             return $"The charts come to {Mb(bytes)} MB, and a battle holds at most {BattlePackage.MaxChartBytes / (1024 * 1024)} MB. Leave a difficulty out first.";
@@ -142,7 +144,7 @@ internal static class OszSummary
         if (plan.Artist.Trim().Length > 0) text += " by " + Show(plan.Artist, RowName);
         if (plan.Mapper.Trim().Length > 0) text += ", charted by " + Show(plan.Mapper, RowName);
         const string hint = "From the beatmap. Change the title, artist and charter on the battle's Info page afterwards.";
-        return new OszSummaryRow { Kind = OszRow.About, Text = text, Hint = hint, Say = hint };
+        return new OszSummaryRow { Kind = OszRow.About, Text = text, Hint = hint, Info = true };
     }
 
     private static OszSummaryRow LanesRow(OszPlan plan, OszChoices choices)
@@ -156,51 +158,61 @@ internal static class OszSummary
             Hint = both
                 ? "A battle has 4 or 5 lanes, set when it's made. Choose to switch; the difficulties with the other key count are left out."
                 : $"Its usable difficulties are all {lanes}K, so the battle has {lanes} lanes.",
-            Say = both ? null : $"All its usable difficulties are {lanes}K, so the battle has {lanes} lanes.",
+            Info = !both,
         };
     }
 
-    private static OszSummaryRow SlotRow(int slot, OszDifficulty d, OszChart chart, OszLaneGroup group)
+    private static OszSummaryRow SlotRow(int slot, OszDifficulty d, OszChart chart, OszLaneGroup group, OszChoices choices)
     {
-        string text = $"{ChartText.GameDifficultyLabels[slot]} <- {Q(d.Name)} ({group.Lanes}K): {Notes(chart)}";
+        string text = $"{ChartText.GameDifficultyLabels[slot]} <- {Q(d.Name)} ({group.Lanes}K): {Notes(chart, choices)}";
         if (chart.Moved > 0) text += $"; {OszConvert.N(chart.Moved)} moved to the beat grid (up to {OszConvert.Ms(chart.WorstMs)} ms)";
-        return new OszSummaryRow { Kind = OszRow.Slot, Difficulty = d, Text = text, Hint = DifficultyHint(d, chart) + " Choose to change its slot." };
+        return new OszSummaryRow { Kind = OszRow.Slot, Difficulty = d, Text = text, Hint = DifficultyHint(d, chart, choices) + " Choose to change its slot." };
     }
 
-    private static OszSummaryRow ExcludedRow(OszDifficulty d, OszChart chart, OszLaneGroup group, bool slotsFull) => new()
+    private static OszSummaryRow ExcludedRow(OszDifficulty d, OszChart chart, OszLaneGroup group, bool slotsFull, OszChoices choices) => new()
     {
         Kind = OszRow.Excluded,
         Difficulty = d,
-        Text = $"Left out <- {Q(d.Name)} ({group.Lanes}K): {Notes(chart)}",
-        Hint = DifficultyHint(d, chart) + (slotsFull ? " Only six difficulty slots: choose it to swap it in." : " It isn't in the battle: choose it to give it a slot."),
+        Text = $"Left out <- {Q(d.Name)} ({group.Lanes}K): {Notes(chart, choices)}",
+        Hint = DifficultyHint(d, chart, choices) + (slotsFull ? " Only six difficulty slots: choose it to swap it in." : " It isn't in the battle: choose it to give it a slot."),
     };
 
-    private static OszSummaryRow UnusableRow(OszDifficulty d)
+    private static OszSummaryRow UnusableRow(OszDifficulty d) => new()
     {
-        string say = $"{Quote(d.Name)} can't be in a battle: {d.Unusable}.";
-        return new OszSummaryRow { Kind = OszRow.Unusable, Difficulty = d, Text = $"Left out <- {Q(d.Name)}: {d.Unusable}", Hint = say, Say = say };
-    }
+        Kind = OszRow.Unusable,
+        Difficulty = d,
+        Text = $"Left out <- {Q(d.Name)}: {d.Unusable}",
+        Hint = $"{Quote(d.Name)} can't be in a battle: {d.Unusable}.",
+        Info = true,
+    };
 
-    private static OszSummaryRow OtherLanesRow(OszDifficulty d, int keys, int lanes)
+    private static OszSummaryRow OtherLanesRow(OszDifficulty d, int keys, int lanes) => new()
     {
-        string say = $"Switch Lanes to {keys} to use the {keys}K difficulties.";
-        return new OszSummaryRow { Kind = OszRow.OtherLanes, Difficulty = d, Text = $"Left out <- {Q(d.Name)}: {keys}K; this battle has {lanes} lanes", Hint = say, Say = say };
-    }
+        Kind = OszRow.OtherLanes,
+        Difficulty = d,
+        Text = $"Left out <- {Q(d.Name)}: {keys}K; this battle has {lanes} lanes",
+        Hint = $"Switch Lanes to {keys} to use the {keys}K difficulties.",
+        Info = true,
+    };
 
     private static OszSummaryRow SpeedRow(OszPlan plan, OszLaneGroup group, OszChoices choices)
     {
         var sets = SpeedSets(group, choices);
         var from = choices.SpeedsFrom;
         bool on = from != null && group.HasSpeedChanges(from);
-        string text = "Speed changes: none";
+        // The ones that keep stretched sections looking even aren't osu!'s, so they're counted apart.
+        int evening = ChosenSpeeds(group, choices).Evening;
+        string text = evening > 0 ? $"Speed changes: none from osu! ({Evening(evening)})" : "Speed changes: none";
         if (on)
         {
-            var speeds = group.Speeds[from!];
-            text = $"Speed changes: {OszConvert.N(speeds.Count)} ({Range(speeds)}), from {Q(from!.Name)}{(choices.SlotOf(from) < 0 ? " (left out)" : "")}, for every difficulty";
+            var (count, range) = Own(group.Speeds[from!]);
+            text = $"Speed changes: {OszConvert.N(count)} ({range}), from {Q(from!.Name)}{(choices.SlotOf(from) < 0 ? " (left out)" : "")}, for every difficulty"
+                   + (evening > 0 ? $"; {OszConvert.N(evening)} more {(evening == 1 ? "keeps a stretched beat" : "keep stretched beats")} even" : "");
         }
         string hint;
         if (sets.Count == 0)
-            hint = plan.Group(group.Lanes == 5 ? 4 : 5) != null ? $"Its {group.Lanes}K difficulties have no speed changes." : "The beatmap has no speed changes.";
+            hint = (plan.Group(group.Lanes == 5 ? 4 : 5) != null ? $"Its {group.Lanes}K difficulties have no speed changes." : "The beatmap has no speed changes.")
+                   + (evening > 0 ? " Each stretched beat (see Tempo) has one of its own that keeps it looking even." : "");
         else if (!on) hint = "The battle has no speed changes. Choose to use a difficulty's.";
         else if (sets.Count > 1) hint = "A battle has one set of speed changes for all its difficulties. Choose whose to use, or none.";
         else
@@ -211,7 +223,7 @@ internal static class OszSummary
                 ? "All its difficulties have these speed changes. Edit them later on the chart editor's Timing page. Choose to leave them out."
                 : $"Only {Names(members, 3, RowName)} {(members.Count == 1 ? "has" : "have")} speed changes; the battle uses them for every difficulty. Choose to leave them out.";
         }
-        return new OszSummaryRow { Kind = OszRow.Speed, Text = text, Hint = hint, Say = sets.Count == 0 ? hint : null };
+        return new OszSummaryRow { Kind = OszRow.Speed, Text = text, Hint = hint, Info = sets.Count == 0 };
     }
 
     private static OszSummaryRow AttacksRow(OszLaneGroup group, OszChoices choices)
@@ -247,20 +259,36 @@ internal static class OszSummary
                 : $" {OszConvert.N(timing.Fillers)} beats are stretched to reach tempo lines that weren't on a beat.");
         if (timing.Effects > 0)
             hint.Append(timing.Effects == 1 ? " 1 osu! tempo effect is now a speed change." : $" {OszConvert.N(timing.Effects)} osu! tempo effects are now speed changes.");
+        if (timing.Stretched > 0)
+        {
+            const string evenOut = " Each stretched beat has a speed change that keeps it looking even; deleting it makes that beat look faster or slower.";
+            const string shortEvenOut = " Each stretched beat has a speed change that keeps it looking even.";
+            if (hint.Length + evenOut.Length <= MaxHint) hint.Append(evenOut);
+            else if (hint.Length + shortEvenOut.Length <= MaxHint) hint.Append(shortEvenOut);
+        }
         const string fineTune = " Fine-tune it on the chart editor's Timing page.";
         if (hint.Length + fineTune.Length <= MaxHint) hint.Append(fineTune);
-        return new OszSummaryRow { Kind = OszRow.Tempo, Text = text, Hint = hint.ToString(), Say = hint.ToString() };
+        return new OszSummaryRow { Kind = OszRow.Tempo, Text = text, Hint = hint.ToString(), Info = true };
     }
 
-    private static OszSummaryRow HeadsUpRow(double first)
+    private static OszSummaryRow HeadsUpRow(double first, OszLaneGroup group, OszChoices choices)
     {
-        const string hint = "osu! waits a moment before the song; a battle starts with the song, so the first notes come right away. You can delete them in the chart editor.";
+        int opening = 0;
+        foreach (var d in choices.Slots)
+            if (d != null && group.Charts.TryGetValue(d, out var chart)) opening += chart.Opening;
+        string notes = OszConvert.Count(opening, "note", "notes"), within = $"in the first {Seconds(HeadsUpSeconds)} s";
+        if (choices.LeaveOutOpening)
+            return new OszSummaryRow
+            {
+                Kind = OszRow.HeadsUp,
+                Text = $"Heads-up: {notes} {within} {(opening == 1 ? "is" : "are")} left out",
+                Hint = $"A battle starts with the song, so notes {within} come right away. The battle leaves out {notes}. Choose to keep them, as osu! has them.",
+            };
         return new OszSummaryRow
         {
             Kind = OszRow.HeadsUp,
             Text = $"Heads-up: the first note is {Math.Max(0, first).ToString("0.00", Invariant)} s into the song",
-            Hint = hint,
-            Say = hint,
+            Hint = $"osu! waits a moment before the song; a battle starts with the song, so the first notes come right away. Choose to leave out the {notes} {within}, or edit them in the chart editor later.",
         };
     }
 
@@ -276,7 +304,7 @@ internal static class OszSummary
                 ? $" osu! starts this MP3 {ms} ms later than the game does, so every note is {ms} ms earlier to stay on the music."
                 : $" osu! starts this MP3 {ms} ms earlier than the game does, so every note is {ms} ms later to stay on the music.");
         }
-        return new OszSummaryRow { Kind = OszRow.Song, Text = text, Hint = hint.ToString(), Say = hint.ToString() };
+        return new OszSummaryRow { Kind = OszRow.Song, Text = text, Hint = hint.ToString(), Info = true };
     }
 
     // ---- the lists behind the rows ---------------------------------------------------------------
@@ -307,9 +335,11 @@ internal static class OszSummary
             foreach (var set in SpeedSets(group, choices))
             {
                 bool inBattle = set.Members.Any(m => choices.SlotOf(m) >= 0);
-                list.Add(($"{Names(set.Members, 3, RowName)}: {OszConvert.Count(set.Speeds.Count, "change", "changes")}, {Range(set.Speeds)}{(inBattle ? "" : " (not in the battle)")}", set.From));
+                var (count, range) = Own(set.Speeds);
+                list.Add(($"{Names(set.Members, 3, RowName)}: {OszConvert.Count(count, "change", "changes")}, {range}{(inBattle ? "" : " (not in the battle)")}", set.From));
             }
-        list.Add((NoSpeedChanges, null));
+        int evening = plan.Group(choices.Lanes)?.BaseScrolls.Evening ?? 0;
+        list.Add((evening > 0 ? $"{NoSpeedChanges} from osu! ({Evening(evening)})" : NoSpeedChanges, null));
         return list;
     }
 
@@ -374,7 +404,7 @@ internal static class OszSummary
                 var d = group.Usable[i];
                 var c = group.Charts[d];
                 int slot = defaults.SlotOf(d);
-                int speeds = group.HasSpeedChanges(d) ? group.Speeds[d].Count : 0;
+                int speeds = group.HasSpeedChanges(d) ? Own(group.Speeds[d]).Count : 0;
                 lines.Add($"osu! difficulty {Q(d.Name, HintName)}: {group.Lanes}K, {OszConvert.N(c.Notes.Count)} notes ({OszConvert.N(c.Holds)} holds), " +
                           $"{OszConvert.N(c.Moved)} moved over 2 ms (worst {OszConvert.Ms(c.WorstMs)} ms), {OszConvert.Count(speeds, "speed change", "speed changes")}; " +
                           (slot >= 0 ? $"slot {ChartText.GameDifficultyLabels[slot]}." : "left out (only six slots)."));
@@ -398,24 +428,28 @@ internal static class OszSummary
     internal static OszSpeeds ChosenSpeeds(OszLaneGroup group, OszChoices choices) =>
         choices.SpeedsFrom != null && group.Speeds.TryGetValue(choices.SpeedsFrom, out var chosen) ? chosen : group.BaseScrolls;
 
-    /// <summary>The first and last row of the notes of the difficulties in the battle; last is -1 when there are none.</summary>
+    /// <summary>The first and last row of the notes the battle gets; last is -1 when there are none.</summary>
     internal static (int First, int Last) IncludedRows(OszLaneGroup group, OszChoices choices)
     {
         int first = int.MaxValue, last = -1;
         foreach (var d in choices.Slots)
         {
-            if (d == null || !group.Charts.TryGetValue(d, out var chart) || chart.Notes.Count == 0) continue;
-            first = Math.Min(first, chart.FirstRow);
-            last = Math.Max(last, chart.LastRow);
+            if (d == null || !group.Charts.TryGetValue(d, out var chart)) continue;
+            var kept = OszConvert.Kept(chart, choices);
+            if (kept.Count == 0) continue;
+            first = Math.Min(first, kept[0].Row);
+            last = Math.Max(last, kept[^1].Row);
         }
         return (first, last);
     }
 
-    /// <summary>How far into the song the battle's first note is, or null when it has no notes.</summary>
+    /// <summary>How far into the song the first note of the charts with a slot is (left out or not), or null when they have none.</summary>
     internal static double? FirstNoteSeconds(OszLaneGroup group, OszChoices choices)
     {
-        var (first, last) = IncludedRows(group, choices);
-        return last < 0 ? null : group.Timing.Clock.RowToSeconds(first);
+        int first = int.MaxValue;
+        foreach (var d in choices.Slots)
+            if (d != null && group.Charts.TryGetValue(d, out var chart) && chart.Notes.Count > 0) first = Math.Min(first, chart.FirstRow);
+        return first == int.MaxValue ? null : group.Timing.Clock.RowToSeconds(first);
     }
 
     // The tempos osu!'s red lines set from beat 0 on, in order (fillers aren't the music's).
@@ -442,26 +476,39 @@ internal static class OszSummary
             : $"Beat 0 is {(-offset).ToString("0.###", Invariant)} s into the song.";
     }
 
-    // "145 notes, 9 holds"
-    private static string Notes(OszChart chart) =>
-        OszConvert.Count(chart.Notes.Count, "note", "notes") + (chart.Holds > 0 ? ", " + OszConvert.Count(chart.Holds, "hold", "holds") : "");
+    // "145 notes, 9 holds": the ones the battle gets.
+    private static string Notes(OszChart chart, OszChoices choices)
+    {
+        int holds = Holds(chart, choices);
+        return OszConvert.Count(OszConvert.KeptCount(chart, choices), "note", "notes") + (holds > 0 ? ", " + OszConvert.Count(holds, "hold", "holds") : "");
+    }
 
-    private static string DifficultyHint(OszDifficulty d, OszChart chart)
+    private static int Holds(OszChart chart, OszChoices choices) => chart.Holds - (choices.LeaveOutOpening ? chart.OpeningHolds : 0);
+
+    private static string DifficultyHint(OszDifficulty d, OszChart chart, OszChoices choices)
     {
         string creator = d.File != null ? BattleDraft.CleanLine(d.File.Creator) : "";
-        var hint = new StringBuilder($"{Q(d.Name)}{(creator.Length > 0 ? " by " + Show(creator, 30) : "")}: {OszConvert.Count(chart.Notes.Count, "note", "notes")}");
-        hint.Append(chart.Holds > 0 ? $" ({OszConvert.Count(chart.Holds, "hold", "holds")})." : ".");
+        int holds = Holds(chart, choices);
+        var hint = new StringBuilder($"{Q(d.Name)}{(creator.Length > 0 ? " by " + Show(creator, 30) : "")}: {OszConvert.Count(OszConvert.KeptCount(chart, choices), "note", "notes")}");
+        hint.Append(holds > 0 ? $" ({OszConvert.Count(holds, "hold", "holds")})." : ".");
         if (chart.Moved > 0) hint.Append($" {OszConvert.Count(chart.Moved, "note", "notes")} moved to the beat grid, by at most {OszConvert.Ms(chart.WorstMs)} ms.");
         if (chart.NotOnGrid) hint.Append(" Most aren't on its beat grid: its tempo may be a placeholder.");
         return hint.ToString();
     }
 
-    // "x0.75 to x1.5"
-    private static string Range(OszSpeeds speeds)
+    // osu!'s own speed changes in a set, and their range ("x0.75 to x1.5").
+    private static (int Count, string Range) Own(OszSpeeds speeds)
     {
-        string min = "x" + speeds.Min.ToString("0.###", Invariant), max = "x" + speeds.Max.ToString("0.###", Invariant);
-        return min == max ? min : $"{min} to {max}";
+        string min = "x" + speeds.OwnMin.ToString("0.###", Invariant), max = "x" + speeds.OwnMax.ToString("0.###", Invariant);
+        return (speeds.Own.Count, min == max ? min : $"{min} to {max}");
     }
+
+    // "2 keep stretched beats even"
+    private static string Evening(int count) =>
+        count == 1 ? "1 keeps a stretched beat even" : $"{OszConvert.N(count)} keep stretched beats even";
+
+    // "1.5"
+    private static string Seconds(double seconds) => seconds.ToString("0.#", Invariant);
 
     // "Hard", "Normal" and 2 more
     private static string Names(List<OszDifficulty> names, int most, int max)

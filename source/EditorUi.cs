@@ -368,6 +368,9 @@ internal sealed class EditorUi
         messageUntil = Time.unscaledTime + seconds;
     }
 
+    /// <summary>Stops showing the message (it stays in <see cref="Message"/>).</summary>
+    internal void ClearMessage() => messageUntil = 0;
+
     /// <summary>Builds the status line in <paramref name="parent"/>; build it last so it draws on top.</summary>
     internal void BuildStatus(RectTransform parent)
     {

@@ -6,8 +6,9 @@ namespace NocturneFlatScroll;
 // chart (.sm) the battle creator and the chart editor edit like any other.
 //
 // Timing: osu!'s red lines become #BPMS. Each red line starts on a whole beat: when it isn't on
-//   one, the beat before it is stretched to reach it (a "filler" beat, shown at the speed around
-//   it), so both grids stay exact. Beat 0 goes on a beat of the first red line and becomes #OFFSET.
+//   one, (part of) the beat before it is stretched to reach it (a "filler" beat, shown at the speed
+//   around it), so both grids stay exact. Beat 0 goes on a beat of the first red line and becomes
+//   #OFFSET.
 //   Every note keeps its osu! time: its row is the nearest 1/48 beat to that time, worked out with
 //   the chart editor's own timing read back from the tags as written.
 // Speed: osu!mania scrolls at speed x (tempo / main tempo) and the game at ratio x tempo, so a
@@ -22,7 +23,7 @@ internal sealed class OszSection
     internal double OsuBpm;           // the red line's tempo as osu! plays it
     internal double Bpm;              // the tempo the chart uses: the red line's, unless it's an osu! speed effect
     internal double Speed = 1;        // the scroll speed it stands for (OsuBpm / Bpm, or a filler's evening-out)
-    internal double FillerRatio = 1;  // a filler's evening-out alone; 1 for a red line
+    internal double FillerRatio = 1;  // the evening-out alone: a filler's, or a stretched red line's; else 1
     internal bool Filler;
     internal int Meter = 4;
     internal double Beat;             // the chart's beat where it starts
@@ -35,6 +36,8 @@ internal sealed class OszTiming
     internal string OffsetTag = "0", BpmsTag = "";
     internal readonly List<OszSection> Sections = new();
     internal int Fillers, RowSnaps, Restated, Effects, Merged;
+    /// <summary>Sections played slower than in osu! (fillers, and a red line's section when the next starts on the nearest 1/48 beat), each evened out by a speed change.</summary>
+    internal int Stretched;
     /// <summary>Where beat 0 is, in osu!'s ms.</summary>
     internal double BeatZeroMs;
     /// <summary>The chart editor's timing, read from the tags as written.</summary>
@@ -124,6 +127,12 @@ internal sealed class OszChart
     /// <summary>The #NOTES text's size.</summary>
     internal long TextBytes;
     internal int FirstRow = -1, LastRow = -1;
+    /// <summary>
+    /// Notes in the song's first <see cref="OszConvert.OpeningSeconds"/> (the first ones, as the
+    /// notes are in order), and the holds among them: a battle starts with the song, so the
+    /// player can leave them out.
+    /// </summary>
+    internal int Opening, OpeningHolds;
 }
 
 /// <summary>A difficulty's speed changes as #SCROLLS.</summary>
@@ -140,6 +149,15 @@ internal sealed class OszSpeeds
     internal int Count => Scrolls.Count;
     internal double Min => Scrolls.Count == 0 ? 1 : Scrolls.Min(s => s.Ratio);
     internal double Max => Scrolls.Count == 0 ? 1 : Scrolls.Max(s => s.Ratio);
+    /// <summary>
+    /// osu!'s own speed changes: the same without the ones that keep stretched sections looking
+    /// even. The summary counts these; the battle gets <see cref="Scrolls"/>.
+    /// </summary>
+    internal readonly List<(double Beat, double Ratio)> Own = new();
+    internal double OwnMin => Own.Count == 0 ? 1 : Own.Min(s => s.Ratio);
+    internal double OwnMax => Own.Count == 0 ? 1 : Own.Max(s => s.Ratio);
+    /// <summary>How many more the battle gets to keep the stretched sections looking even.</summary>
+    internal int Evening => Math.Max(0, Scrolls.Count - Own.Count);
 }
 
 internal static class OszConvert
@@ -148,8 +166,15 @@ internal static class OszConvert
     internal const double MinRatio = 0.05, MaxRatio = 20;   // ScrollSpeeds.Parse
     internal const double WholeBeatSnapMs = 2;
     internal const double MovedMs = 2;
+    /// <summary>osu! keeps note times in whole ms, so a note this close to its row is on it.</summary>
+    internal const double FillerNoteMs = 1;
     internal const int MaxScrolls = 5000;
     internal const int RowsPerBeat = EditorChart.RowsPerBeat;
+    /// <summary>
+    /// osu! waits about 2 s before the song; a battle starts with it, so notes this soon come
+    /// right away. The summary warns about them, and the player can leave them out.
+    /// </summary>
+    internal const double OpeningSeconds = 1.5;
 
     // Notes a second (first to last note) halfway between the medians of the game's own charts for
     // each slot (research/osz/gamestats.py over its 237 charts).
@@ -169,7 +194,8 @@ internal static class OszConvert
     /// <param name="firstNoteMs">The lane group's first note that can be played, in osu! ms.</param>
     /// <param name="lastNoteMs">The group's last note (or hold end) that can be played.</param>
     /// <param name="shift">Seconds to take off osu!'s times (<see cref="OsuAudio.Shift"/>).</param>
-    internal static OszTiming Timing(OsuFile from, double firstNoteMs, double lastNoteMs, double shift, OszGuard guard)
+    /// <param name="noteMs">Every note start and hold end of the group, in osu! ms, sorted: a filler goes where it moves them least.</param>
+    internal static OszTiming Timing(OsuFile from, double firstNoteMs, double lastNoteMs, double shift, double[] noteMs, OszGuard guard)
     {
         var timing = new OszTiming();
         var reds = from.Timing.Where(t => t.IsTempo).ToList();
@@ -251,8 +277,9 @@ internal static class OszConvert
         s0.Beat = -k;
 
         // Each later red line on a whole beat. Within 2 ms of one: that beat (the tempo before it
-        // changes a hair). Otherwise the beat before it is stretched to reach it (a filler, at most
-        // half as fast, so it never raises the top tempo), so the notes on both sides stay on grids.
+        // changes a hair). Otherwise the part of the beat before it is stretched to reach it (a
+        // filler, at most half as fast, so it never raises the top tempo), so the notes on both
+        // sides stay on grids.
         var chart = new List<OszSection> { s0 };
         for (int i = 1; i < segs.Count; i++)
         {
@@ -269,13 +296,11 @@ internal static class OszConvert
                 continue;
             }
             if (nearWhole) seg.Beat = whole;
-            // A filler needs the section before to keep some of its own length (it spans two beats or
-            // more), and it starts at beat 0 or later, so beat 0 stays on the first tempo's grid.
-            else if (Math.Floor(exact) - 1 > prev.Beat && Math.Floor(exact) - 1 >= 0)
+            else if (FillerStart(prev, seg, exact, noteMs, guard) is double start)
             {
-                var filler = new OszSection { Filler = true, Beat = Math.Floor(exact) - 1, OsuBpm = prev.OsuBpm, Meter = prev.Meter };
+                var filler = new OszSection { Filler = true, Beat = start, OsuBpm = prev.OsuBpm, Meter = prev.Meter };
                 filler.Time = prev.Time + (filler.Beat - prev.Beat) * 60000 / prev.Bpm;
-                filler.Bpm = 60000 / (seg.Time - filler.Time);
+                filler.Bpm = 60000 * (Math.Floor(exact) - start) / (seg.Time - filler.Time);
                 filler.FillerRatio = prev.Bpm / filler.Bpm;
                 filler.Speed = prev.Speed * filler.FillerRatio;
                 chart.Add(filler);
@@ -284,8 +309,16 @@ internal static class OszConvert
             }
             else
             {
-                // No room for a filler: the next 1/48 beat, so the section before only slows a little.
-                seg.Beat = Math.Max(Math.Ceiling(exact * RowsPerBeat - 1e-6) / RowsPerBeat, prev.Beat + 1.0 / RowsPerBeat);
+                // No room for a filler: the 1/48 beat at or before it, so the section before only
+                // slows (a later row would speed it up and could raise the chart's top tempo, which
+                // slows the whole battle under MMod), and a speed change keeps it looking the same.
+                seg.Beat = Math.Max(Math.Floor(exact * RowsPerBeat + 1e-6) / RowsPerBeat, prev.Beat + 1.0 / RowsPerBeat);
+                double stretch = (exact - prev.Beat) / (seg.Beat - prev.Beat);
+                if (stretch > 1)
+                {
+                    prev.FillerRatio *= stretch;
+                    prev.Speed *= stretch;
+                }
                 timing.RowSnaps++;
             }
             chart.Add(seg);
@@ -293,6 +326,7 @@ internal static class OszConvert
         for (int i = 0; i < chart.Count; i++)
             chart[i].ChartBpm = i + 1 < chart.Count ? 60000 * (chart[i + 1].Beat - chart[i].Beat) / (chart[i + 1].Time - chart[i].Time) : chart[i].Bpm;
         timing.Sections.AddRange(chart);
+        timing.Stretched = chart.Count(c => Math.Round(c.FillerRatio, 3) != 1);
         // A red line within 2 ms of beat 0 starts on it: beat 0 is then exactly that red line.
         var zero = chart.LastOrDefault(c => c.Beat <= 0);
         if (zero != null && zero != s0) timing.BeatZeroMs = zero.Time - zero.Beat * 60000 / zero.ChartBpm;
@@ -322,6 +356,52 @@ internal static class OszConvert
     }
 
     private static long FloorTo(long value, int step) => step <= 1 ? value : (long)Math.Floor(value / (double)step) * step;
+
+    /// <summary>
+    /// Where a filler before a red line off the grid starts: on a row of the grid before it, at
+    /// most a beat before the whole beat the red line goes on and late enough that the filler is
+    /// at most half as fast; after the section before starts, and not before beat 0 (so beat 0
+    /// stays on the first tempo's grid). Notes before the filler stay exactly on their grid and
+    /// the ones inside it land on its longer rows, so of those starts it takes the first whose
+    /// notes stay within <see cref="FillerNoteMs"/>, else the one that moves them least. Null when
+    /// none fits.
+    /// </summary>
+    /// <param name="noteMs">Every note start and hold end of the lane group, in osu! ms, sorted.</param>
+    private static double? FillerStart(OszSection prev, OszSection seg, double exact, double[] noteMs, OszGuard guard)
+    {
+        double end = Math.Floor(exact), frac = exact - end;
+        double earliest = Math.Max(Math.Max(end - 1, prev.Beat + 1.0 / RowsPerBeat), 0);
+        long first = (long)Math.Ceiling(earliest * RowsPerBeat - 1e-6);
+        long last = Math.Min((long)Math.Floor((end - frac) * RowsPerBeat + 1e-6), (long)Math.Round(end * RowsPerBeat) - 1);
+        if (first > last) return null;
+        double? best = null;
+        double bestError = double.PositiveInfinity;
+        for (long row = first; row <= last; row++)
+        {
+            double start = row / (double)RowsPerBeat;
+            double startMs = prev.Time + (start - prev.Beat) * 60000 / prev.Bpm;
+            double span = seg.Time - startMs, beats = end - start;
+            // The notes inside: each on the filler's nearest row, and how far that is from it.
+            double worst = 0;
+            int at = Array.BinarySearch(noteMs, startMs);
+            if (at < 0) at = ~at;
+            for (int n = 0; at < noteMs.Length && noteMs[at] < seg.Time; at++, n++)
+            {
+                guard.Step();
+                double place = Math.Round((noteMs[at] - startMs) / span * beats * RowsPerBeat) / RowsPerBeat;
+                worst = Math.Max(worst, Math.Abs(startMs + place / beats * span - noteMs[at]));
+                // A beat with this many notes in it moves some whichever row it starts on.
+                if (n >= 1000) break;
+            }
+            if (worst <= FillerNoteMs) return start;
+            if (worst < bestError)
+            {
+                bestError = worst;
+                best = start;
+            }
+        }
+        return best;
+    }
 
     // osu!'s main tempo (lazer's "most common beat length"): each red line's time up to the last
     // note, the first counted from 0 as osu!stable did, summed by beat length. Returns the speed of
@@ -437,8 +517,20 @@ internal static class OszConvert
             chart.Meter = Math.Clamp((int)Math.Round(nps * 1.6), 1, 20);
         }
         chart.TextBytes = WriteNotes(chart.Notes, lanes).Length;
+        // The notes the player can leave out because they come before a battle has shown them.
+        while (chart.Opening < chart.Notes.Count && clock.RowToSeconds(chart.Notes[chart.Opening].Row) < OpeningSeconds)
+        {
+            if (chart.Notes[chart.Opening].Type == '2') chart.OpeningHolds++;
+            chart.Opening++;
+        }
         return chart;
     }
+
+    /// <summary>A chart's notes in the battle: all of them, or those after the opening seconds when the player leaves those out.</summary>
+    internal static List<EditorChart.Note> Kept(OszChart chart, OszChoices choices) =>
+        choices.LeaveOutOpening && chart.Opening > 0 ? chart.Notes.GetRange(chart.Opening, chart.Notes.Count - chart.Opening) : chart.Notes;
+
+    internal static int KeptCount(OszChart chart, OszChoices choices) => chart.Notes.Count - (choices.LeaveOutOpening ? chart.Opening : 0);
 
     internal static string WriteNotes(List<EditorChart.Note> notes, int lanes)
     {
@@ -476,19 +568,28 @@ internal static class OszConvert
                 speeds.Add((t, green ?? 1.0));
             }
         }
-        bool fillersOnly = from == null;
+        Place(speeds, timing, shift, lastNoteMs, from == null, true, result.Scrolls, result, guard);
+        // What the summary counts: osu!'s own changes, without the ones that even out stretched sections.
+        if (from != null) Place(speeds, timing, shift, lastNoteMs, false, false, result.Own, null, guard);
+        result.Tag = ScrollSpeeds.Write(result.Scrolls);
+        return result;
+    }
+
+    // The speed changes on the chart's beats, into list. fillersOnly: only the stretched sections'
+    // evening-out; evenOut false: without it. Clamps and the cap are counted in counts when given.
+    private static void Place(List<(double Time, double Speed)> speeds, OszTiming timing, double shift, double lastNoteMs,
+        bool fillersOnly, bool evenOut, List<(double Beat, double Ratio)> list, OszSpeeds? counts, OszGuard guard)
+    {
         var sections = timing.Sections;
         var clock = timing.Clock;
-        double Ratio(double sv, OszSection section, ref int clamped)
+        double Ratio(double sv, OszSection section, bool count)
         {
-            double ratio = fillersOnly ? section.FillerRatio : sv * section.Speed;
-            if (ratio < MinRatio || ratio > MaxRatio) clamped++;
+            double ratio = fillersOnly ? section.FillerRatio : evenOut ? sv * section.Speed : sv * section.Speed / section.FillerRatio;
+            if (count && counts != null && (ratio < MinRatio || ratio > MaxRatio)) counts.Clamped++;
             return Math.Round(Math.Clamp(ratio, MinRatio, MaxRatio), 3);
         }
 
-        int unused = 0;
-        double atZero = Ratio(1, sections[0], ref unused);   // before the first section, its speed applies (as in osu!)
-        var list = result.Scrolls;
+        double atZero = Ratio(1, sections[0], false);   // before the first section, its speed applies (as in osu!)
         double sv = 1;
         var section = sections[0];
         int si = 0, ki = 0;
@@ -501,7 +602,7 @@ internal static class OszConvert
             if (double.IsPositiveInfinity(t) || t > lastNoteMs) break;
             while (ki < speeds.Count && speeds[ki].Time <= t) sv = speeds[ki++].Speed;
             while (si < sections.Count && sections[si].Time <= t) section = sections[si++];
-            double r = Ratio(sv, section, ref result.Clamped);
+            double r = Ratio(sv, section, true);
             double seconds = t / 1000 - shift;
             double beat = clock.SecondsToBeat(seconds);
             double rowBeat = Math.Round(beat * RowsPerBeat) / RowsPerBeat;
@@ -523,14 +624,12 @@ internal static class OszConvert
             if (r == (list.Count > 0 ? list[^1].Ratio : 1)) continue;
             if (list.Count >= MaxScrolls)
             {
-                result.CappedAtSeconds = seconds;
+                if (counts != null) counts.CappedAtSeconds = seconds;
                 break;
             }
             list.Add((beat, r));
         }
         if (list.Count == 0 && atZero != 1) list.Add((0, atZero));
-        result.Tag = ScrollSpeeds.Write(list);
-        return result;
     }
 
     // ---- slots -------------------------------------------------------------------------------------
@@ -619,22 +718,23 @@ internal static class OszConvert
         for (int s = 0; s < 6; s++)
         {
             var d = choices.Slots[s];
-            if (d == null || !group.Charts.TryGetValue(d, out var notes) || notes.Notes.Count == 0)
+            var kept = d != null && group.Charts.TryGetValue(d, out var converted) ? Kept(converted, choices) : null;
+            if (kept == null || kept.Count == 0)
             {
                 counts[s] = -1;
                 continue;
             }
-            counts[s] = notes.Notes.Count;
-            firstRow = Math.Min(firstRow, notes.FirstRow);
-            lastRow = Math.Max(lastRow, notes.LastRow);
+            counts[s] = kept.Count;
+            firstRow = Math.Min(firstRow, kept[0].Row);
+            lastRow = Math.Max(lastRow, kept[^1].Row);
             chart.Blocks.Add(new ChartText.NoteBlock
             {
                 StepsType = choices.Lanes == 5 ? "pump-single" : "dance-single",
-                Description = BattleDraft.CleanTagValue(d.Name),
+                Description = BattleDraft.CleanTagValue(d!.Name),
                 Difficulty = ChartText.GameDifficultyNames[s],
-                Meter = notes.Meter.ToString(CultureInfo.InvariantCulture),
+                Meter = group.Charts[d].Meter.ToString(CultureInfo.InvariantCulture),
                 Radar = "0,0,0,0,0",
-                Notes = WriteNotes(notes.Notes, choices.Lanes),
+                Notes = WriteNotes(kept, choices.Lanes),
             });
         }
         if (choices.Lanes == 5 && choices.PlayerAttacks && lastRow >= 0)
@@ -671,6 +771,8 @@ internal static class OszConvert
                     ? $"{name}: 1 note landed on another note in the same lane and was dropped."
                     : $"{name}: {N(c.Duplicates)} notes landed on other notes in the same lane and were dropped.");
             if (c.Early > 0) items.Add($"{name}: {Count(c.Early, "note", "notes")} before the song starts {(c.Early == 1 ? "was" : "were")} left out.");
+            if (choices.LeaveOutOpening && c.Opening > 0)
+                items.Add($"{name}: {Count(c.Opening, "note", "notes")} in the first {OpeningSeconds.ToString("0.#", CultureInfo.InvariantCulture)} s {(c.Opening == 1 ? "was" : "were")} left out, as you chose.");
             if (c.AfterEnd > 0) items.Add($"{name}: {Count(c.AfterEnd, "note", "notes")} after the song ends {(c.AfterEnd == 1 ? "was" : "were")} left out.");
             if (c.Skipped > 0) items.Add($"{name}: {Count(c.Skipped, "slider or spinner was", "sliders and spinners were")} skipped (osu!mania has none of its own).");
             if (c.BadLines > 0) items.Add($"{name}: {Count(c.BadLines, "line", "lines")} couldn't be read and {(c.BadLines == 1 ? "was" : "were")} skipped.");
@@ -679,8 +781,8 @@ internal static class OszConvert
         var timing = group.Timing;
         if (timing.Fillers > 0)
             items.Add(timing.Fillers == 1
-                ? "1 tempo line wasn't on a beat, so the beat before it is stretched to reach it."
-                : $"{N(timing.Fillers)} tempo lines weren't on a beat, so the beat before each is stretched to reach it.");
+                ? "1 tempo line wasn't on a beat, so up to a beat before it is stretched to reach it."
+                : $"{N(timing.Fillers)} tempo lines weren't on a beat, so up to a beat before each is stretched to reach it.");
         if (timing.RowSnaps > 0)
             items.Add(timing.RowSnaps == 1
                 ? "1 tempo line starts on the nearest 1/48 beat instead of a whole beat."
@@ -705,10 +807,10 @@ internal static class OszConvert
         if (choices.SpeedsFrom != null) shown.Add(speeds.Tag);
         foreach (var d in included)
         {
-            if (!group.Speeds.TryGetValue(d, out var own) || own.Tag == group.BaseScrolls.Tag || !shown.Add(own.Tag)) continue;
+            if (!group.HasSpeedChanges(d) || !group.Speeds.TryGetValue(d, out var own) || !shown.Add(own.Tag)) continue;
             items.Add(choices.SpeedsFrom == null
-                ? $"The speed changes of {Quote(d.Name)} ({N(own.Count)}): a battle has one set for every difficulty, and this one uses none."
-                : $"The speed changes of {Quote(d.Name)} ({N(own.Count)}): a battle has one set for every difficulty, and it uses {Quote(choices.SpeedsFrom.Name)}'s.");
+                ? $"The speed changes of {Quote(d.Name)} ({N(own.Own.Count)}): a battle has one set for every difficulty, and this one uses none."
+                : $"The speed changes of {Quote(d.Name)} ({N(own.Own.Count)}): a battle has one set for every difficulty, and it uses {Quote(choices.SpeedsFrom.Name)}'s.");
         }
         if (plan.Song != null && Math.Abs(plan.Song.Shift) >= 0.00005)
         {

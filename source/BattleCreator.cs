@@ -411,7 +411,10 @@ internal static partial class BattleCreator
         if (p == null) { BackFromPicker(); return; }
         bool live = Live && !Busy;
         if (live && Pressed(keyboard, Key.Escape)) { picker = null; p.Back(); return; }
+        int before = p.Index;
         if (live) p.Index = MoveInList(keyboard, p.Index, p.Rows.Count);
+        // A message shows where the hint goes; moving to another row brings back that row's hint.
+        if (p.Index != before && Ui.MessageShowing) Ui.ClearMessage();
         bool chosen = Chosen(keyboard, p.Rows.Count, ref p.Index);
         if (live && chosen)
         {
