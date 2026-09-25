@@ -410,7 +410,7 @@ internal static class BattleFiles
         }
         catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
         {
-            entry.Problems.Add(ex.Message);
+            entry.Problems.Add(LoadFailureWords(path, ex.Message));
         }
         return entry;
     }
@@ -451,7 +451,7 @@ internal static class BattleFiles
             }
             catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
             {
-                entry.Problems.Add(ex.Message);
+                entry.Problems.Add(LoadFailureWords(path, ex.Message));
             }
         }
         else
@@ -473,8 +473,9 @@ internal static class BattleFiles
     /// <summary>
     /// The loader's problems with a battle, in the creator's words: the chart's as the Charts page
     /// says them (the difficulty tabs' names, lane counts), the enemy's as the Enemy page says it,
-    /// and game asset names like "EnemyData_Yako" as the enemy's name. The loader's own messages
-    /// are made again from the same battle to find them; the rest stay as the loader words them.
+    /// a beat 0 before the song as the Charts page's offset line says it, and game asset names like
+    /// "EnemyData_Yako" as the enemy's name. The loader's own messages are made again from the
+    /// same battle to find them; the rest stay as the loader words them.
     /// </summary>
     internal static List<string> CreatorWords(BattlePackage package)
     {
@@ -488,6 +489,10 @@ internal static class BattleFiles
         string requested = (custom ? enemy.rig ?? enemy.placeholder : enemy.placeholder) ?? "";
         var loaderEnemy = new List<string>();
         EnemyPlaceholders.Resolve(requested, enemy.advanced, loaderEnemy);
+        // A positive #OFFSET: the creator's own chart editor makes one when beats are moved earlier
+        // from 0 (the Timing tab's "-10 ms"). This is BattlePackage.Load's message for it.
+        string offset = package.Offset.ToString("0.###", CultureInfo.InvariantCulture);
+        string loaderOffset = $"#OFFSET is {offset} s, so beat 0 comes before the audio starts; notes in the chart's first {offset} s can't be played";
 
         var words = new List<string>();
         bool chartDone = false;
@@ -502,9 +507,52 @@ internal static class BattleFiles
             {
                 if (EnemyChoices.Problem(requested, enemy.advanced) is { } plain) words.Add(plain.TrimEnd('.'));
             }
+            else if (package.Offset > 0.001 && problem == loaderOffset)
+                words.Add($"beat 0 is {offset} s before the song starts, so notes before 0:00 can't be played (the chart editor's Timing page moves it)");
+            else if (custom && problem == CustomEnemyProblem)
+                words.Add("the enemy is set to custom art, which comes later; it plays as its placeholder for now");
             else words.Add(AssetName.Replace(problem, m => EnemyChoices.NameOf(m.Value)));
         }
         return words;
+    }
+
+    // BattlePackage.Load's message for an enemy in "custom" mode (only a battle.json written by hand has one).
+    private const string CustomEnemyProblem = "custom enemy art comes in a later version; the enemy plays as its rig for now";
+
+    /// <summary>
+    /// Why BattlePackage.Load refused a battle, in the creator's words when the reason is its chart
+    /// (no difficulty the game can play, like a zip whose charts all have the wrong lane count).
+    /// The chart is read again the way the loader reads it and the loader's message is made again
+    /// from it, so only that exact message is reworded; any other reason stays as it is.
+    /// </summary>
+    internal static string LoadFailureWords(string path, string message)
+    {
+        try
+        {
+            PackageFiles files;
+            if (Directory.Exists(path)) files = PackageFiles.Folder(path);
+            else
+            {
+                using var zip = ZipFile.OpenRead(path);
+                files = PackageFiles.Zip(path, PackagePrefix(zip));
+            }
+            var manifest = JsonSerializer.Deserialize<BattleManifest>(files.ReadAllText(BattlePackage.ManifestName, BattlePackage.MaxJsonBytes), BattlePackage.JsonOptions);
+            string? chartPath = PackageFiles.SafeName(manifest?.chart ?? BattlePackage.DefaultChart);
+            if (manifest == null || chartPath == null) return message;
+            var chart = ChartText.Parse(files.ReadAllText(chartPath, BattlePackage.MaxChartBytes));
+            // As the loader infers it: the first difficulty with notes, else 4.
+            int lanes = manifest.lanes ?? chart.Blocks.Where(ChartText.HasNotes).Select(b => b.Lanes).DefaultIfEmpty(4).First();
+            var loader = new List<string>();
+            if (chart.SongSlots(lanes, loader).Any(s => s != null)) return message;
+            if (message != "the chart has no playable difficulty" + (loader.Count > 0 ? ": " + string.Join("; ", loader) : "")) return message;
+            var plain = new List<string>();
+            chart.SongSlots(lanes, plain, plain: true);
+            return plain.Count == 0 ? "nothing in it is charted yet" : "none of its charts can be played: " + string.Join("; ", plain);
+        }
+        catch (Exception ex) when (BattleDraft.IsFileProblem(ex))
+        {
+            return message;
+        }
     }
 
     // ---- the chart, for the creator's pages ----------------------------------------------------------

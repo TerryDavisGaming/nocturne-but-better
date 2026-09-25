@@ -186,14 +186,14 @@ internal static partial class BattleCreator
         SayTypingHint();
     }
 
-    // The hint while typing; the long texts also show how much of them is used.
+    // The hint while typing. The long texts, and those with a measure (like the info boxes' lines),
+    // also show how much of them is used, so it's clear why typing stops at the limit.
     private static void SayTypingHint()
     {
         var field = typing;
         if (field == null) return;
         string hint = field.MultiLine ? "Type, then Enter. Shift+Enter starts a new line. Esc cancels." : field.Hint;
-        if (field.Max >= 100) hint += $"   {typed.Length} / {field.Max}";
-        if (field.Measure != null) hint += field.Measure(typed);
+        if (field.Max >= 100 || field.Measure != null) hint += BattleDraft.TypingCount(typed.Length, field.Max, field.Measure?.Invoke(typed));
         Say(hint, 3600f);
     }
 
@@ -374,7 +374,8 @@ internal static partial class BattleCreator
         Empty = () => draft?.EnemyName is { Length: > 0 } name ? $"(empty: shows the enemy name, {name})" : "(empty: no title)",
     }).ToArray();
 
-    // About three lines of the box's width; the typing hint says how many lines it takes.
+    // About three lines of the box's width; the typing hint says how much of that is used
+    // ("42 / 99, about 2 of 3 lines").
     private static readonly TextField[] InfoTextFields = Enumerable.Range(0, EnemyPlaceholders.MaxInfoBoxes).Select(i => new TextField
     {
         Label = $"Box {i + 1} text",
@@ -384,16 +385,8 @@ internal static partial class BattleCreator
         Get = () => draft?.InfoBox(i).Description ?? "",
         Set = text => draft!.SetInfoBox(i, null, text),
         Empty = () => "(empty: the battle doesn't show this box)",
-        Measure = InfoLinesHint,
+        Measure = BattleDraft.InfoLinesText,
     }).ToArray();
-
-    private static string InfoLinesHint(string text)
-    {
-        int lines = BattleDraft.InfoTextLines(text);
-        return lines > BattleDraft.InfoMaxLines
-            ? $", about {lines} lines: the battle shows {BattleDraft.InfoMaxLines}"
-            : $", about {lines} of {BattleDraft.InfoMaxLines} lines";
-    }
 
     // ---- saving ----------------------------------------------------------------------------------
 

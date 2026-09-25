@@ -519,6 +519,26 @@ internal sealed class BattleDraft
         return lines;
     }
 
+    /// <summary>How many lines a box's text takes, for the typing hint: "about 2 of 3 lines", or "about 4 lines: the battle shows 3".</summary>
+    internal static string InfoLinesText(string? text)
+    {
+        int lines = InfoTextLines(text);
+        return lines > InfoMaxLines
+            ? $"about {lines} lines: the battle shows {InfoMaxLines}"
+            : $"about {lines} of {InfoMaxLines} lines";
+    }
+
+    /// <summary>
+    /// The end of the creator's typing hint for a text with a limit: how much of it is used
+    /// ("42 / 99", and "full" at the limit, where typing stops), then <paramref name="measure"/>
+    /// when there is one (like <see cref="InfoLinesText"/>).
+    /// </summary>
+    internal static string TypingCount(int length, int max, string? measure)
+    {
+        string count = length >= max ? $"{max} / {max}, full" : $"{length} / {max}";
+        return "   " + count + (string.IsNullOrEmpty(measure) ? "" : ", " + measure);
+    }
+
     /// <summary>
     /// What the battle won't show of the battle's own info boxes, for the creator: a box with a
     /// title but no text (the game hides a box without text), and text longer than the box's lines.
