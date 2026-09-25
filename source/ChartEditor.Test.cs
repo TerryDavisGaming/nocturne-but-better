@@ -447,9 +447,10 @@ internal static partial class ChartEditor
         foreach (var menu in Resources.FindObjectsOfTypeAll<MainMenu>())
             if (menu && menu.optionsButton && menu.optionsButton.gameObject.activeInHierarchy) titleShowing = true;
         if (!titleShowing) return;
-        // The game shows its main menu under its startup intro (about 20 s with no input); a player
-        // can't reach Options before the intro ends, and Test refuses until then, so the QA waits too.
-        if (!TitleScreen.IsTitleScreenComplete)
+        // The game shows its main menu under its startup intro (the title background's load, then
+        // about 20 s with no input); a player can't reach Options before the intro ends, and Test
+        // refuses until then, so the QA waits too.
+        if (TestPlay.IntroShowing())
         {
             if (!qaLoggedIntro) ModLog.Info("Test play QA: waiting for the title intro to end.");
             qaLoggedIntro = true;

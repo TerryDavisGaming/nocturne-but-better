@@ -140,15 +140,8 @@ internal static class TestPlay
             why = "A test is already starting.";
             return false;
         }
-        bool title, intro = false;
-        try
-        {
-            title = GameManager.GameState == GameStates.MainMenu && !ArcadeUtility.IsRunning && !ArcadeSession.Active;
-            // The game's startup intro (TitleScreen: a black card with the PRACY STUDIOS logo, then
-            // the nocturne logo) sits on its own overlay canvas above everything, a battle included,
-            // until it ends; its main menu is already there under it.
-            if (title) intro = !TitleScreen.IsTitleScreenComplete;
-        }
+        bool title;
+        try { title = GameManager.GameState == GameStates.MainMenu && !ArcadeUtility.IsRunning && !ArcadeSession.Active; }
         catch (Exception ex)
         {
             Report("checking for the title screen", ex);
@@ -159,6 +152,11 @@ internal static class TestPlay
             why = "Test works from the title screen. Open the chart editor from Options there.";
             return false;
         }
+        // The game's main menu is already there under its startup intro. Unreadable, the intro
+        // counts as over: a player can't reach the editor during it anyway (see IntroShowing).
+        bool intro = false;
+        try { intro = IntroShowing(); }
+        catch (Exception ex) { Report("checking for the title's startup intro", ex); }
         if (intro)
         {
             why = "The title screen is still starting. Test again in a moment.";
@@ -172,6 +170,25 @@ internal static class TestPlay
             return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// Whether the game's startup intro is still up: TitleScreen's black card with the PRACY
+    /// STUDIOS logo, then the nocturne logo, on its own overlay canvas above everything, a battle
+    /// included. Throws when the game can't be read.
+    /// </summary>
+    internal static bool IntroShowing()
+    {
+        // IsTitleScreenComplete alone isn't enough. The game's GUI sets its titleComplete flag as it
+        // wakes, before the title background has loaded, so the flag is true while the card is
+        // already up and the background loads, false only during the intro's sequence, then true
+        // again. The intro's object holds the card, and a menu input lock, from its first frame
+        // until the intro ends, then destroys itself (at once on later title loads), so while an
+        // active one is in a scene, the intro isn't over.
+        if (!TitleScreen.IsTitleScreenComplete) return true;
+        foreach (var screen in Resources.FindObjectsOfTypeAll<TitleScreen>())
+            if (screen && screen.gameObject.scene.IsValid() && screen.gameObject.activeInHierarchy) return true;
+        return false;
     }
 
     // Whether the game is between screens (fading or loading), as far as it can be read.
@@ -413,7 +430,7 @@ internal static class TestPlay
         ModLog.Info($"Test play: the battle faded in ({Time.unscaledTime - onAt:0.0} s after it went on).");
         try
         {
-            if (!TitleScreen.IsTitleScreenComplete)
+            if (IntroShowing())
                 ModLog.Error("Test play: the game's startup intro is still showing over the battle.");
         }
         catch (Exception ex) { Report("checking for the title's startup intro", ex); }
