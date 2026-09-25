@@ -397,6 +397,7 @@ internal static class LayoutDriver
         catch (Exception ex) { ReportOnce(ref _reportedChartError, "Custom chart options failed: ", ex); }
         ChapterBadges.Update();
         ChartEditor.Update();
+        BattleCreator.Update();
         CustomMusic.Update();
     }
 
