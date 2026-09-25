@@ -49,6 +49,7 @@ public static class SettingsState
     private const string HitSoundKey = "NocturneFlatScroll.HitSound.v1";
     private const string TimingBarTopKey = "NocturneFlatScroll.TimingBarPosition.v1";
     private const string NoteFlaresKey = "NocturneFlatScroll.NoteFlares.v1";
+    private const string InfiniteConsumablesKey = "NocturneFlatScroll.InfiniteArcadeConsumables.v1";
     public const int MinReceptorHeight = -10;
     public const int MaxReceptorHeight = 30;
     private static ScrollMode? _mode;
@@ -58,6 +59,7 @@ public static class SettingsState
     private static bool? _hitSound;
     private static bool? _timingBarTop;
     private static bool? _noteFlares;
+    private static bool? _infiniteConsumables;
     public static ScrollMode Mode => _mode ??= LoadMode();
 
     /// <summary>How notes and receptors are drawn; Default keeps the game's own bars.</summary>
@@ -124,6 +126,20 @@ public static class SettingsState
         PlayerPrefs.SetInt(HitSoundKey, value ? 1 : 0);
         PlayerPrefs.Save();
         ModLog.Info("Hit sound: " + (value ? "On" : "Off"));
+    }
+
+    /// <summary>
+    /// Whether consumables used in arcade battles stay in the inventory. Off unless turned on.
+    /// Set-gear custom battles use up their own consumables either way.
+    /// </summary>
+    public static bool InfiniteArcadeConsumables => _infiniteConsumables ??= PlayerPrefs.GetInt(InfiniteConsumablesKey, 0) == 1;
+
+    public static void SetInfiniteArcadeConsumables(bool value)
+    {
+        _infiniteConsumables = value;
+        PlayerPrefs.SetInt(InfiniteConsumablesKey, value ? 1 : 0);
+        PlayerPrefs.Save();
+        ModLog.Info("Infinite consumables (arcade): " + (value ? "On" : "Off"));
     }
 
     /// <summary>
@@ -282,6 +298,7 @@ internal static class ModSetup
         Run("Scroll speed changes", () => ScrollSpeedHooks.Install(harmony));
         Run("Custom music", () => CustomMusic.Install(harmony));
         Run("Custom battles in the arcade", () => CustomBattles.Install(harmony));
+        Run("Battle gear and arcade consumables", () => BattleGear.Install(harmony));
         Run("Main menu arcade", () => ArcadeSession.Install(harmony));
         Run("Title text", () => TitleBranding.InstallTitle(harmony));
         Run("Intro text", () => TitleBranding.InstallIntro(harmony));
@@ -398,6 +415,7 @@ internal static class LayoutDriver
         ChapterBadges.Update();
         ChartEditor.Update();
         CustomMusic.Update();
+        BattleGear.Update();
     }
 
     private static void FadeAttacks(CombatNoteFieldView view, bool active)

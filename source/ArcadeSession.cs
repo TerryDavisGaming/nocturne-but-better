@@ -241,6 +241,8 @@ internal static class ArcadeSession
         if (!Active) return;
         Active = false;
         ModLog.Info($"Arcade: session ending ({reason}).");
+        // A set-gear battle's inventory is never left in after the arcade.
+        BattleGear.Backstop("the arcade session ended");
         try
         {
             // The arcade menu turns this on and nothing turns it off when it's opened from the title.
