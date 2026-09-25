@@ -200,8 +200,8 @@ internal sealed class BattleManifest
     public string? chart { get; set; }
     // An enemy object, or the path of a JSON file holding one.
     public JsonElement enemy { get; set; }
-    // Reserved for boss-style dialogue.
-    public string? dialogue { get; set; }
+    // Boss-style dialogue: an object, or the path of a JSON file holding one.
+    public JsonElement dialogue { get; set; }
     // The player's gear in this battle; missing means the player's own.
     public JsonElement gear { get; set; }
     // The player's level in this battle; missing means the player's own.
@@ -541,7 +541,7 @@ internal sealed class BattlePackage
             Artist = Clean(manifest.artist),
             Author = Clean(manifest.author),
             Lore = (manifest.lore ?? "").Trim(),
-            DialoguePath = manifest.dialogue == null ? null : PackageFiles.SafeName(manifest.dialogue)
+            DialoguePath = manifest.dialogue.ValueKind == JsonValueKind.String ? PackageFiles.SafeName(manifest.dialogue.GetString() ?? "") : null
         };
         if (song.Title.Length == 0) song.Title = Path.GetFileNameWithoutExtension(path.TrimEnd('\\', '/'));
         song.PreviewStart = Math.Max(0, Finite(manifest.previewStart, "\"previewStart\"", song.Problems) ?? 0);

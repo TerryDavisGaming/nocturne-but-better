@@ -36,7 +36,8 @@ internal sealed record BattleChartTarget(string Folder, string ChartPath, string
         string audio = PackageFiles.SafeName(manifest.audio ?? sm?.GetTag("MUSIC") ?? "")
             ?? throw new InvalidDataException("the battle names no song file (\"audio\" in " + BattlePackage.ManifestName + ")");
         string? enemyFile = manifest.enemy.ValueKind == JsonValueKind.String ? manifest.enemy.GetString() : null;
-        if (ChartFileProblem(folder, chart, ("song", audio), ("card image", manifest.card), ("enemy file", enemyFile), ("dialogue", manifest.dialogue)) is { } bad)
+        string? dialogueFile = manifest.dialogue.ValueKind == JsonValueKind.String ? manifest.dialogue.GetString() : null;
+        if (ChartFileProblem(folder, chart, ("song", audio), ("card image", manifest.card), ("enemy file", enemyFile), ("dialogue", dialogueFile)) is { } bad)
             throw new InvalidDataException(bad);
         int lanes = manifest.lanes ?? sm?.Blocks.FirstOrDefault(ChartText.HasNotes)?.Lanes ?? 4;
         if (lanes != 4 && lanes != 5) throw new InvalidDataException($"\"lanes\" must be 4 or 5, not {lanes}");

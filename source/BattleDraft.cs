@@ -327,7 +327,7 @@ internal sealed class BattleDraft
     /// or one of the enemy's art files (art is known by its bytes, so any name can be one).
     /// </summary>
     internal string? ChartFileProblem() => BattleChartTarget.ChartFileProblem(Folder, ChartPath,
-        new (string What, string? Name)[] { ("song", EffectiveAudio), ("card image", Card), ("enemy file", enemyFile), ("dialogue", GetString(root, "dialogue")) }
+        new (string What, string? Name)[] { ("song", EffectiveAudio), ("card image", Card), ("enemy file", enemyFile), ("dialogue", TextOnly(root, "dialogue")) }
             .Concat(EnemyArtReader.Names.Select(anim => ($"enemy's {anim} art", ArtFile(anim)))).ToArray());
 
     private int? inferredLanes;
@@ -1059,6 +1059,10 @@ internal sealed class BattleDraft
         }
         return "";
     }
+
+    // A value only when it's a text, like "dialogue", which may also be an object.
+    private static string? TextOnly(JsonObject node, string key) =>
+        node[key] is JsonValue v && v.TryGetValue(out string? s) ? s : null;
 
     private static double? GetNumber(JsonObject node, string key)
     {
