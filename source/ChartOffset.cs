@@ -106,7 +106,7 @@ internal static class ChartOffset
             // whichever is nearer in time.
             double end = double.MaxValue;
             foreach (var block in chart.Blocks)
-                foreach (int row in NoteRows(block))
+                foreach (int row in NoteRows(block, heads: false))
                     if (row >= c) { end = Math.Min(end, row); break; }
             foreach (var (beat, _) in timing.Bpms)
                 if (beat * RowsPerBeat > c + Tiny) { end = Math.Min(end, beat * RowsPerBeat); break; }
@@ -253,15 +253,18 @@ internal static class ChartOffset
 
     // ---- notes ------------------------------------------------------------------------------------
 
-    /// <summary>Rows with a note (any character but '0') in a block, in order, on the game's grid.</summary>
-    private static IEnumerable<int> NoteRows(ChartText.NoteBlock block)
+    /// <summary>
+    /// Rows with a note (any character but '0') in a block, in order, on the game's grid. With
+    /// <paramref name="heads"/>, a row with only the ends of holds doesn't count.
+    /// </summary>
+    private static IEnumerable<int> NoteRows(ChartText.NoteBlock block, bool heads)
     {
         int measure = 0;
         foreach (var chunk in block.Notes.Split(','))
         {
             var lines = Lines(chunk);
             for (int i = 0; i < lines.Count; i++)
-                if (lines[i].Any(ch => ch != '0')) yield return RowOf(measure, i, lines.Count);
+                if (lines[i].Any(ch => ch != '0' && (!heads || ch != '3'))) yield return RowOf(measure, i, lines.Count);
             measure++;
         }
     }
@@ -349,4 +352,70 @@ internal static class ChartOffset
         }
         return sb.ToString();
     }
+
+    // ---- the battle's start -----------------------------------------------------------------------
+
+    /// <summary>How far the notes scroll in before the first one when it comes too soon, at most.</summary>
+    internal const double MaxLeadIn = 3;
+    /// <summary>A moment more than the notes need, so the first one appears at the far end of the lane.</summary>
+    internal const double LeadInMargin = 0.25;
+    /// <summary>When the note speed can't be read: about when the game's own charts start.</summary>
+    internal const double DefaultApproach = 2;
+
+    /// <summary>The first note that plays, where it is and how fast notes move there.</summary>
+    internal readonly record struct FirstNote(int Row, double Seconds, double Bpm, double Scroll);
+
+    /// <summary>
+    /// The first note (not the end of a hold) of the blocks at or after the song's start, in
+    /// seconds on the song file's clock (StepMania's rule, beat 0 at -#OFFSET, which is the game's
+    /// for a baked chart), with the tempo and scroll ratio there. Null when there's none.
+    /// </summary>
+    internal static FirstNote? FirstNoteOf(ChartText chart, IEnumerable<ChartText.NoteBlock?> blocks)
+    {
+        var timing = new EditorChart(4);
+        timing.ReadTiming(chart);
+        int? first = null;
+        foreach (var block in blocks.Distinct())
+        {
+            if (block == null) continue;
+            foreach (int row in NoteRows(block, heads: true))
+            {
+                if (first != null && row >= first) break;
+                if (timing.RowToSeconds(row) < -0.0005) continue;
+                first = row;
+                break;
+            }
+        }
+        if (first is not int r) return null;
+        double beat = r / (double)RowsPerBeat, scroll = 1;
+        foreach (var (b, ratio) in ScrollSpeeds.Parse(chart.GetTag("SCROLLS")))
+            if (b <= beat + 1e-9) scroll = ratio;
+        return new FirstNote(r, Math.Max(0, timing.RowToSeconds(r)), timing.BpmAt(beat + 1e-9), scroll);
+    }
+
+    /// <summary>The chart's top tempo, which Speed Mod divides by.</summary>
+    internal static double TopBpm(ChartText chart)
+    {
+        var timing = new EditorChart(4);
+        timing.ReadTiming(chart);
+        return timing.Bpms.Max(b => b.Bpm);
+    }
+
+    /// <summary>
+    /// How long a note takes to cross the note field's spawn window (<paramref name="window"/>
+    /// units, the game's Size / 2 + Offset) at <paramref name="unitsPerBeat"/>, the tempo and the
+    /// scroll ratio: when it appears at the far end, how long before it's hit.
+    /// </summary>
+    internal static double Approach(double window, double unitsPerBeat, double bpm, double scroll)
+    {
+        double seconds = window / (unitsPerBeat * bpm / 60 * scroll);
+        return double.IsFinite(seconds) && seconds > 0 ? seconds : DefaultApproach;
+    }
+
+    /// <summary>
+    /// How long before the song the battle's clock starts (the game's startDelay), so that the first
+    /// note scrolls in from the far end of the lane: none when it comes late enough.
+    /// </summary>
+    internal static double StartDelay(double approach, double firstNoteSeconds) =>
+        Math.Clamp(approach + LeadInMargin - firstNoteSeconds, 0, MaxLeadIn);
 }

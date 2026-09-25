@@ -835,10 +835,11 @@ internal sealed class BattlePackage
 
 /// <summary>
 /// Where a song file sits on the battle's clock. The battle starts the music at clock time -0.1 s
-/// or a moment later, and the player starts a little before that, so it must be able to play
-/// from there: it plays silence before the file's first sample when that comes later. The clock
-/// is the song file's own time (the chart's #OFFSET is baked into the chart the game plays, see
-/// <see cref="ChartOffset"/>), so a song's first sample is at 0.
+/// or a moment later (later still after a lead-in, which starts the clock before 0), and the
+/// player starts a little before that, so it must be able to play from there: it plays silence
+/// before the file's first sample when that comes later. The clock is the song file's own time
+/// (the chart's #OFFSET is baked into the chart the game plays, see <see cref="ChartOffset"/>), so
+/// a song's first sample is at 0.
 /// </summary>
 internal static class LeadIn
 {

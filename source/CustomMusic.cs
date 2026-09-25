@@ -16,7 +16,8 @@ namespace NocturneFlatScroll;
 /// would start. The conductor's clock is the song file's own time, as it is the Wwise track's
 /// time for the game's songs, so the file is never shifted here. The game ignores the chart's
 /// #OFFSET, so for these battles it is baked into the chart the game reads (ChartOffset: beat 0 at
-/// clock time -OFFSET, as in StepMania).
+/// clock time -OFFSET, as in StepMania). A battle whose first note comes early starts its clock
+/// before 0 (ChartSwap's lead-in); the song still starts at clock time -0.1 s.
 /// </summary>
 internal static class CustomMusic
 {

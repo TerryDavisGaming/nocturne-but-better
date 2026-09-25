@@ -29,7 +29,7 @@ internal static class TestPlay
         internal int Difficulty;                   // the arcade difficulty the battle plays
         internal double T0;                        // clock start in seconds; 0 is the usual start
         internal string? PlayableText;             // Kind.GameSong: the test chart in all six slots (#OFFSET baked in with a #MUSIC file)
-        internal ChartText? Chart;                 // Kind.GameSong: PlayableText's chart, for its scroll speeds
+        internal ChartText? Chart;                 // Kind.GameSong: PlayableText's chart, for its scroll speeds and first note
         internal CustomMusic.Source? Music;        // Kind.GameSong: null plays the game's own music
         internal bool MusicFallsBackToWwise;       // Kind.GameSong from the start with a #MUSIC file
         internal string MusicName = "";

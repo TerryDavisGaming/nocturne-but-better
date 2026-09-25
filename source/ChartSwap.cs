@@ -70,9 +70,10 @@ internal static class ChartSwap
         AccessTools.DeclaredMethod(type, name) ?? throw new MissingMethodException(type.FullName, name);
 
     /// <summary>
-    /// Starts every battle: decides the chart, and fixes the melody the chart was written for. A
-    /// test play's battle can start its clock partway into the song: the game passes the start as
-    /// a plain float (always 0 in battles), and a negative delay starts the clock that far in.
+    /// Starts every battle: decides the chart, and fixes the melody the chart was written for. The
+    /// game passes the clock's start as a plain float (always 0 in battles): a test play's battle
+    /// can start the clock partway into the song (a negative delay starts it that far in), and a
+    /// battle whose music is a song file can start it before the song (see <see cref="StartBeforeSong"/>).
     /// </summary>
     private static void InitializePrefix(WwiseConductor __instance, SongData songData, ref Il2CppStructArray<int> melodies, ref float startDelay)
     {
@@ -87,9 +88,11 @@ internal static class ChartSwap
             {
                 // A custom battle has one melody, and its chart and score key are its own.
                 melodies = new Il2CppStructArray<int>(new[] { 0, 0 });
-                if (test != null) StartTestClock(test, ref startDelay);
+                var custom = PlayingBattle!;
+                if (test != null && test.T0 > 0) StartTestClock(test, ref startDelay);
+                else StartBeforeSong(__instance, songData, custom.PlayableChart, custom.PlayableChart.Blocks, ref startDelay, $"Custom battle {custom.Title}");
                 // Its dialogue, before the game shows the ready prompt (which its first lines hold back).
-                BattleDialogue.Begin(PlayingBattle!, test, __instance);
+                BattleDialogue.Begin(custom, test, __instance);
                 return;
             }
             if (test != null)
@@ -97,7 +100,10 @@ internal static class ChartSwap
                 // A game song's test plays the editor's chart on one melody; it records nothing,
                 // so no custom chart and no score key of its own.
                 melodies = new Il2CppStructArray<int>(new[] { test.Melody, test.Melody });
-                StartTestClock(test, ref startDelay);
+                if (test.T0 > 0) StartTestClock(test, ref startDelay);
+                // From the start with the chart's #MUSIC file, as the arcade plays it.
+                else if (test.MusicFallsBackToWwise && test.Chart != null)
+                    StartBeforeSong(__instance, songData, test.Chart, test.Chart.Blocks, ref startDelay, $"Test play of {songData.name}");
                 return;
             }
             if (!songData) return;
@@ -124,6 +130,13 @@ internal static class ChartSwap
             }
             Playing = chart;
             SwapScoreKey(__instance, songData, ScoreKeyPrefix + chart.Key);
+            // With its own song file (#MUSIC), the chart starts like a custom battle's (from the chart
+            // CreateBeatmapPrefix builds, with #OFFSET baked in).
+            if (CustomMusic.SourceFor(chart) != null)
+            {
+                var played = ChartOffset.Bake(chart.Chart.Playable(chart.BlockIndex, null)).Chart;
+                StartBeforeSong(__instance, songData, played, played.Blocks, ref startDelay, $"Custom chart {chart.DisplayName}");
+            }
         }
         catch (Exception ex) { ReportOnce(ex); }
     }
@@ -131,6 +144,70 @@ internal static class ChartSwap
     private static void StartTestClock(TestPlay.Run test, ref float startDelay)
     {
         if (test.T0 > 0) startDelay = -(float)test.T0;
+    }
+
+    /// <summary>
+    /// A battle whose music is a song file starts its clock with the song, so a note in the song's
+    /// first second or two is already partway down the lane when the notes first show, and reaches
+    /// the receptors almost at once. (The game's own charts start about 2 s in.) When the first note
+    /// comes sooner than a note takes to cross the lane, the clock starts that much before the song
+    /// (a positive startDelay, at most <see cref="ChartOffset.MaxLeadIn"/> s): the notes scroll in from
+    /// the far end while the clock counts up to the song's start, where CustomMusic starts the song
+    /// as usual. <paramref name="chart"/> is on the song file's clock (StepMania's #OFFSET rule).
+    /// </summary>
+    private static void StartBeforeSong(WwiseConductor conductor, SongData songData, ChartText chart, IEnumerable<ChartText.NoteBlock?> blocks,
+        ref float startDelay, string what)
+    {
+        try
+        {
+            if (ChartOffset.FirstNoteOf(chart, blocks) is not { } first) return;
+            double approach = ApproachSeconds(conductor, songData, chart, first);
+            double delay = ChartOffset.StartDelay(approach, first.Seconds);
+            if (!(delay > 0)) return;
+            startDelay = (float)delay;
+            ModLog.Info($"{what}: the first note is {first.Seconds:0.00} s into the song and takes {approach:0.00} s to cross the lane, " +
+                        $"so the notes start {delay:0.00} s before the song.");
+        }
+        catch (Exception ex) { ReportOnce(ex); }
+    }
+
+    private static bool reportedApproach;
+
+    /// <summary>
+    /// How long a note at the first note's tempo and scroll speed takes from the far end of the
+    /// note field's spawn window to the receptors, with the player's note speed: Speed Mod moves
+    /// the chart's top tempo at the Max BPM setting's speed, the other mode moves every beat by the
+    /// same distance. A setting that can't be read gives <see cref="ChartOffset.DefaultApproach"/>.
+    /// </summary>
+    private static double ApproachSeconds(WwiseConductor conductor, SongData songData, ChartText chart, ChartOffset.FirstNote first)
+    {
+        try
+        {
+            // The spawn window reaches Size / 2 + Offset units ahead (the shipped window: 600, 150,
+            // 50 units a beat, used when the conductor's can't be read).
+            double window = 450, perBeat = 50;
+            var settings = conductor.SettingsProvider;
+            var view = settings?.ViewWindow;
+            if (view != null)
+            {
+                window = view.Size * 0.5 + view.Offset;
+                perBeat = view.DistancePerBeat;
+            }
+            double unitsPerBeat;
+            if (NocturneSettings.NoteSpeedMod == NoteSpeedModType.MMod)
+            {
+                double top = songData && songData.overrideMaxBpm ? songData.maxBpm : ChartOffset.TopBpm(chart);
+                unitsPerBeat = perBeat * NocturneSettings.BaseNoteSpeed * NocturneSettings.TargetBpm / top;
+            }
+            else unitsPerBeat = perBeat * (settings != null ? settings.XNoteSpeed : NocturneSettings.XNoteSpeed);
+            return ChartOffset.Approach(window, unitsPerBeat, first.Bpm, first.Scroll);
+        }
+        catch (Exception ex)
+        {
+            if (!reportedApproach) ModLog.Error("Reading the note speed failed, so a battle's notes start as if they took 2 s to cross the lane: " + ex);
+            reportedApproach = true;
+            return ChartOffset.DefaultApproach;
+        }
     }
 
     private static void SwapScoreKey(WwiseConductor conductor, SongData song, string key)
