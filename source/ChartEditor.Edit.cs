@@ -224,12 +224,19 @@ internal static partial class ChartEditor
         if (Triggered(k, EditorAction.ToolNote)) SetTool(Tool.Note);
         if (Triggered(k, EditorAction.ToolHold)) SetTool(Tool.Hold);
         if (Triggered(k, EditorAction.ToolMine)) SetTool(Tool.Mine);
-        // A battle's Timing tab taps the tempo with its key, which is the note ticks' key by default.
-        if (battle != null && tab == Tab.Timing && Triggered(k, EditorAction.TapTempo)) Tap();
-        else if (Triggered(k, EditorAction.NoteTicks)) { ToggleTicks(); Say(ticksOn ? "Note ticks on" : "Note ticks off", 1.5f); }
+        if (Triggered(k, EditorAction.NoteTicks))
+        {
+            // On a battle's Timing tab the note ticks' key taps the tempo instead.
+            if (battle != null && tab == Tab.Timing) Tap();
+            else { ToggleTicks(); Say(ticksOn ? "Note ticks on" : "Note ticks off", 1.5f); }
+        }
         if (battle != null)
         {
             if (tab == Tab.Timing && taps.Bpm != null && (Pressed(k, Key.Enter) || Pressed(k, Key.NumpadEnter))) ApplyTaps(exact: Shift(k));
+            if (Triggered(k, EditorAction.BeatsEarlier)) NudgeOffset(-1);
+            if (Triggered(k, EditorAction.BeatsLater)) NudgeOffset(1);
+            if (Triggered(k, EditorAction.BeatsEarlier10)) NudgeOffset(-10);
+            if (Triggered(k, EditorAction.BeatsLater10)) NudgeOffset(10);
             if (Triggered(k, EditorAction.NextDifficulty)) ShowDifficulty(slot + 1);
             if (Triggered(k, EditorAction.PrevDifficulty)) ShowDifficulty(slot - 1);
         }
@@ -934,8 +941,10 @@ internal static partial class ChartEditor
         };
 
         // The Events tab's list and buttons reach further down, so its help text gets less room
-        // (a battle's has one more row of buttons).
-        tabText.rectTransform.offsetMax = new Vector2(-16, tab == Tab.Events ? (battle != null ? 180 : 200) : 250);
+        // (a battle's has one more row of buttons). A battle's Timing and Setup text runs longer,
+        // and has room to: their buttons end higher up.
+        float textTop = tab == Tab.Events ? (battle != null ? 180 : 200) : battle != null && (tab == Tab.Timing || tab == Tab.Setup) ? 280 : 250;
+        tabText.rectTransform.offsetMax = new Vector2(-16, textTop);
         if (tab == Tab.Events) UpdateEventRows();
         if (battle != null) DrawBattlePanels();
         string status = Ui.MessageShowing ? Escape(Ui.Message) : "";

@@ -45,6 +45,8 @@ internal static class EditorInput
         Key.Period => ".",
         Key.Minus => "-",
         Key.Equals => "=",
+        Key.LeftBracket => "[",
+        Key.RightBracket => "]",
         Key.Backspace => "Bksp",
         Key.Delete => "Del",
         _ => key.ToString(),
@@ -327,6 +329,7 @@ internal sealed class KeyMap<TAction> where TAction : struct, Enum
         {
             if (bindings != null) return bindings;
             bindings = Defaults.ToDictionary(d => d.Action, d => d.Keys);
+            var saved = new HashSet<TAction>();
             foreach (var entry in PlayerPrefs.GetString(pref, "").Split(';'))
             {
                 int eq = entry.IndexOf('=');
@@ -335,8 +338,16 @@ internal sealed class KeyMap<TAction> where TAction : struct, Enum
                 foreach (var part in entry.Substring(eq + 1).Split('|'))
                     if (KeyBinding.TryLoad(part, out var b)) list.Add(b);
                 bindings[action] = list.ToArray();
+                saved.Add(action);
             }
-            return bindings;
+            // An action added since the keys were saved starts with its default keys, less any the
+            // player already gave to another action: one key does one thing.
+            var loaded = bindings;
+            if (saved.Count > 0)
+                foreach (var (action, _, keys) in Defaults)
+                    if (!saved.Contains(action))
+                        loaded[action] = keys.Where(k => !saved.Any(other => loaded[other].Any(b => b.SameAs(k)))).ToArray();
+            return loaded;
         }
     }
 

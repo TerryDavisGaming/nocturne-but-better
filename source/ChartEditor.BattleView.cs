@@ -17,8 +17,9 @@ internal static partial class ChartEditor
     private static readonly List<Image> tabDots = new();
     private static readonly List<UiButton> overlayCopyButtons = new(), setupCopyButtons = new(), promptButtons = new();
 
-    // With 5 lanes the middle one is played with the attack key (Space by default); -1 with 4.
-    private static int AttackLane => chart != null && chart.Lanes == 5 ? 2 : -1;
+    // A 5-lane battle's middle lane is played with the attack key (Space by default). -1 with 4
+    // lanes, and for game songs, whose editor looks as it always has.
+    private static int AttackLane => battle != null && chart != null && chart.Lanes == 5 ? 2 : -1;
 
     private static void ClearBattleWidgets()
     {
@@ -57,12 +58,12 @@ internal static partial class ChartEditor
 
         // Over the playfield while the difficulty shown has no chart.
         notChartedPanel = MakeImage("NotCharted", fieldArea!, new Color(PanelColor.r, PanelColor.g, PanelColor.b, 0.97f)).rectTransform;
-        Place(notChartedPanel, new Vector2(0.5f, 0.5f), new Vector2(0, 60), new Vector2(560, 350));
+        Place(notChartedPanel, new Vector2(0.5f, 0.5f), new Vector2(0, 60), new Vector2(560, 380));
         Ui.AddSolidPanel(notChartedPanel);
         notChartedText = MakeText("Text", notChartedPanel, 24, TextAlignmentOptions.Top);
-        PlaceTop(notChartedText.rectTransform, 24, -22, 512, 90);
+        PlaceTop(notChartedText.rectTransform, 24, -22, 512, 120);
         var start = Ui.MakeButton(notChartedPanel, "Start empty", StartEmpty);
-        PlaceTop(start.Rect, 24, -116, 512, 44);
+        PlaceTop(start.Rect, 24, -146, 512, 44);
         for (int i = 0; i < BattleChartFile.SlotCount; i++)
         {
             int s = i;
@@ -106,8 +107,9 @@ internal static partial class ChartEditor
         }
         y -= 46;
 
+        // On this tab the note ticks' key taps.
         var tap = Ui.MakeButton(rightPanel!, "", Tap);
-        tap.Text = () => $"Tap tempo <size=62%><color=#9D92B4>{ShortKey(EditorAction.TapTempo)}</color></size>";
+        tap.Text = () => $"Tap tempo <size=62%><color=#9D92B4>{ShortKey(EditorAction.NoteTicks)}</color></size>";
         tap.Visible = () => tab == Tab.Timing;
         tap.Label.fontSize = 17;
         PlaceTop(tap.Rect, 16, y, width / 2 - 4, 40);
@@ -117,6 +119,19 @@ internal static partial class ChartEditor
         loop.Visible = () => tab == Tab.Timing;
         loop.Label.fontSize = 17;
         PlaceTop(loop.Rect, 16 + width / 2 + 4, y, width / 2 - 4, 40);
+        y -= 46;
+
+        // Once the taps make a tempo: use it rounded (Enter) or as tapped (Shift+Enter).
+        var rounded = Ui.MakeButton(rightPanel!, "", () => ApplyTaps(exact: false));
+        rounded.Text = () => taps.Bpm is double bpm ? $"Use {Math.Round(bpm):0} BPM <size=62%><color=#9D92B4>Enter</color></size>" : "";
+        rounded.Visible = () => tab == Tab.Timing && taps.Bpm != null;
+        rounded.Label.fontSize = 17;
+        PlaceTop(rounded.Rect, 16, y, width / 2 - 4, 40);
+        var exact = Ui.MakeButton(rightPanel!, "", () => ApplyTaps(exact: true));
+        exact.Text = () => taps.Bpm is double bpm ? $"Use {bpm:0.00} <size=62%><color=#9D92B4>Shift+Enter</color></size>" : "";
+        exact.Visible = () => tab == Tab.Timing && taps.Bpm != null;
+        exact.Label.fontSize = 17;
+        PlaceTop(exact.Rect, 16 + width / 2 + 4, y, width / 2 - 4, 40);
     }
 
     private static void BuildBattleSetup(float width)
@@ -183,10 +198,13 @@ internal static partial class ChartEditor
             if (notChartedPanel!.gameObject.activeSelf != show) notChartedPanel.gameObject.SetActive(show);
             if (show)
             {
-                bool others = Enumerable.Range(0, BattleChartFile.SlotCount).Any(s => s != slot && NoteCount(s) > 0);
+                // Until then the arcade plays the nearest charted difficulty here (-1: none is).
+                int standIn = BattleChartFile.PlaysInstead(ChartedTabs(), slot);
                 notChartedText!.text = $"{SlotName(slot)} isn't charted\n<size=70%><color=#9D92B4>" +
-                    (others ? "Click Start empty, or copy another difficulty's notes." : "Click Start empty to chart it.") + "</color></size>";
-                FlowButtons(overlayCopyButtons, 24, -172, 512, 40, 2, 8);
+                    (standIn >= 0
+                        ? $"Click Start empty, or copy another difficulty's notes.\nUntil then, the arcade plays the {SlotName(standIn)} chart on {SlotName(slot)}."
+                        : "Click Start empty to chart it.") + "</color></size>";
+                FlowButtons(overlayCopyButtons, 24, -202, 512, 40, 2, 8);
             }
         }
         if (tab == Tab.Setup) FlowButtons(setupCopyButtons, 16, -362, RightW - 32, 40, 2, 8);

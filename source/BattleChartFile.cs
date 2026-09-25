@@ -49,6 +49,20 @@ internal static class BattleChartFile
     private static bool Slotted(ChartText.NoteBlock block, int lanes) => ChartText.SlotOf(block.Difficulty) >= 0 && block.Lanes == lanes;
 
     /// <summary>
+    /// The slot whose notes the arcade plays in <paramref name="slot"/>: the slot itself when it has
+    /// notes, else the nearest one that has, the easier when two are as near (the game's playable
+    /// chart is filled that way, see <see cref="ChartText.BuildPlayableSong"/>); -1 when none has.
+    /// </summary>
+    internal static int PlaysInstead(bool[] charted, int slot)
+    {
+        var slots = new ChartText.NoteBlock?[SlotCount];
+        for (int s = 0; s < SlotCount; s++)
+            if (charted[s]) slots[s] = new ChartText.NoteBlock();
+        var block = ChartText.NearestSlot(slots, slot);
+        return block == null ? -1 : Array.IndexOf(slots, block);
+    }
+
+    /// <summary>
     /// The chart to save: <paramref name="tags"/> as its header, a block for each tab with notes
     /// in slot order (the tab's own block keeps its name, meter and radar values; a new one gets
     /// <paramref name="meters"/>), then the blocks the battle never plays (other lane counts or

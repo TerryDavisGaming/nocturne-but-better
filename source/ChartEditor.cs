@@ -78,7 +78,8 @@ internal static partial class ChartEditor
         eventRows.Clear();
         ClearBattleWidgets();
         ModLog.Info("Chart editor closed.");
-        // A battle's screen (the battle creator) shows again once the editor is gone.
+        // A battle's screen (the battle creator) shows again once the editor is gone, on the
+        // next frame (see RunClosedBattles).
         var closedBattle = battle;
         if (closedBattle == null) return;
         battle = null;
@@ -86,7 +87,7 @@ internal static partial class ChartEditor
         looping = false;
         taps.Clear();
         Array.Clear(tabNotes);
-        RunClosed(closedBattle);
+        QueueClosed(closedBattle);
     }
 
     /// <summary>Called every frame.</summary>
@@ -94,6 +95,7 @@ internal static partial class ChartEditor
     {
         // Unlocks the menus after a close, and keeps the cursor free while an editor is open.
         EditorOverlay.Update();
+        RunClosedBattles();
         // QA only (NFS_QA_BATTLECHART): remove with BattleChartQa.cs once the battle creator opens battles.
         BattleChartQa.Update();
         if (ui == null) return;

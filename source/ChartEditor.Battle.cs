@@ -30,17 +30,23 @@ internal static partial class ChartEditor
     private static bool looping;
     private static double loopBeat;
 
+    // Battles whose editor has closed, and the frame it closed on; their Closed runs at the start
+    // of a later frame's update.
+    private static readonly List<BattleChartTarget> closedBattles = new();
+    private static int closedFrame;
+
     /// <summary>
     /// Opens the editor on a custom battle's chart, at a difficulty slot (0 Beginner to 5 Zen) or,
-    /// with -1, the first one that has notes. <see cref="BattleChartTarget.Closed"/> runs once the
-    /// editor has closed, however it closes (also when it fails to open).
+    /// with -1, the first one that has notes. <see cref="BattleChartTarget.Closed"/> runs once
+    /// after the editor has closed, however it closes (also when it fails to open), on the frame
+    /// after, so the key or click that closed the editor can't reach the screen that shows again.
     /// </summary>
     internal static void OpenBattle(BattleChartTarget target, int slot = -1)
     {
         if (IsOpen)
         {
             ModLog.Error($"The chart editor is already open, so the battle {target.Title} can't open in it.");
-            RunClosed(target);
+            QueueClosed(target);
             return;
         }
         battle = target;
@@ -59,11 +65,24 @@ internal static partial class ChartEditor
         }
     }
 
-    private static void RunClosed(BattleChartTarget target)
+    private static void QueueClosed(BattleChartTarget target)
     {
-        if (target.Closed == null) return;
-        try { target.Closed(); }
-        catch (Exception ex) { ModLog.Error("After the chart editor closed, the battle screen failed: " + ex); }
+        closedBattles.Add(target);
+        closedFrame = Time.frameCount;
+    }
+
+    /// <summary>Runs the Closed of the battles whose editor closed on an earlier frame, each once.</summary>
+    private static void RunClosedBattles()
+    {
+        if (closedBattles.Count == 0 || Time.frameCount <= closedFrame) return;
+        var due = closedBattles.ToArray();
+        closedBattles.Clear();
+        foreach (var target in due)
+        {
+            if (target.Closed == null) continue;
+            try { target.Closed(); }
+            catch (Exception ex) { ModLog.Error("After the chart editor closed, the battle screen failed: " + ex); }
+        }
     }
 
     private static void StartBattle(BattleChartTarget target, int requested)
@@ -146,6 +165,9 @@ internal static partial class ChartEditor
     private static List<EditorChart.Note>? NotesOf(int s) => s == slot ? (tabCharted ? chart!.Notes : null) : tabNotes[s];
 
     private static int NoteCount(int s) => NotesOf(s)?.Count ?? 0;
+
+    // The tabs the arcade would play as they are now: those with notes.
+    private static bool[] ChartedTabs() => Enumerable.Range(0, BattleChartFile.SlotCount).Select(s => NoteCount(s) > 0).ToArray();
 
     /// <summary>Keeps the shown tab's notes with its tab, before another tab shows or the file is saved.</summary>
     private static void StoreTab() => tabNotes[slot] = tabCharted ? chart!.Notes : null;
@@ -236,7 +258,7 @@ internal static partial class ChartEditor
         events.Add(added);
         EventsEdited();
         eventIndex = events.IndexOf(added);
-        Say("Added a player attack. Edit text to change it: PlayerAttack, the number of hits, and the damage if you like.", 5f);
+        Say("Added a player attack. Edit text to change it: PlayerAttack, the charges it uses, and the damage if you like.", 5f);
     }
 
     // ---- timing -----------------------------------------------------------------------------
@@ -256,7 +278,7 @@ internal static partial class ChartEditor
         BattleTiming.SetSectionBpm(chart.Bpms, beat, bpm);
         TimingEdited();
         var section = chart.Bpms[BattleTiming.SectionAt(chart.Bpms, beat)];
-        Say(chart.Bpms.Count == 1 ? $"The song's tempo is {bpm:0.##} BPM" : $"From beat {section.Beat:0.##} the tempo is {bpm:0.##} BPM", 3f);
+        SayTiming(chart.Bpms.Count == 1 ? $"The song's tempo is {bpm:0.##} BPM" : $"From beat {section.Beat:0.##} the tempo is {bpm:0.##} BPM");
     }
 
     private static void AddTempoChange(double bpm)
@@ -265,7 +287,7 @@ internal static partial class ChartEditor
         double beat = SnapRow(chart!.SecondsToRow(Now)) / (double)EditorChart.RowsPerBeat;
         BattleTiming.AddChange(chart.Bpms, beat, bpm);
         TimingEdited();
-        Say($"The tempo changes to {bpm:0.##} BPM at beat {beat:0.##}", 3f);
+        SayTiming($"The tempo changes to {bpm:0.##} BPM at beat {beat:0.##}");
     }
 
     private static void RemoveTempoChange()
@@ -275,7 +297,7 @@ internal static partial class ChartEditor
         PushUndo();
         var removed = BattleTiming.RemoveChange(chart.Bpms, beat);
         TimingEdited();
-        Say($"Removed the tempo change at beat {removed:0.##}", 3f);
+        SayTiming($"Removed the tempo change at beat {removed:0.##}");
     }
 
     /// <summary>Sets #OFFSET so beat 0 is at the play position.</summary>
@@ -284,7 +306,17 @@ internal static partial class ChartEditor
         PushUndo();
         chart!.Offset = BattleTiming.OffsetForFirstBeat(Now);
         TimingEdited();
-        Say($"Beat 0 is now at {FormatTime(-chart.Offset)}", 3f);
+        SayTiming($"Beat 0 is now at {FormatTime(-chart.Offset)}");
+    }
+
+    /// <summary>
+    /// Says what a tempo or beat 0 change did. Notes sit on beats, so on every difficulty they
+    /// move with them; events are at times in seconds, so they stay where they were.
+    /// </summary>
+    private static void SayTiming(string what)
+    {
+        if (!ChartedTabs().Any(c => c)) { Say(what, 3f); return; }
+        Say(what + ". The notes on every difficulty moved with the beats" + (events.Count > 0 ? "; events keep their times." : "."), 6f);
     }
 
     /// <summary>Moves every beat (and the notes on them) later against the music; earlier when negative.</summary>
@@ -499,8 +531,14 @@ internal static partial class ChartEditor
         var sb = new StringBuilder();
         sb.Append($"{Escape(target.Title)}: {target.Lanes} lanes{(target.Lanes == 5 ? "; the middle lane is the attack key (Space)" : "")}.\n");
         sb.Append($"Chart {Escape(target.ChartPath)}, song {Escape(target.AudioPath)}.\n\n");
-        var charted = Enumerable.Range(0, BattleChartFile.SlotCount).Where(s => NoteCount(s) > 0).Select(s => $"{SlotName(s)} ({NoteCount(s)})").ToList();
+        var tabs = ChartedTabs();
+        var charted = Enumerable.Range(0, BattleChartFile.SlotCount).Where(s => tabs[s]).Select(s => $"{SlotName(s)} ({NoteCount(s)})").ToList();
         sb.Append(charted.Count > 0 ? $"Charted: {string.Join(", ", charted)}.\n" : "Nothing is charted yet.\n");
+        // The arcade still offers every difficulty: one without notes plays the nearest charted one.
+        var standIns = Enumerable.Range(0, BattleChartFile.SlotCount).Where(s => !tabs[s])
+            .GroupBy(s => BattleChartFile.PlaysInstead(tabs, s)).Where(g => g.Key >= 0)
+            .Select(g => $"{SlotName(g.Key)}'s notes on {JoinAnd(g.Select(SlotName))}").ToList();
+        if (standIns.Count > 0) sb.Append($"Until the rest are charted, the arcade plays {string.Join("; ", standIns)}.\n");
         if (leftOutBlocks > 0) sb.Append($"{leftOutBlocks} extra copies of a difficulty in the file never play; saving leaves them out.\n");
         sb.Append($"\n{ShortKey(EditorAction.Save)} saves every difficulty into the chart file. The battle creator exports the battle.");
         return sb.ToString();
@@ -515,12 +553,23 @@ internal static partial class ChartEditor
         sb.Append($"\n<color=#EAE6F5>Beat 0</color> at {FormatTime(-chart.Offset)} in the song (#OFFSET {chart.Offset.ToString("0.####", CultureInfo.InvariantCulture)})\n");
         if (chart.Offset > 0.001) sb.Append("<color=#F2B02E>Beat 0 is before the song starts, so notes before 0:00 can't be played.</color>\n");
         sb.Append("<color=#EAE6F5>Tap tempo</color> ");
+        string tapKey = ShortKey(EditorAction.NoteTicks);
         sb.Append(taps.Bpm is double tapped
             ? $"{tapped:0.00} BPM from {taps.Count} taps. Enter sets {Math.Round(tapped):0}, Shift+Enter {tapped:0.00}.\n"
-            : $"press {ShortKey(EditorAction.TapTempo)} on the beats while the music plays.\n");
-        sb.Append("The ms buttons move every beat (and note) earlier or later against the music.\n");
+            : $"{(tapKey.Length > 0 ? "press " + tapKey : "click Tap tempo")} on the beats while the music plays.\n");
+        sb.Append($"The ms buttons move every beat against the music. Keys: {KeysFor(EditorAction.BeatsEarlier)} / {KeysFor(EditorAction.BeatsLater)} 1 ms, " +
+            $"{KeysFor(EditorAction.BeatsEarlier10)} / {KeysFor(EditorAction.BeatsLater10)} 10 ms.\n");
+        // Notes sit on beats; events sit at times in seconds.
+        sb.Append("Tempo and beat changes move the notes on every difficulty; events keep their times.\n");
         sb.Append($"<color=#EAE6F5>Scroll speed</color> {(scrolls.Count == 0 ? "normal throughout" : $"{scrolls.Count} changes")}   <color=#EAE6F5>Bookmarks</color> {bookmarks.Count}");
         return sb.ToString();
+    }
+
+    // "A", "A and B", "A, B and C".
+    private static string JoinAnd(IEnumerable<string> items)
+    {
+        var list = items.ToList();
+        return list.Count <= 1 ? string.Concat(list) : string.Join(", ", list.Take(list.Count - 1)) + " and " + list[^1];
     }
 
     private static string BattleEventsText()
@@ -535,7 +584,9 @@ internal static partial class ChartEditor
         }
         sb.Append("\nThe battle's events, shared by every difficulty. PlayerAttack hits the enemy");
         sb.Append(battle!.Lanes == 5 ? " (the only way to hurt it in 5 lanes)." : ".");
-        sb.Append(" Other verbs include ColumnLayout, SpawnPrefab, EnemyAnimation and ShowText.");
+        // A custom battle spawns no song props and has no text lines of its own, so SpawnPrefab and
+        // ShowText show nothing; these two work with the placeholder enemy.
+        sb.Append(" EnemyAnimation and TriggerCombatEffect use the enemy's own animations and effects.");
         return sb.ToString();
     }
 }
