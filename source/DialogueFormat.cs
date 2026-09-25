@@ -396,6 +396,8 @@ internal static class DialogueReader
         private readonly Action<string> stamp;
         // Speakers that were written but left out: their lines show as the Narrator.
         private readonly HashSet<string> dropped = new(StringComparer.OrdinalIgnoreCase);
+        // Expressions that were written but left out, by speaker: noted once, not again for each line.
+        private readonly HashSet<string> droppedFaces = new(StringComparer.OrdinalIgnoreCase);
         // Pictures counted towards the limit for all of them, and whether it was reached.
         private readonly HashSet<string> counted = new(StringComparer.OrdinalIgnoreCase);
         private long pictureBytes;
@@ -460,7 +462,9 @@ internal static class DialogueReader
                 }
                 if (Data.FindSpeaker(key) is { } first)
                 {
-                    Note(null, null, key, $"the speakers \"{first.Key}\" and \"{key}\" differ only in letter case, so \"{key}\" is left out");
+                    Note(null, null, key, first.Key == key
+                        ? $"the speaker \"{key}\" is written twice, so the second is left out"
+                        : $"the speakers \"{first.Key}\" and \"{key}\" differ only in letter case, so \"{key}\" is left out");
                     continue;
                 }
                 if (Data.Speakers.Count >= MaxSpeakers)
@@ -554,6 +558,8 @@ internal static class DialogueReader
             foreach (var e in expressions.EnumerateObject())
             {
                 string face = e.Name.Trim();
+                // Taken back out below when it's used.
+                droppedFaces.Add(key + "/" + face);
                 if (++written > MaxExpressions)
                 {
                     Note(null, null, key, $"{where} has more than {MaxExpressions} expressions; only the first {MaxExpressions} are used", $"{who} has more than {MaxExpressions} expressions; only the first {MaxExpressions} are used");
@@ -577,6 +583,7 @@ internal static class DialogueReader
                 }
                 if (Picture(e.Value.GetString() ?? "", face, key, where, who) is not { } picture) continue;
                 speaker.Expressions.Add(picture);
+                droppedFaces.Remove(key + "/" + face);
                 // Every face shows at the default face's size, so one of another shape is stretched.
                 double wanted = speaker.Portrait.Width / (double)speaker.Portrait.Height, shape = picture.Width / (double)picture.Height;
                 if (Math.Abs(shape / wanted - 1) > ShapeTolerance)
@@ -611,7 +618,8 @@ internal static class DialogueReader
                 else
                 {
                     picture.Bytes = files.Length(file);
-                    if (picture.Bytes > MaxPortraitBytes) why = $"is {picture.Bytes / (1024.0 * 1024):0.#} MB; speaker pictures can be at most {MaxPortraitBytes / (1024 * 1024)} MB";
+                    if (picture.Bytes > MaxPortraitBytes)
+                        why = $"is {(picture.Bytes / (1024.0 * 1024)).ToString("0.#", CultureInfo.InvariantCulture)} MB; speaker pictures can be at most {MaxPortraitBytes / (1024 * 1024)} MB";
                     else
                     {
                         byte[] head = files.ReadHead(file, HeadBytes);
@@ -796,7 +804,7 @@ internal static class DialogueReader
                 else if (custom?.Portrait != null)
                 {
                     if (custom.Expression(face) is { } found) line.Face = found.Name;
-                    else Note(section, index, null, $"{where}: {custom.Name} has no expression \"{face}\", so the default picture shows", $"{where}: {custom.Name} has no expression \"{face}\", so the default picture shows");
+                    else if (!droppedFaces.Contains(custom.Key + "/" + face)) Note(section, index, null, $"{where}: {custom.Name} has no expression \"{face}\", so the default picture shows", $"{where}: {custom.Name} has no expression \"{face}\", so the default picture shows");
                 }
             }
 
