@@ -199,6 +199,8 @@ internal static partial class BattleCreator
             ModLog.Info("Battle creator: " + OszSummary.CreatedLine(made.Folder, choices.Lanes, plan.SourcePath, made.Summary));
             ClearOsz();
             picker = null;
+            // The list's scan and the Charts page ask the game's chart reader about the new battle (GameCheck).
+            ForgetGameCheck(made.Folder);
             Rescan();
             SelectInList(made.Folder);
             OpenBattle(made.Folder);
@@ -206,8 +208,11 @@ internal static partial class BattleCreator
             // OpenBattle said why when it couldn't open it; the list shows it.
             if (draft == null) return;
             SetPage(Page.Charts);
-            // The arcade lists only a battle the game's own chart reader takes (checked here, on the main thread).
-            string? reader = ChartEditor.GameReaderProblem(made.Chart, choices.Lanes);
+            // The arcade lists only a battle the game's own chart reader takes. Its answer is the one the scan and
+            // the Charts page got (on the main thread); the reader is asked here only when neither reached the battle.
+            string? reader = LastGameCheck(made.Folder, out var checkedAnswer)
+                ? checkedAnswer
+                : ChartEditor.GameReaderProblem(made.Chart, choices.Lanes);
             if (reader != null)
             {
                 ModLog.Error($"Battle creator: the game's chart reader can't read {made.Folder}: {reader}.");

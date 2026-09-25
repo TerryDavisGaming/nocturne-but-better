@@ -427,26 +427,53 @@ internal static partial class BattleCreator
     // (CustomBattles.CheckChart). Answers are kept by the battle's files, so the list asks the
     // game once per version of a chart. A reader that fails gives no answer, not a problem.
     private static readonly Dictionary<string, string?> gameChecks = new();
+    // The last answer for each battle folder or zip (by its full path), a failed reader's "no answer"
+    // included, so the osz import reads what the list and the Charts page were told instead of asking again.
+    private static readonly Dictionary<string, string?> lastGameChecks = new(StringComparer.OrdinalIgnoreCase);
 
     private static string? GameCheck(BattlePackage package)
     {
         string key = package.Location + "|" + package.Fingerprint;
-        if (gameChecks.TryGetValue(key, out var known)) return known;
-        string? problem = null;
-        try
+        if (!gameChecks.TryGetValue(key, out var problem))
         {
-            var built = NotesLoaderSM.Instance.LoadFromText(package.PlayableText);
-            if (built == null || built.steps == null || built.steps.Count == 0 || built.timingData == null)
-                problem = "the game's chart reader finds nothing playable in its chart";
+            try
+            {
+                var built = NotesLoaderSM.Instance.LoadFromText(package.PlayableText);
+                if (built == null || built.steps == null || built.steps.Count == 0 || built.timingData == null)
+                    problem = "the game's chart reader finds nothing playable in its chart";
+            }
+            catch (Exception ex)
+            {
+                ModLog.Error($"Battle creator: the game's chart reader couldn't check {package.Location}: {ex.Message}");
+                KeepGameCheck(package.Location, null);
+                return null;
+            }
+            if (gameChecks.Count >= 500) gameChecks.Clear();
+            gameChecks[key] = problem;
         }
-        catch (Exception ex)
-        {
-            ModLog.Error($"Battle creator: the game's chart reader couldn't check {package.Location}: {ex.Message}");
-            return null;
-        }
-        if (gameChecks.Count >= 500) gameChecks.Clear();
-        gameChecks[key] = problem;
+        KeepGameCheck(package.Location, problem);
         return problem;
+    }
+
+    private static void KeepGameCheck(string path, string? problem)
+    {
+        if (lastGameChecks.Count >= 500) lastGameChecks.Clear();
+        lastGameChecks[GameCheckPlace(path)] = problem;
+    }
+
+    /// <summary>
+    /// What <see cref="GameCheck"/> last said about a battle folder or zip, without asking the game
+    /// again; false when it hasn't been asked about it since <see cref="ForgetGameCheck"/>.
+    /// </summary>
+    private static bool LastGameCheck(string path, out string? problem) =>
+        lastGameChecks.TryGetValue(GameCheckPlace(path), out problem);
+
+    private static void ForgetGameCheck(string path) => lastGameChecks.Remove(GameCheckPlace(path));
+
+    private static string GameCheckPlace(string path)
+    {
+        try { return Path.GetFullPath(path).TrimEnd('\\', '/'); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException) { return path; }
     }
 
     /// <summary>Puts the list's cursor on a battle folder.</summary>
