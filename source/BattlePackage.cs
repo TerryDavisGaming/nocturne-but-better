@@ -429,7 +429,12 @@ internal sealed class BattlePackage
             string mode = read.mode?.Trim() ?? "";
             if (mode.Length > 0 && !mode.Equals("player", StringComparison.OrdinalIgnoreCase) && !read.IsSet)
                 throw new InvalidDataException($"\"mode\" must be \"player\" or \"set\", not \"{mode}\"");
-            if (read.extraHealth < 0) throw new InvalidDataException("\"extraHealth\" can't be below 0");
+            // A number out of range is kept in range; the rest of the gear still counts.
+            if (read.extraHealth is int health && (health < 0 || health > GearDefinition.MaxCount))
+            {
+                problems.Add($"\"extraHealth\" is {health}; it is kept between 0 and {GearDefinition.MaxCount}");
+                read.extraHealth = Math.Clamp(health, 0, GearDefinition.MaxCount);
+            }
             if (read.consumable?.count is int count && (count < 1 || count > GearDefinition.MaxCount))
                 problems.Add($"the consumable's count is {count}; it is kept between 1 and {GearDefinition.MaxCount}");
             return read;

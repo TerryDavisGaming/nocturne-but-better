@@ -51,11 +51,11 @@ internal static partial class BattleGear
         var unlock = Method(typeof(AchievementManager), "UnlockAchievement");
         var use = Method(typeof(CombatSimulator), "UseConsumable");
         var remove = Method(typeof(PlayingInventoryManager), "RemoveItem");
-        harmony.Patch(start, prefix: Hook(nameof(StartCombatPrefix)));
-        harmony.Patch(exit, postfix: Hook(nameof(ExitCombatPostfix)));
+        // The guards and the restore come first, so if one of them can't be patched the swap isn't either.
         harmony.Patch(unlock, prefix: Hook(nameof(UnlockAchievementPrefix)));
         harmony.Patch(use, prefix: Hook(nameof(UseConsumablePrefix)), postfix: Hook(nameof(UseConsumablePostfix)));
         harmony.Patch(remove, prefix: Hook(nameof(RemoveItemPrefix)));
+        harmony.Patch(exit, postfix: Hook(nameof(ExitCombatPostfix)));
 
         // Backstops: the battle's end puts the player's gear back; these only matter if it's missed.
         // Before a save, first, so the arcade's save block can't skip it.
@@ -67,6 +67,9 @@ internal static partial class BattleGear
         foreach (var name in new[] { "Continue", "LoadGame", "NewGame", "Gauntlet" })
             Optional(harmony, typeof(MainMenu), name, prefix: nameof(TitlePrefix));
         Optional(harmony, typeof(ArcadeMenuV2), "Deactivate", postfix: nameof(ArcadeClosedPostfix));
+
+        // The swap itself comes last.
+        harmony.Patch(start, prefix: Hook(nameof(StartCombatPrefix)));
     }
 
     private static MethodInfo Method(Type type, string name) =>
@@ -118,6 +121,15 @@ internal static partial class BattleGear
             var battle = combatOptions != null ? CustomBattles.Find(combatOptions.Song) : null;
             if (battle == null || !battle.Package.Gear.IsSet) return;
             setBattle = battle;
+            if (swap != null)
+            {
+                // The last battle's inventory couldn't be taken out. Another one on top of it would
+                // lose the player's own, so this battle is played as if its swap failed.
+                ModLog.Error($"Battle gear: {battle.Title}: the last battle's gear is still in, so this battle's gear can't be set " +
+                             "(your consumables are kept).");
+                Dump("battle start, the swap failed");
+                return;
+            }
             try
             {
                 SetGear(battle);
@@ -153,6 +165,8 @@ internal static partial class BattleGear
     private static void SetGear(CustomBattles.Battle battle)
     {
         var gear = battle.Package.Gear;
+        // Swapping twice would lose the player's own inventory behind the first swap.
+        if (swap != null) throw new InvalidOperationException("the last battle's gear is still in");
         // Without the item list, gear can't be told from other items.
         if (GearCatalog.All.Count == 0) throw new InvalidOperationException("the game's items aren't loaded");
         var game = GameDataManager.Instance?.TryCast<PlayingGameDataManager>()
@@ -161,8 +175,11 @@ internal static partial class BattleGear
         var own = game.inventoryManager ?? throw new InvalidOperationException("the game has no inventory");
         var ownManager = own.TryCast<PlayingInventoryManager>()
             ?? throw new InvalidOperationException("the inventory isn't the game's own kind");
-        var ownData = ownManager.dataProvider?.TryCast<GameDataScriptableObject>()?.Save?.player
+        var ownSave = ownManager.dataProvider?.TryCast<GameDataScriptableObject>()
             ?? throw new InvalidOperationException("the player's save isn't loaded");
+        if (CustomBattles.IsRuntimeName(ownSave.name))
+            throw new InvalidOperationException("the game reads a battle's inventory, not the player's");
+        var ownData = ownSave.Save?.player ?? throw new InvalidOperationException("the player's save isn't loaded");
         var database = ownManager.Database ?? DataUtility.ItemDatabase;
 
         // A fresh save: its constructor makes the player's inventory and equipment.
@@ -194,7 +211,7 @@ internal static partial class BattleGear
         if (gear.extraHealth is int wanted)
         {
             health = Math.Clamp(wanted, 0, GearDefinition.MaxCount);
-            if (health != wanted) Note($"Battle gear: {battle.Title}: {wanted} health upgrades is too many; it plays with {health}.");
+            if (health != wanted) Note($"Battle gear: {battle.Title}: {wanted} health upgrades can't be used; it plays with {health}.");
         }
         if (health > 0) data.inventory[ExtraHealthId] = health;
         parts.Add($"health upgrades {health}{(gear.extraHealth == null ? " (your own)" : "")}");
@@ -324,27 +341,42 @@ internal static partial class BattleGear
 
     // ---- backstops -------------------------------------------------------------------------------
 
-    /// <summary>Puts the player's gear back when no arcade battle can be running any more.</summary>
+    // Something of a set-gear battle is still in: its inventory, or its holds on achievements and item use.
+    private static bool Pending => swap != null || setBattle != null || usingConsumable;
+
+    /// <summary>Ends what's left of a set-gear battle when no arcade battle can be running any more.</summary>
     internal static void Backstop(string reason)
     {
-        if (swap == null) return;
+        if (!Pending) return;
         try
         {
-            if (!ArcadeUtility.IsRunning) Restore(reason, backstop: true);
+            if (!ArcadeUtility.IsRunning) EndBattle(reason);
         }
         catch (Exception ex) { Report(ex); }
     }
 
-    /// <summary>Called every frame; cheap unless a battle's gear is still in.</summary>
+    /// <summary>Called every frame; cheap unless a set-gear battle is running or wasn't ended.</summary>
     internal static void Update()
     {
-        if (swap != null) Backstop("the arcade isn't running any more");
+        if (Pending) Backstop("the arcade isn't running any more");
+    }
+
+    /// <summary>Puts the player's gear back and lifts the battle's holds on achievements and item use.</summary>
+    private static void EndBattle(string reason)
+    {
+        var battle = setBattle;
+        setBattle = null;
+        usingConsumable = false;
+        inBattle = false;
+        if (swap != null) Restore(reason, backstop: true);
+        else if (battle != null)
+            ModLog.Info($"Battle gear: backstop: {reason}; {battle.Title} is over, so achievements and items work as usual again.");
     }
 
     // A save only ever writes the player's own save object, so it can't hold the battle's gear.
     private static void SavePrefix(MethodBase __originalMethod)
     {
-        if (swap == null) return;
+        if (!Pending) return;
         Backstop("a save started");
         if (swap != null)
             Note($"Battle gear: {__originalMethod?.Name} ran during a set-gear battle; the save holds your own gear, not the battle's.", error: false);
@@ -355,8 +387,8 @@ internal static partial class BattleGear
     // Nothing on the title screen runs during a battle.
     private static void TitlePrefix(MethodBase __originalMethod)
     {
-        if (swap == null) return;
-        try { Restore($"MainMenu.{__originalMethod?.Name}", backstop: true); }
+        if (!Pending) return;
+        try { EndBattle($"MainMenu.{__originalMethod?.Name}"); }
         catch (Exception ex) { Report(ex); }
     }
 
