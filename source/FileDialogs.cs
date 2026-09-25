@@ -62,6 +62,10 @@ internal static class FileDialogs
     {
         internal static string[] Images => new[] { "Images (*.png, *.jpg, *.gif, *.webp, *.bmp)", "*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp" };
         internal static string[] Videos => new[] { "Videos (*.mp4, *.webm, *.m4v, *.mov)", "*.mp4;*.webm;*.m4v;*.mov" };
+        // Enemy art: each kind lists only the files it takes.
+        internal static string[] Pictures => new[] { "Pictures (*.png, *.jpg)", "*.png;*.jpg;*.jpeg" };
+        internal static string[] Gifs => new[] { "GIFs (*.gif)", "*.gif" };
+        internal static string[] SpriteSheets => new[] { "Sprite sheets (*.png, *.jpg)", "*.png;*.jpg;*.jpeg" };
         internal static string[] Songs => new[] { "Music (*.ogg, *.mp3, *.wav, *.flac, *.m4a, *.wma)", "*.ogg;*.mp3;*.wav;*.flac;*.m4a;*.wma" };
         internal static string[] StepMania => new[] { "StepMania charts (*.sm, *.ssc)", "*.sm;*.ssc" };
         internal static string[] ChartPacks => new[] { "Nocturne But Better chart packs (*.nbbchart)", "*.nbbchart" };
@@ -87,6 +91,11 @@ internal static class FileDialogs
         internal static readonly Purpose StepMania = new("stepmania", DownloadsFolder, Filters.Join(Filters.StepMania, Filters.AllFiles));
         internal static readonly Purpose ChartPacks = new("chartpacks", DownloadsFolder, Filters.Join(Filters.ChartPacks, Filters.AllFiles));
         internal static readonly Purpose BattlePacks = new("battlepacks", DownloadsFolder, Filters.Join(Filters.BattlePacks, Filters.AllFiles));
+        /// <summary>A custom enemy's art, one purpose per kind; they share the folder they last opened in.</summary>
+        internal static readonly Purpose EnemyImage = new("enemyart", PicturesFolder, Filters.Join(Filters.Pictures, Filters.AllFiles));
+        internal static readonly Purpose EnemyGif = new("enemyart", PicturesFolder, Filters.Join(Filters.Gifs, Filters.AllFiles));
+        internal static readonly Purpose EnemyVideo = new("enemyart", VideosFolder, Filters.Join(Filters.Videos, Filters.AllFiles));
+        internal static readonly Purpose EnemySheet = new("enemyart", PicturesFolder, Filters.Join(Filters.SpriteSheets, Filters.AllFiles));
         /// <summary>For picking a whole song folder, like a StepMania song.</summary>
         internal static readonly Purpose SongFolders = new("songfolders", DownloadsFolder, Array.Empty<string>());
 

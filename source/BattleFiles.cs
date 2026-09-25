@@ -209,11 +209,12 @@ internal static class BattleFiles
     }
 
     /// <summary>
-    /// Of <paramref name="candidates"/> (paths inside the battle), the song and image files that
-    /// the saved battle no longer names anywhere: not in battle.json, the enemy's file, a JSON file
-    /// they name (like the dialogue), or the chart's #MUSIC. Paths are compared as the files they
-    /// point at, so "audio/./a.ogg" and "audio/a.ogg" are the same file. Only files in audio/ and
-    /// images/ are ever listed, and nothing is when a file that could name them can't be read.
+    /// Of <paramref name="candidates"/> (paths inside the battle), the song, image and enemy art
+    /// files that the saved battle no longer names anywhere: not in battle.json, the enemy's file, a
+    /// JSON file they name (like the dialogue), or the chart's #MUSIC. Paths are compared as the
+    /// files they point at, so "audio/./a.ogg" and "audio/a.ogg" are the same file. Only files in
+    /// audio/, images/ and art/ are ever listed, and nothing is when a file that could name them
+    /// can't be read.
     /// </summary>
     internal static List<string> Unreferenced(string folder, IEnumerable<string> candidates)
     {
@@ -243,7 +244,7 @@ internal static class BattleFiles
             string? full = FileIn(folder, candidate);
             if (full == null || used.Contains(full) || unused.Contains(full, StringComparer.OrdinalIgnoreCase)) continue;
             string inside = Path.GetRelativePath(folder, full).Replace('\\', '/');
-            if (!inside.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) && !inside.StartsWith("images/", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!new[] { "audio/", "images/", "art/" }.Any(f => inside.StartsWith(f, StringComparison.OrdinalIgnoreCase))) continue;
             if (File.Exists(full)) unused.Add(full);
         }
         return unused;
@@ -565,7 +566,7 @@ internal static class BattleFiles
         return string.Join("/", parts);
     }
 
-    // The loader's limits for each kind of file.
+    // The loader's limits for each kind of file. Enemy art in art/ may be bigger than a card image.
     private static long LimitFor(string name)
     {
         string ext = Path.GetExtension(name).ToLowerInvariant();
@@ -573,7 +574,8 @@ internal static class BattleFiles
         {
             ".json" => BattlePackage.MaxJsonBytes,
             ".sm" or ".ssc" => BattlePackage.MaxChartBytes,
-            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" => BattlePackage.MaxImageBytes,
+            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" => name.StartsWith("art/", StringComparison.OrdinalIgnoreCase)
+                ? EnemyArtReader.MaxPictureBytes : BattlePackage.MaxImageBytes,
             _ => BattlePackage.MaxAudioBytes,
         };
     }

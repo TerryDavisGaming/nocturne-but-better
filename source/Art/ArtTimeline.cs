@@ -35,6 +35,8 @@ internal sealed class ArtTimeline
     internal bool Loop;
     /// <summary>Attack only: seconds after the attack starts; -1 otherwise.</summary>
     internal double Hit = -1, Parry = -1;
+    /// <summary>Attack only, for sheets and GIFs: the file's frame (from 0) showing when the hit lands; -1 otherwise.</summary>
+    internal int HitFrame = -1;
 
     internal static ArtTimeline NoAttackArt() => new()
     {
@@ -90,6 +92,17 @@ internal sealed class ArtTimeline
             t.Length = length;
             t.Hit = HitTime(a, seconds, speed, length, notes);
             t.Parry = Math.Max(0, t.Hit - ParryLead);
+            if (a.Kind is ArtKind.Sheet or ArtKind.Gif)
+            {
+                // The last frame that starts by the hit (a hit kept in range may fall inside one).
+                double at = 0;
+                t.HitFrame = 0;
+                for (int i = 0; i < seconds.Length && at <= t.Hit + 1e-6; i++)
+                {
+                    t.HitFrame = i;
+                    at += seconds[i];
+                }
+            }
         }
 
         Thin(a, t, seconds, notes);

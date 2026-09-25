@@ -104,6 +104,8 @@ internal sealed class MeasuredAnimation
     /// <summary>A path the video player can open.</summary>
     internal string? VideoPath;
     internal ArtTimeline Timeline = new();
+    /// <summary>A GIF's own delays in ms, kept for working the timeline out again (the creator's preview).</summary>
+    internal int[]? OwnMs;
     /// <summary>One frame's size in the file's pixels.</summary>
     internal int FrameW, FrameH;
     /// <summary>Where it stands, in the frame's pixels from its top-left (y is the row under the feet).</summary>
@@ -181,7 +183,7 @@ internal static class ArtDecode
     /// <summary>Looks at the first frame: its visible pixels and where the character stands.</summary>
     internal static MeasuredAnimation Measure(ArtAnimationSpec a, FrameSource source, ArtTimeline timeline)
     {
-        var m = new MeasuredAnimation { Spec = a, Source = source, Timeline = timeline, FrameW = source.Width, FrameH = source.Height };
+        var m = new MeasuredAnimation { Spec = a, Source = source, Timeline = timeline, OwnMs = source.OwnMs, FrameW = source.Width, FrameH = source.Height };
         int first = timeline.Keep.Length > 0 ? timeline.Keep[0] : 0;
         source.Read(i => i == first, (i, frame) =>
         {

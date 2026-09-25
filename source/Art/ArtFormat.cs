@@ -110,8 +110,13 @@ internal static class EnemyArtReader
     internal const double MinSize = 8, MaxSize = 480, MaxOffset = 200;
 
     /// <param name="lookName">The game enemy it looks like when the art can't be used, for messages.</param>
-    /// <param name="unusable">Why there's no usable art, when the result is null.</param>
-    internal static EnemyArtSpec? Read(JsonElement art, PackageFiles files, string lookName, List<string> problems, List<string> stamps, out string? unusable)
+    /// <param name="unusable">Why there's no usable art, when the result is null (or has no idle).</param>
+    /// <param name="evenWithoutIdle">
+    /// For the battle creator: the other animations are read and returned even when there's no
+    /// usable idle (the result then has no "idle"; <paramref name="unusable"/> says why).
+    /// </param>
+    internal static EnemyArtSpec? Read(JsonElement art, PackageFiles files, string lookName, List<string> problems, List<string> stamps, out string? unusable,
+        bool evenWithoutIdle = false)
     {
         unusable = null;
         if (art.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
@@ -160,9 +165,9 @@ internal static class EnemyArtReader
             problems.Add(dropped
                 ? $"the enemy's idle can't be used ({why}), so it looks like {lookName}"
                 : $"the enemy art has no idle, so it looks like {lookName}");
-            return null;
+            if (!evenWithoutIdle) return null;
         }
-        foreach (var dropped in spec.Dropped)
+        foreach (var dropped in spec.Dropped.Where(d => d.Key != "idle"))
             problems.Add($"the enemy art's {dropped.Key} can't be used ({dropped.Value}); {StandIn(dropped.Key, spec)}");
 
         // The whole enemy: size, place, facing.
@@ -225,10 +230,12 @@ internal static class EnemyArtReader
         if (a.Bytes > max)
             throw new InvalidDataException($"{a.File} is {a.Bytes / (1024 * 1024)} MB; {(a.Media.IsVideo ? "videos" : "pictures and GIFs")} can be at most {max / (1024 * 1024)} MB");
 
-        // The kind: what the file is, or what's written when a still picture can be either.
+        // The kind: what the file is, or what's written when a still picture can be either. A
+        // picture is only cut into frames when "kind" says "sheet": one without it stays one
+        // flat picture, whatever it looks like.
         bool grid = Prop(node, "columns").ValueKind != JsonValueKind.Undefined || Prop(node, "rows").ValueKind != JsonValueKind.Undefined;
         string? written = Text(node, "kind")?.Trim().ToLowerInvariant();
-        ArtKind actual = a.Media.IsVideo ? ArtKind.Video : a.Media.Type == MediaType.Gif ? ArtKind.Gif : grid ? ArtKind.Sheet : ArtKind.Image;
+        ArtKind actual = a.Media.IsVideo ? ArtKind.Video : a.Media.Type == MediaType.Gif ? ArtKind.Gif : ArtKind.Image;
         ArtKind? wanted = written switch
         {
             null or "" => null,
@@ -266,6 +273,9 @@ internal static class EnemyArtReader
                 CheckVideo(a);
                 break;
         }
+        if (a.Kind == ArtKind.Image && grid)
+            notes.Add($"\"columns\" and \"rows\" are for sprite sheets, so {a.File} shows as one picture (add \"kind\": \"sheet\" to cut it into frames)");
+        else if (a.Kind != ArtKind.Sheet && grid) notes.Add("\"columns\" and \"rows\" are for sprite sheets, so they aren't used");
         if (a.Kind is not ArtKind.Gif and not ArtKind.Video && Has(node, "speed")) notes.Add("\"speed\" is for GIFs and videos, so it isn't used");
         if (a.Kind is ArtKind.Image or ArtKind.Video && (Has(node, "fps") || Has(node, "times"))) notes.Add("\"fps\" and \"times\" are for sheets and GIFs, so they aren't used");
         if (a.Kind != ArtKind.Image && Has(node, "seconds")) notes.Add("\"seconds\" is for still pictures, so it isn't used");
