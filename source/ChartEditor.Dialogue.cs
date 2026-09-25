@@ -253,7 +253,7 @@ internal static partial class ChartEditor
     {
         if (speakerChoices != null)
             return "Who says this line? Click a speaker. Esc goes back.\n\n" +
-                   "Here are the battle's own speakers and the game characters its lines already use. " +
+                   "Here are the player (Karma), the battle's own speakers, the game characters its lines already use and the Narrator. " +
                    "Anyone else, and the lines' faces, are on the Battle creator's Dialogue page.";
         var sb = new StringBuilder();
         var cue = PickedCue;
@@ -422,7 +422,7 @@ internal static partial class ChartEditor
         catch (Exception ex)
         {
             ModLog.Error("Chart editor: the battle's speakers couldn't be listed: " + ex.Message);
-            choices = new List<(string, string)>();
+            choices = new List<(string, string)> { (DialogueReader.Player, DialogueReader.Player + " (the player)") };
         }
         if (!choices.Any(c => c.Id.Equals(DialogueReader.Narrator, StringComparison.OrdinalIgnoreCase)))
             choices.Add((DialogueReader.Narrator, "Narrator (no picture)"));
