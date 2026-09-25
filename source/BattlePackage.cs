@@ -84,6 +84,68 @@ internal sealed class PackageFiles
         return new UTF8Encoding(false).GetString(bytes).TrimStart((char)0xFEFF);
     }
 
+    /// <summary>The file's size in bytes.</summary>
+    internal long Length(string name)
+    {
+        name = Checked(name);
+        if (!IsZip)
+        {
+            var info = new FileInfo(LoosePath(name));
+            if (!info.Exists) throw new FileNotFoundException($"{name} is missing", info.FullName);
+            return info.Length;
+        }
+        using var zip = ZipFile.OpenRead(source);
+        return (Entry(zip, name) ?? throw new FileNotFoundException($"the package has no {name}")).Length;
+    }
+
+    /// <summary>The file's first <paramref name="maxBytes"/> bytes (all of it when it's smaller).</summary>
+    internal byte[] ReadHead(string name, int maxBytes)
+    {
+        name = Checked(name);
+        if (!IsZip)
+        {
+            using var file = new FileStream(LoosePath(name), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            return ReadUpTo(file, (int)Math.Min(maxBytes, file.Length));
+        }
+        using var zip = ZipFile.OpenRead(source);
+        var entry = Entry(zip, name) ?? throw new FileNotFoundException($"the package has no {name}");
+        using var stream = entry.Open();
+        return ReadUpTo(stream, (int)Math.Min(maxBytes, entry.Length));
+    }
+
+    private static byte[] ReadUpTo(Stream stream, int count)
+    {
+        var buffer = new byte[Math.Max(0, count)];
+        int total = 0;
+        while (total < buffer.Length)
+        {
+            int n = stream.Read(buffer, total, buffer.Length - total);
+            if (n <= 0) break;
+            total += n;
+        }
+        return total == buffer.Length ? buffer : buffer[..total];
+    }
+
+    /// <summary>The file's path on disk when the package is a folder; null inside a zip.</summary>
+    internal string? LoosePathOf(string name) => IsZip ? null : Path.GetFullPath(LoosePath(Checked(name)));
+
+    /// <summary>Copies the file (a zip entry is unpacked) to <paramref name="destination"/>.</summary>
+    internal void CopyTo(string name, string destination, long maxBytes)
+    {
+        name = Checked(name);
+        if (Length(name) > maxBytes) throw new InvalidDataException($"{name} is too big ({Length(name) / (1024 * 1024)} MB)");
+        if (!IsZip)
+        {
+            File.Copy(LoosePath(name), destination, true);
+            return;
+        }
+        using var zip = ZipFile.OpenRead(source);
+        var entry = Entry(zip, name) ?? throw new FileNotFoundException($"the package has no {name}");
+        using var input = entry.Open();
+        using var output = new FileStream(destination, FileMode.Create, FileAccess.Write);
+        input.CopyTo(output);
+    }
+
     /// <summary>The file's size and time, which change when it's replaced; for caches.</summary>
     internal string Stamp(string name)
     {
@@ -139,8 +201,9 @@ internal sealed class BattleManifest
 
 /// <summary>
 /// A custom battle's enemy. Mode "placeholder" is a game enemy (its art, sounds and abilities)
-/// with the song's own stats and info boxes. Mode "custom" (the player's own images and videos)
-/// comes later; until then such an enemy plays as its rig, or as the placeholder.
+/// with the song's own stats and info boxes. Mode "custom" fights like the placeholder but looks
+/// like its own "art" (pictures, sprite sheets, GIFs or videos, see EnemyArtReader), shown on the
+/// game's Mantis rig; without a usable idle it looks like the placeholder.
 /// </summary>
 internal sealed class EnemyDefinition
 {
@@ -148,8 +211,11 @@ internal sealed class EnemyDefinition
     public string? mode { get; set; }
     // A game EnemyData asset name, like "EnemyData_Mantis".
     public string? placeholder { get; set; }
-    // Custom-art mode's rig enemy.
+    // Reserved for other rigs; custom art always uses the Mantis rig for now. Older versions of
+    // the mod played a custom enemy as this, so it's never written.
     public string? rig { get; set; }
+    // Custom mode's art, read on its own so a mistake in it can't cost the enemy its stats.
+    public JsonElement art { get; set; }
     // Bosses built around timelines or scripted attacks need this to be used as placeholders.
     public bool advanced { get; set; }
     public EnemyStats? stats { get; set; }
@@ -242,6 +308,15 @@ internal static class EnemyPlaceholders
         "EnemyData_WingedWei", "EnemyData_Kitsune", "EnemyData_Ladybug"
     };
 
+    /// <summary>Whether a name is one of the bosses built around scripted fights.</summary>
+    internal static bool IsAdvanced(string? requested)
+    {
+        string name = (requested ?? "").Trim();
+        if (name.Length == 0) return false;
+        if (!name.StartsWith("EnemyData_", StringComparison.OrdinalIgnoreCase)) name = "EnemyData_" + name;
+        return Advanced.Contains(name);
+    }
+
     /// <summary>The EnemyData asset name to clone: the requested one when it can be used, else Mantis.</summary>
     internal static string Resolve(string? requested, bool advanced, List<string> problems)
     {
@@ -306,6 +381,12 @@ internal sealed class BattlePackage
     internal GearDefinition Gear = new();
     /// <summary>The EnemyData asset to clone, after the checks.</summary>
     internal string EnemyPlaceholder = EnemyPlaceholders.Default;
+    /// <summary>The enemy is in custom-art mode.</summary>
+    internal bool CustomArt;
+    /// <summary>Custom mode's art, checked; null when there's no usable idle (it looks like the placeholder).</summary>
+    internal EnemyArtSpec? Art;
+    /// <summary>Why custom mode's art can't be used, when Art is null.</summary>
+    internal string? ArtUnusable;
 
     internal PackageFiles Files = null!;
     /// <summary>The folder or .nbbbattle file.</summary>
@@ -409,12 +490,31 @@ internal sealed class BattlePackage
 
         song.Enemy = ReadEnemy(manifest.enemy, files, song.Problems, stamps);
         string requested = song.Enemy.placeholder ?? "";
-        if ("custom".Equals(song.Enemy.mode?.Trim(), StringComparison.OrdinalIgnoreCase))
+        song.CustomArt = "custom".Equals(song.Enemy.mode?.Trim(), StringComparison.OrdinalIgnoreCase);
+        if (song.CustomArt)
         {
-            song.Problems.Add("custom enemy art comes in a later version; the enemy plays as its rig for now");
-            requested = song.Enemy.rig ?? song.Enemy.placeholder ?? "";
+            if (!string.IsNullOrWhiteSpace(song.Enemy.rig))
+                song.Problems.Add("the enemy's \"rig\" isn't used (custom art is shown on the game's Mantis rig)");
+            // Scripted bosses drive their own art, so they can't wear someone else's.
+            if (EnemyPlaceholders.IsAdvanced(requested))
+            {
+                song.Problems.Add($"{requested.Trim()} is a scripted boss, which can't take custom art; {EnemyPlaceholders.Default} fights instead");
+                requested = EnemyPlaceholders.Default;
+            }
         }
         song.EnemyPlaceholder = EnemyPlaceholders.Resolve(requested, song.Enemy.advanced, song.Problems);
+        // Custom art fights like the placeholder and looks like its own art. The reader notes its
+        // problems itself; anything else it runs into still mustn't cost the battle.
+        if (song.CustomArt)
+        {
+            try { song.Art = EnemyArtReader.Read(song.Enemy.art, files, song.EnemyPlaceholder, song.Problems, stamps, out song.ArtUnusable); }
+            catch (Exception ex)
+            {
+                song.Problems.Add($"the enemy's art couldn't be read ({ex.GetType().Name}: {ex.Message}), so it looks like {song.EnemyPlaceholder}");
+                song.Art = null;
+                song.ArtUnusable = "its art couldn't be read";
+            }
+        }
         if (song.Enemy.info != null && song.Enemy.info.Count > EnemyPlaceholders.MaxInfoBoxes)
             song.Problems.Add($"the enemy has {song.Enemy.info.Count} info boxes; the first {EnemyPlaceholders.MaxInfoBoxes} show");
 
