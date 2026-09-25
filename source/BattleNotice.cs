@@ -7,7 +7,7 @@ internal sealed class NoticeInput
 {
     /// <summary>The battle sets the player's gear (and the mod can set it).</summary>
     internal bool GearSet;
-    /// <summary>The set gear's item names in slot order; the consumable as "Potion x2" when there are more than one.</summary>
+    /// <summary>The set gear's item names in slot order (a consumable without its count, since it has one use per battle).</summary>
     internal List<string> Items = new();
     /// <summary>How many of the six slots hold an item.</summary>
     internal int FilledSlots;
@@ -60,9 +60,8 @@ internal static class BattleNotice
             if (id == null) continue;
             string? shown = name(slot, id);
             if (string.IsNullOrWhiteSpace(shown)) continue;
-            shown = shown!.Trim();
-            if (slot == GearSlot.Consumable && gear.ConsumableCount > 1) shown += " x" + gear.ConsumableCount;
-            input.Items.Add(shown);
+            // No "x3" for a consumable's count: the game allows one consumable use per battle.
+            input.Items.Add(shown!.Trim());
             input.FilledSlots++;
         }
         if (gear.extraHealth is int health) input.ExtraHealth = Math.Clamp(health, 0, GearDefinition.MaxCount);

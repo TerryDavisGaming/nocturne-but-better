@@ -169,6 +169,7 @@ internal sealed class BattleDraft
     internal void Save()
     {
         PruneInfoBoxes();
+        DropConsumableCount();
         Directory.CreateDirectory(Folder);
         if (enemyFile != null && enemyChanged && EnemyLocked == null)
             WriteAtomic(Path.Combine(Folder, enemyFile.Replace('/', Path.DirectorySeparatorChar)), enemy.ToJsonString(WriteOptions) + "\n");
@@ -623,9 +624,6 @@ internal sealed class BattleDraft
     /// <summary>The item id in a slot of the set gear, or null when the slot is empty.</summary>
     internal string? GearItem(GearSlot slot) => gear.IsSet ? gear.ItemFor(slot) : null;
 
-    /// <summary>How many of the consumable the battle gives (1 to 99), when it gives one.</summary>
-    internal int ConsumableCount => gear.consumable?.count is int count ? Math.Clamp(count, 1, GearDefinition.MaxCount) : 1;
-
     /// <summary>Health upgrades for the battle, or null for the player's own.</summary>
     internal int? ExtraHealth => gear.IsSet ? gear.extraHealth : null;
 
@@ -658,17 +656,25 @@ internal sealed class BattleDraft
             case GearSlot.Head: gear.head = id; break;
             case GearSlot.OffHand: gear.offHand = id; break;
             case GearSlot.Amulet: gear.amulet = id; break;
-            default: gear.consumable = id == null ? null : new GearConsumable { item = id, count = ConsumableCount }; break;
+            // No count: the game allows one consumable use per battle, so a count does nothing (see DropConsumableCount).
+            default: gear.consumable = id == null ? null : new GearConsumable { item = id }; break;
         }
         WriteGear();
     }
 
-    internal void SetConsumableCount(int count)
+    /// <summary>
+    /// Leaves out the set consumable's count, from an earlier creator or a battle.json written by
+    /// hand: the game allows one consumable use per battle, so the count does nothing in play, and
+    /// the creator doesn't show it. Saving the battle drops it, so it isn't left where no one can
+    /// see or change it (and a count the loader would clamp stops being a problem).
+    /// </summary>
+    private void DropConsumableCount()
     {
-        count = Math.Clamp(count, 1, GearDefinition.MaxCount);
-        if (gear.consumable == null || gear.consumable.count == count) return;
-        gear.consumable.count = count;
-        WriteGear();
+        if (!gear.IsSet || gear.consumable?.count == null) return;
+        gear.consumable.count = null;
+        // Only the count goes; the rest of "gear" is saved as it was, keys the creator doesn't know too.
+        if (root["gear"] is JsonObject saved && saved["consumable"] is JsonObject consumable && consumable.Remove("count")) changes++;
+        else WriteGear();
     }
 
     internal void SetExtraHealth(int? count)
