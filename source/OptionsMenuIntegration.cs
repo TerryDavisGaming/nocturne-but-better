@@ -61,6 +61,12 @@ internal static class OptionsMenuIntegration
         Percent("StateToggle_FlatEnemyAttackOpacity", "Enemy attack opacity",
             "Makes the enemy see-through while it attacks, so the notes behind it stay visible. 100% leaves it as it is.",
             SettingsState.EnemyAttackOpacity),
+        new("StateToggle_FlatInfiniteConsumables",
+            "Infinite consumables (arcade)",
+            "In arcade battles, using a consumable doesn't use it up. You still get one use per battle.",
+            new[] { "Off", "On" },
+            () => SettingsState.InfiniteArcadeConsumables ? 1 : 0,
+            (direction, wrap) => SettingsState.SetInfiniteArcadeConsumables(!SettingsState.InfiniteArcadeConsumables)),
     };
 
     // The hit and miss sound rows are on the Audio page (AudioOptionsIntegration).
@@ -444,6 +450,7 @@ internal static class OptionsMenuIntegration
             SettingsState.NoteSize.Set(SettingsState.NoteSize.Default);
             SettingsState.LaneSpacing.Set(SettingsState.LaneSpacing.Default);
             SettingsState.EnemyAttackOpacity.Set(SettingsState.EnemyAttackOpacity.Default);
+            SettingsState.SetInfiniteArcadeConsumables(false);
             if (!SettingsState.NoteFlares) SetNoteFlares(true);
             RefreshAll();
         }
