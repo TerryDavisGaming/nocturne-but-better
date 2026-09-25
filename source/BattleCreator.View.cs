@@ -301,8 +301,7 @@ internal static partial class BattleCreator
         AddField(p, 0, ref y, Col1W, ArtistField);
         AddField(p, 0, ref y, Col1W, AuthorField);
         AddField(p, 0, ref y, Col1W, LoreField, h: 300);
-        AddText(p, 0, ref y, Col1W, 44, () => "The lore shows in the box on the right of the arcade when the battle is selected, under what the battle " +
-                                             "sets. Keep it short: about 5 lines fit. Shift+Enter starts a new line.", 16);
+        AddText(p, 0, ref y, Col1W, 66, LoreHint, 16);
         AddHeader(p, 0, ref y, Col1W, "Arcade preview");
         float row = y;
         AddField(p, 0, ref y, 560, PreviewField);
@@ -415,7 +414,7 @@ internal static partial class BattleCreator
             AddChoice(p, 0, ref y, Col1W, GearCatalog.LabelOf(s), () => GearText(s), () => ChooseGear(s), setMode);
         }
         AddStepper(p, 0, ref y, Col1W, () => $"How many: {draft?.ConsumableCount ?? 1}",
-            () => draft?.SetConsumableCount((draft?.ConsumableCount ?? 1) - 1), () => draft?.SetConsumableCount((draft?.ConsumableCount ?? 1) + 1),
+            () => StepConsumableCount(-1), () => StepConsumableCount(1),
             () => setMode() && draft?.GearItem(GearSlot.Consumable) != null);
         AddStepper(p, 0, ref y, Col1W, () => draft?.ExtraHealth is int n ? $"Health upgrades: {n}" : "Health upgrades: the player's own",
             () => StepExtraHealth(-1), () => StepExtraHealth(1), setMode);
@@ -457,7 +456,8 @@ internal static partial class BattleCreator
         focus = -1;
         foreach (var (p, panel) in pagePanels) panel.gameObject.SetActive(p == page);
         if (page == Page.Charts) RefreshBattleInfo();
-        if (page == Page.Gear) RefreshGear();
+        // The Info page's lore hint depends on the gear and level too.
+        if (page == Page.Gear || page == Page.Info) RefreshGear();
     }
 
     /// <summary>The buttons the keyboard can reach now, in order: the page's own that are showing, then the bottom bar's.</summary>
@@ -558,6 +558,14 @@ internal static partial class BattleCreator
         if (draft.EnemyMode.Equals("custom", StringComparison.OrdinalIgnoreCase)) return "This enemy is set to custom art, which comes later; it plays as its placeholder for now.";
         return EnemyChoices.IsAdvanced(draft.Placeholder) ? "Advanced bosses are built around scripted fights and may not play well here." : "";
     }
+
+    // What the battle sets comes first in the arcade's box, so it leaves less room for the lore (loreRoom, from RefreshGear).
+    private static string LoreHint() =>
+        "The lore shows in the box on the right of the arcade when the battle is selected, under what the battle sets. " +
+        (loreRoom >= BattleNotice.BoxLines ? "Keep it short: about 5 lines fit."
+            : loreRoom > 0 ? $"What this battle sets takes part of the box, so about {loreRoom} line{(loreRoom == 1 ? "" : "s")} of lore fit (see the Gear & level page)."
+            : "What this battle sets fills the box, so the lore doesn't show there (see the Gear & level page).") +
+        " Shift+Enter starts a new line.";
 
     private static string GearHelpText()
     {

@@ -826,13 +826,16 @@ internal static partial class BattleCreator
 
     // ---- level ------------------------------------------------------------------------------------------
 
-    // The set level's stat gains and what the arcade will show, worked out with the gear (RefreshGear).
+    // The set level's stat gains and what the arcade will show, worked out with the gear (RefreshGear);
+    // and about how many lines of the arcade's box are left for the lore (the Info page's hint).
     private static string levelGains = "", noticePreview = "";
+    private static int loreRoom = BattleNotice.BoxLines;
 
     private static void RefreshLevel()
     {
         levelGains = "";
         noticePreview = "";
+        loreRoom = BattleNotice.BoxLines;
         if (draft == null) return;
         try
         {
@@ -848,6 +851,7 @@ internal static partial class BattleCreator
             var input = BattleNoticeArcade.InputFor(draft);
             string box = BattleNotice.Box(input, text => BattleNotice.FitsLines(text)) ?? "<color=#9D92B4>(nothing: the box stays hidden)</color>";
             noticePreview = $"{box}\n\n<color=#9D92B4>On the battle's card:</color> {BattleNotice.Badge(input) ?? "no tag"}";
+            loreRoom = BattleNotice.LoreRoom(input);
         }
         catch (Exception ex) { ModLog.Error("Battle creator: working out the level page failed: " + ex); }
     }
@@ -903,6 +907,14 @@ internal static partial class BattleCreator
         return (text.Length > 0 ? text + "  " : "") + $"(id {item.Id})";
     }
 
+    // The steppers change what the arcade shows ("Potion x3", "Health upgrades: 0."), so the preview is worked out again.
+    private static void StepConsumableCount(int direction)
+    {
+        if (draft == null) return;
+        draft.SetConsumableCount(draft.ConsumableCount + direction);
+        RefreshGear();
+    }
+
     private static void StepExtraHealth(int direction)
     {
         if (draft == null) return;
@@ -910,5 +922,6 @@ internal static partial class BattleCreator
         if (direction < 0) count = count is null or 0 ? null : count - 1;
         else count = count is int n ? Math.Min(MaxExtraHealth, n + 1) : 0;
         draft.SetExtraHealth(count);
+        RefreshGear();
     }
 }

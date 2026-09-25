@@ -124,7 +124,7 @@ internal static class BattleNoticeArcade
         catch (Exception ex) { Report(ex); }
     }
 
-    // Whether a text fits the box above the arcade's footer: its lines at the label's own size.
+    // Whether a text fits the box above the arcade's footer: as high as its lines at the label's own size.
     private static Func<string, bool> Fitter(TMP_Text label)
     {
         try
@@ -133,10 +133,13 @@ internal static class BattleNoticeArcade
             // wider than the game's own layout makes it.
             float width = label.rectTransform.rect.width;
             width = width < 100f ? DefaultWidth : Math.Min(width, DefaultWidth);
-            float line = label.GetPreferredValues("Ag", 1000f, 0f).y;
-            if (line > 0f)
+            // One line is only as high as its letters; each line after it adds the font's whole line
+            // height, gap included (at the box's size 7: 6.4 and 8.4), so both are measured.
+            float one = label.GetPreferredValues("Ag", 1000f, 0f).y;
+            float step = label.GetPreferredValues("Ag\nAg", 1000f, 0f).y - one;
+            if (one > 0f && step > 0f)
             {
-                float most = BattleNotice.BoxLines * line + 0.5f;
+                float most = BattleNotice.MostHeight(one, step);
                 return text => label.GetPreferredValues(text, width, 0f).y <= most;
             }
             Note("Arcade notice: the box's text measures 0 high, so its size is estimated.");

@@ -131,6 +131,20 @@ internal static class BattleNotice
         return Compose(n.Items.Count > 0 ? GearLine(n, 1) : fullGear, null, null);
     }
 
+    /// <summary>
+    /// About how many of the box's lines are left for the lore under what the battle sets, by the
+    /// estimate (<see cref="FitsLines"/>); 0 when what it sets fills the box.
+    /// </summary>
+    internal static int LoreRoom(NoticeInput n)
+    {
+        var notice = new NoticeInput
+        {
+            GearSet = n.GearSet, Items = n.Items, FilledSlots = n.FilledSlots, ExtraHealth = n.ExtraHealth, Level = n.Level, YourLevel = n.YourLevel
+        };
+        string? text = Box(notice, _ => true);
+        return Math.Max(0, BoxLines - (text == null ? 0 : CountLines(text, BoxLineChars)));
+    }
+
     internal static string LevelLine(int level, int? yours) =>
         yours is not int own ? $"Level {level}."
         : own == level ? $"Level {level} (the same as yours)."
@@ -192,7 +206,14 @@ internal static class BattleNotice
 
     internal static string Summary(NoticeInput n) => Summary(n.GearSet, n.Level);
 
-    // ---- measuring without the game -----------------------------------------------------------------
+    // ---- measuring ------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The most the box's text may measure in the arcade: <see cref="BoxLines"/> lines, from how high
+    /// one line measures (its letters only) and how much each line after it adds (the font's line
+    /// height, gap included).
+    /// </summary>
+    internal static float MostHeight(float oneLine, float lineStep) => oneLine + (BoxLines - 1) * lineStep + 0.5f;
 
     /// <summary>
     /// Whether rich text fits in <paramref name="lines"/> lines of about <paramref name="width"/>
