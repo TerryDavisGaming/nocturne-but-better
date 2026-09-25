@@ -38,14 +38,21 @@ internal static class CustomMusic
     {
         internal short[] Stereo = Array.Empty<short>();
         internal int Rate;
-        internal double Origin;   // clock time of the first sample, after the lead-in silence
+        internal double Origin;   // clock time of the first sample
+    }
+
+    // A decoded song with its player, whose sound device is already open.
+    private sealed class Loaded
+    {
+        internal Song Song = null!;
+        internal EditorAudio Player = null!;
     }
 
     // A song decoding for a battle, until the conductor starts its music.
     private sealed class Pending
     {
         internal Source Source = null!;
-        internal Task<Song> Loading = null!;
+        internal Task<Loaded> Loading = null!;
         internal IntPtr Conductor;
         internal bool CustomBattle;          // no Wwise music to fall back on
         internal float WaitingSince = -1f; // when the conductor first wanted to start
@@ -185,14 +192,11 @@ internal static class CustomMusic
         owner = battle;
         if (customBattle) customConductor = battle.Pointer;
         if (source == null) return;
-        Task<Song> loading;
-        if (decoded is { } cached && source.Key.Length > 0 && cached.Key == source.Key)
-            loading = Task.FromResult(cached.Song);
-        else
-        {
-            var file = source;
-            loading = Task.Run(() => Load(file));
-        }
+        var cached = decoded is { } last && source.Key.Length > 0 && last.Key == source.Key ? last.Song : null;
+        var file = source;
+        // The sound device opens here too (about 0.1 s), off the main thread, so the battle doesn't
+        // freeze when the music starts.
+        var loading = Task.Run(() => Open(cached ?? Load(file)));
         pending = new Pending { Source = source, Loading = loading, Conductor = battle.Pointer, CustomBattle = customBattle };
         ModLog.Info($"Custom music {source.Name}: loading.");
     }
@@ -201,16 +205,31 @@ internal static class CustomMusic
     {
         if (source.Decoded != null)
         {
+            // The editor's buffer itself, not a copy.
             var (pcm, pcmRate, pcmOrigin) = source.Decoded();
-            // Copied only when it needs silence in front.
-            var (lead, leadOrigin) = LeadIn.Pad(pcm, pcmRate, pcmOrigin);
-            return new Song { Stereo = lead, Rate = pcmRate, Origin = leadOrigin };
+            return new Song { Stereo = pcm, Rate = pcmRate, Origin = pcmOrigin };
         }
         byte[] bytes = source.Read();
         var (stereo, rate) = AudioFile.Decode(bytes, source.Name);
         // The file's first sample is at clock time 0; the chart's #OFFSET is the game's to apply.
-        var (padded, first) = LeadIn.Pad(stereo, rate, 0);
-        return new Song { Stereo = padded, Rate = rate, Origin = first };
+        return new Song { Stereo = stereo, Rate = rate, Origin = 0 };
+    }
+
+    // The player plays silence before the file's first sample, so the song can start before it
+    // without a padded copy of the whole song.
+    private static Loaded Open(Song song) =>
+        new() { Song = song, Player = new EditorAudio(song.Stereo, song.Rate, LeadIn.Before(song.Origin)) };
+
+    // A song that won't be played: its player is closed once it's open (off the main thread).
+    private static void Drop(Pending? p)
+    {
+        if (p == null) return;
+        p.Loading.ContinueWith(t =>
+        {
+            if (t.Status != TaskStatus.RanToCompletion) return;
+            try { t.Result.Player.Dispose(); }
+            catch { }
+        }, TaskScheduler.Default);
     }
 
     // ---- starting ------------------------------------------------------------------------------
@@ -253,7 +272,11 @@ internal static class CustomMusic
         {
             var reason = ex is AggregateException agg && agg.InnerException != null ? agg.InnerException : ex;
             bool custom = p.CustomBattle;
-            pending = null;
+            if (pending == p)
+            {
+                pending = null;
+                Drop(p);
+            }
             DisposePlayer();
             if (p.HeldCombat) __instance.waitForStartCue = false;
             if (!custom)
@@ -268,13 +291,14 @@ internal static class CustomMusic
         }
     }
 
-    private static void Start(WwiseConductor c, Pending p, Song song)
+    private static void Start(WwiseConductor c, Pending p, Loaded loaded)
     {
         pending = null;
+        player = loaded.Player;
+        var song = loaded.Song;
         // Kept for a retry of the same song, unless it's very long. A song without a key (the
         // editor's, in a test) is never kept, so its large buffer goes once the battle is over.
         if (p.Source.Key.Length > 0) decoded = song.Stereo.Length <= MaxCachedSamples ? (p.Source.Key, song) : null;
-        player = new EditorAudio(song.Stereo, song.Rate);
         origin = song.Origin;
         conductor = c;
         playingName = p.Source.Name;
@@ -282,7 +306,11 @@ internal static class CustomMusic
         fadeStart = -1f;
         double now = c.songPosition != null ? c.songPosition.RawTime : 0;
         player.SetMusicVolume(Volume());
-        player.Seek(now - origin);   // at least StartMargin into the file, thanks to the lead-in silence
+        // The chart doesn't move on this frame, and the first time it reads the song (next frame)
+        // it takes the player's position plus ClockLead. Starting the player that much and a frame
+        // before the chart's time makes that reading match the chart, as it does for the rest of
+        // the song, rather than pulling the chart about 60 ms over the song's first half second.
+        player.Seek(now - origin - ClockLead - FrameTime());   // in the lead-in silence at the song's start
         player.Play();
 
         // The conductor takes the mod's id as the playing Wwise track. With gotSyncBeat off it
@@ -300,6 +328,13 @@ internal static class CustomMusic
         PostSilence();
         if (p.StartCue) InvokeStartCue(c);
         ModLog.Info($"Custom music {playingName} started at song time {now:0.000} ({player.Length:0.0}s).");
+    }
+
+    // The time until the next frame, from the last one's; a hitch doesn't count as a frame.
+    private static double FrameTime()
+    {
+        try { return Math.Clamp(Time.unscaledDeltaTime, 0f, 1f / 30f); }
+        catch { return 1.0 / 60; }
     }
 
     /// <summary>A custom battle whose file failed still plays its chart, on the game's own clock.</summary>
@@ -413,7 +448,7 @@ internal static class CustomMusic
                 fade = 1f - t;
             }
             if (p.Failed != null) throw new InvalidOperationException(p.Failed);
-            // The file ended (the player stops by itself at its end).
+            // The file ended (the player stops by itself once its end has been heard).
             if (!paused && !p.Playing)
             {
                 Stop();
@@ -464,7 +499,11 @@ internal static class CustomMusic
     {
         try
         {
-            if (pending != null && __instance && pending.Conductor == __instance.Pointer) pending = null;
+            if (pending != null && __instance && pending.Conductor == __instance.Pointer)
+            {
+                Drop(pending);
+                pending = null;
+            }
             if (player != null && conductor && __instance && conductor!.Pointer == __instance.Pointer) FadeOut(UnloadFade);
         }
         catch (Exception ex) { Report(ex); }
@@ -483,6 +522,7 @@ internal static class CustomMusic
     private static void Stop()
     {
         DisposePlayer();
+        Drop(pending);
         pending = null;
         owner = null;
         customConductor = IntPtr.Zero;
@@ -492,8 +532,10 @@ internal static class CustomMusic
     {
         if (player != null)
         {
-            try { player.Dispose(); } catch { }
+            // Stopping and closing the sound device take up to tens of ms, so they're done on a worker.
+            var old = player;
             player = null;
+            old.CloseInBackground();
             ModLog.Info($"Custom music {playingName} stopped.");
         }
         // The conductor goes back to its own clock rather than asking for a song that's gone.

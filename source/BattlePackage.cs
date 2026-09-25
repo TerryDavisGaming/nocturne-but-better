@@ -694,31 +694,28 @@ internal sealed class BattlePackage
 
 /// <summary>
 /// Where a song file sits on the battle's clock. The battle starts the music at clock time -0.1 s
-/// or a moment later, so the file must already be playing there: silence is added before it
-/// when its first sample comes later. The clock is the song file's own time (the game applies
-/// the chart's #OFFSET to the notes itself), so a song's first sample is at 0.
+/// or a moment later, and the player starts a little before that, so it must be able to play
+/// from there: it plays silence before the file's first sample when that comes later. The clock
+/// is the song file's own time (the game applies the chart's #OFFSET to the notes itself), so a
+/// song's first sample is at 0.
 /// </summary>
 internal static class LeadIn
 {
-    /// <summary>How much of the clock before 0 the file covers.</summary>
-    internal const double StartMargin = 0.25;
+    /// <summary>How much of the clock before 0 the player covers.</summary>
+    internal const double StartMargin = 0.5;
     /// <summary>A bigger #OFFSET is a mistake rather than a lead-in.</summary>
     internal const double MaxOffset = 600;
 
     /// <summary>
-    /// Interleaved stereo with enough silence in front that clock time -StartMargin is in the
-    /// file, and the clock time of its new first sample. <paramref name="origin"/> is the clock
-    /// time of the file's first sample.
+    /// How much silence the player needs before a file whose first sample is at clock time
+    /// <paramref name="origin"/>, so that it can play from clock time -StartMargin. Nothing is
+    /// copied for it: the player treats times before the file as silence.
     /// </summary>
-    internal static (short[] Stereo, double Origin) Pad(short[] stereo, int rate, double origin)
+    internal static double Before(double origin)
     {
-        if (rate <= 0) throw new ArgumentOutOfRangeException(nameof(rate));
         double seconds = origin + StartMargin;
-        if (seconds <= 0) return (stereo, origin);
+        if (!(seconds > 0)) return 0;
         if (seconds > MaxOffset + StartMargin) throw new InvalidDataException($"#OFFSET {origin:0.###} s is too long a lead-in");
-        int frames = (int)Math.Ceiling(seconds * rate);
-        var padded = new short[stereo.Length + frames * 2];
-        Array.Copy(stereo, 0, padded, frames * 2, stereo.Length);
-        return (padded, origin - frames / (double)rate);
+        return seconds;
     }
 }
