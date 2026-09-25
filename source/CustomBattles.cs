@@ -598,7 +598,7 @@ internal static class CustomBattles
             if (texture == null || keepSide <= 0 || (texture.width <= keepSide && texture.height <= keepSide)) return texture;
             float factor = keepSide / (float)Math.Max(texture.width, texture.height);
             var smaller = Resampled(texture, Math.Clamp((int)Math.Round(texture.width * factor), 1, keepSide),
-                Math.Clamp((int)Math.Round(texture.height * factor), 1, keepSide), null);
+                Math.Clamp((int)Math.Round(texture.height * factor), 1, keepSide), null, mips: false);
             if (smaller != null)
             {
                 scale = smaller.width / (float)texture.width;
@@ -624,7 +624,8 @@ internal static class CustomBattles
         /// (<paramref name="why"/>, written to follow the file's name): at most
         /// <see cref="CardLayout.KeepSide"/> across the slot, showing the square it fills (or the
         /// whole picture), crisp or smooth, as <paramref name="look"/> says. The texture keeps no copy
-        /// in system memory.
+        /// in system memory, and a smooth one bigger than the slot at 1080p has mipmaps
+        /// (<see cref="CardLayout.Plan.Mips"/>), so it stays calm where the slot is smaller.
         /// </summary>
         /// <param name="keepPart">
         /// Keep only the part the card shows when the picture is big (the arcade, which keeps its
@@ -640,9 +641,10 @@ internal static class CustomBattles
             var plan = CardLayout.Work(fileWidth, fileHeight, look);
             var part = new Rect(plan.X, plan.Y, plan.PartWidth, plan.PartHeight);
             // A small picture is kept whole (its sprite shows the part); a long one, like 500 x 8000, only its part.
-            if (plan.Smaller || (keepPart && plan.Cropped && Math.Max(plan.Width, plan.Height) > CardLayout.KeepSide))
+            // One that needs mipmaps is made again with them, at the same size unless it's smaller.
+            if (plan.Smaller || plan.Mips || (keepPart && plan.Cropped && Math.Max(plan.Width, plan.Height) > CardLayout.KeepSide))
             {
-                var made = Resampled(texture, plan.Width, plan.Height, keepPart ? part : null);
+                var made = Resampled(texture, plan.Width, plan.Height, keepPart ? part : null, plan.Mips);
                 if (made != null)
                 {
                     Object.Destroy(texture);
@@ -651,7 +653,7 @@ internal static class CustomBattles
                 }
                 else
                 {
-                    // Kept at its own size (see Resampled); the sprite still shows only the card's part.
+                    // Kept at its own size and without mipmaps (see Resampled); the sprite still shows only the card's part.
                     plan = CardLayout.Work(fileWidth, fileHeight, look, int.MaxValue);
                     part = new Rect(plan.X, plan.Y, plan.PartWidth, plan.PartHeight);
                 }
@@ -718,9 +720,9 @@ internal static class CustomBattles
         }
 
         // Scales a texture to width x height on the graphics card (halving it in steps first, so no
-        // pixels are skipped) and reads the result, or only its part, into a new texture. Null (and
-        // the full-size texture is used) if that fails.
-        private static Texture2D? Resampled(Texture2D source, int width, int height, Rect? part)
+        // pixels are skipped) and reads the result, or only its part, into a new texture, with
+        // mipmaps made from it when asked. Null (and the full-size texture is used) if that fails.
+        private static Texture2D? Resampled(Texture2D source, int width, int height, Rect? part, bool mips)
         {
             var read = part ?? new Rect(0f, 0f, width, height);
             int readWidth = Math.Max(1, (int)read.width), readHeight = Math.Max(1, (int)read.height);
@@ -740,13 +742,15 @@ internal static class CustomBattles
                 }
                 current = Blit(from, width, height, current);
                 RenderTexture.active = current;
-                result = new Texture2D(readWidth, readHeight, TextureFormat.RGBA32, false) { name = source.name, hideFlags = HideFlags.HideAndDontSave };
+                result = new Texture2D(readWidth, readHeight, TextureFormat.RGBA32, mips) { name = source.name, hideFlags = HideFlags.HideAndDontSave };
                 // Counted from the bottom left, like the texture's own pixels.
                 result.ReadPixels(new Rect(read.x, read.y, readWidth, readHeight), 0, 0, false);
                 // A copy that came out empty (nothing drawn) would leave the card blank; the full-size image is better.
-                if (Blank(result)) throw new InvalidOperationException("the scaled image came out empty");
-                // Uploaded, and the copy in memory freed.
-                result.Apply(false, true);
+                // Only the whole scaled picture being empty counts: the part a cut-out picture's card shows can be
+                // see-through, and the 64 samples can miss a thin drawing.
+                if (Blank(result) && Empty(width, height)) throw new InvalidOperationException("the scaled image came out empty");
+                // Uploaded (with its mipmaps, made from it), and the copy in memory freed.
+                result.Apply(mips, true);
                 result.wrapMode = TextureWrapMode.Clamp;
                 result.filterMode = FilterMode.Bilinear;
                 return result;
@@ -757,7 +761,7 @@ internal static class CustomBattles
                 if (!reportedScaling)
                 {
                     reportedScaling = true;
-                    ModLog.Error("Custom battles: scaling a card image down failed, so big cards keep their full size: " + ex);
+                    ModLog.Error("Custom battles: scaling a card image on the graphics card failed, so cards keep their full size and no mipmaps: " + ex);
                 }
                 return null;
             }
@@ -782,6 +786,25 @@ internal static class CustomBattles
                     if (c.a > 0f || c.r > 0f || c.g > 0f || c.b > 0f) return false;
                 }
             return true;
+        }
+
+        // Whether every pixel of the active render texture's width x height is fully transparent black.
+        // Only asked when the 64 samples of what was kept all were, so its short-lived copy is rare.
+        private static bool Empty(int width, int height)
+        {
+            var whole = new Texture2D(width, height, TextureFormat.RGBA32, false) { hideFlags = HideFlags.HideAndDontSave };
+            try
+            {
+                whole.ReadPixels(new Rect(0f, 0f, width, height), 0, 0, false);
+                var pixels = whole.GetPixels32();
+                for (int i = 0, n = pixels.Length; i < n; i++)
+                {
+                    var c = pixels[i];
+                    if (c.a != 0 || c.r != 0 || c.g != 0 || c.b != 0) return false;
+                }
+                return true;
+            }
+            finally { Object.Destroy(whole); }
         }
 
         // One step: from into a new temporary render texture of the given size; the last step's is released.

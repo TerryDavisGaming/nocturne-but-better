@@ -33,8 +33,8 @@ internal static partial class BattleCreator
     private static TMP_Text? cardTitle;
     // The picture as the arcade makes it (the whole picture at the kept size, its sprite showing the card's part), or null.
     private static CustomBattles.CardImages.Card? cardPicture;
-    // Whether cardPicture was made to fill the square (its kept size depends on it).
-    private static bool cardPictureFill;
+    // Whether cardPicture was made to fill the square (its kept size depends on it), and with mipmaps (crisp pictures have none).
+    private static bool cardPictureFill, cardPictureMips;
     // What the state line says when there is no picture to show.
     private static string cardState = "";
     // The tag the arcade puts on the card (RefreshLevel), or null.
@@ -72,7 +72,7 @@ internal static partial class BattleCreator
         y -= RowStep;
         PreviewStepper(p, Col2, ref y, Col2W, CardCropField, () => "Crop: " + CardLayout.FocusText(CardShape(), CardFocusAlong()),
             () => StepCardCrop(-1), () => StepCardCrop(1), () => notSquare() && CardLookNow().Fill);
-        AddText(p, Col2, ref y, Col2W, 76, CardStateText, 17);
+        AddText(p, Col2, ref y, Col2W, 100, CardStateText, 17);
         var warnings = AddText(p, Col2, ref y, Col2W, 90, CardWarnings, 16);
         warnings.color = Hex(0xF2B02E);
     }
@@ -123,8 +123,9 @@ internal static partial class BattleCreator
             PlaceTop(line.rectTransform, 0, 0, w, CardH);
         }
 
-        // The title: the typed text while it's typed. Rich text is on, as it is in the arcade.
-        cardTitle = MakeText("Title", cardPreview, TitleSize, TextAlignmentOptions.Left);
+        // The title: the typed text while it's typed. Rich text is on, as it is in the arcade, and it
+        // hangs from the top of its box like the arcade's (Text_DisplayName is top left; the tag is a copy of it).
+        cardTitle = MakeText("Title", cardPreview, TitleSize, TextAlignmentOptions.TopLeft);
         cardTitle.color = Hex(0xFCFFF5);
         cardTitle.enableWordWrapping = false;
         cardTitle.overflowMode = TextOverflowModes.Overflow;
@@ -137,7 +138,7 @@ internal static partial class BattleCreator
         melody.pixelsPerUnitMultiplier = 3f;
         PlaceTop(melody.rectTransform, MelodyX, -MelodyY, MelodyW, MelodyH);
 
-        var tag = MakeText("Tag", cardPreview, TagSize, TextAlignmentOptions.Left);
+        var tag = MakeText("Tag", cardPreview, TagSize, TextAlignmentOptions.TopLeft);
         tag.color = Hex(0xF2B02E);
         tag.enableWordWrapping = false;
         tag.overflowMode = TextOverflowModes.Ellipsis;
@@ -214,6 +215,7 @@ internal static partial class BattleCreator
             if (made == null) { cardState = $"{card}\nIt {why}, so the arcade shows a plain card."; ShowPlainCard(); return; }
             cardPicture = made;
             cardPictureFill = look.Fill;
+            cardPictureMips = CardLayout.Work(made.FileWidth, made.FileHeight, look).Mips;
             cardImage!.sprite = made.Sprite;
             cardImage.gameObject.SetActive(true);
         }
@@ -254,6 +256,7 @@ internal static partial class BattleCreator
     /// </summary>
     private static void SetCardPicture(BattleDraft d, string? card)
     {
+        bool first = d.Card == null;
         bool changed = !string.Equals(d.Card, card, StringComparison.OrdinalIgnoreCase);
         d.Card = card;
         if (changed)
@@ -262,7 +265,8 @@ internal static partial class BattleCreator
             d.SetCardKey(CardLayout.SmoothKey, null);
         }
         if (card == null) d.SetCardKey(CardLayout.FitKey, null);
-        else if (!d.HasCardKey(CardLayout.FitKey)) d.SetCardKey(CardLayout.FitKey, JsonValue.Create("fill"));
+        // No key means the whole picture, so a battle that had a picture before keeps showing it whole.
+        else if (first && !d.HasCardKey(CardLayout.FitKey)) d.SetCardKey(CardLayout.FitKey, JsonValue.Create("fill"));
         if (draft == d) LoadCardPreview();
     }
 
@@ -325,7 +329,7 @@ internal static partial class BattleCreator
         bool fill = !CardLookNow().Fill;
         draft.SetCardKey(CardLayout.FitKey, JsonValue.Create(fill ? "fill" : "fit"));
         LoadCardPreview();
-        Say(fill ? "The picture fills the card's square; what sticks out is cut off. Crop picks the part."
+        Say(fill ? "The picture fills the card's square; what sticks out is cut off. Drag it or use Crop to pick the part."
             : "The card shows the whole picture, with bars where it isn't square.", 5f);
     }
 
@@ -360,13 +364,15 @@ internal static partial class BattleCreator
         Max = 6,
         Get = () => ((int)Math.Round(CardFocusAlong() * 100)).ToString(),
         Set = text => SetCardFocus((ParseNumber(text, 0, 100, "The crop") ?? 50) / 100),
-        Hint = "Type where the square sits, from 0 (left or top) to 100 (right or bottom), then Enter. Empty is the middle. Esc cancels.",
+        Hint = "Type where the square sits, from 0 (left or top) to 100 (right or bottom), then Enter. Empty is the middle. You can also drag the picture. Esc cancels.",
     };
 
     // ---- every frame on the Info page -------------------------------------------------------------
 
     // Dragging a filled picture moves its square: the focus while the button is held (written when it's let go).
     private static bool cardDragging;
+    // The frame DragCard last ran in: a drag it missed a frame of (another page or screen came in front) is dropped.
+    private static int cardDragFrame = -1;
     private static Vector2 cardDragStart;
     private static double cardDragFrom;
     private static double? cardDragFocus;
@@ -387,19 +393,27 @@ internal static partial class BattleCreator
         }
     }
 
-    // The picture follows the look: filling or not makes it again (the kept size depends on it); the square and crispness change only its sprite.
+    // The picture follows the look: filling or not, or a crispness that adds or drops mipmaps, makes it again (the
+    // kept size and mipmaps depend on them); the square, and crispness otherwise, change only its sprite.
     private static void SyncCardPicture()
     {
         var p = cardPicture;
         if (p == null || !p.Texture) return;
         var look = CardLookNow();
-        if (look.Fill != cardPictureFill) { LoadCardPreview(); return; }
+        if (look.Fill != cardPictureFill || CardLayout.Work(p.FileWidth, p.FileHeight, look).Mips != cardPictureMips) { LoadCardPreview(); return; }
         CustomBattles.CardImages.Reframe(p, cardDragFocus is double along ? WithFocus(look, along) : look);
         if (cardImage && cardImage!.sprite != p.Sprite) cardImage.sprite = p.Sprite;
     }
 
     private static void DragCard(InputMouse? clicks)
     {
+        // Where the mouse went while the page wasn't looking isn't a crop: the drag ends unwritten.
+        if (cardDragging && Time.frameCount != cardDragFrame + 1)
+        {
+            cardDragging = false;
+            cardDragFocus = null;
+        }
+        cardDragFrame = Time.frameCount;
         var mouse = InputMouse.current;
         var p = cardPicture;
         bool movable = p != null && draft != null && CardLookNow().Fill && CardShape() != CardLayout.Shape.Square;
@@ -450,8 +464,8 @@ internal static partial class BattleCreator
         string what = shape switch
         {
             CardLayout.Shape.Square => "square: it fills the card.",
-            CardLayout.Shape.Wide => look.Fill ? "wider than square: its left and right are cut off." : "wider than square: it shows whole, with bars above and below.",
-            _ => look.Fill ? "taller than square: its top and bottom are cut off." : "taller than square: it shows whole, with bars at the sides.",
+            CardLayout.Shape.Wide => look.Fill ? "wider than square: its left and right are cut off. Drag the picture to pick the part that shows." : "wider than square: it shows whole, with bars above and below.",
+            _ => look.Fill ? "taller than square: its top and bottom are cut off. Drag the picture to pick the part that shows." : "taller than square: it shows whole, with bars at the sides.",
         };
         string kept = "";
         if (p.Plan.Smaller)
@@ -526,8 +540,10 @@ internal static partial class BattleCreator
     private static string TitleCardText()
     {
         if (draft == null) return "";
-        var (fits, shown) = TitleOnCard(CardTitleNow());
-        return fits ? $"The arcade card shows about {CardTitleLetters()} letters of the title."
+        string title = CardTitleNow();
+        var (fits, shown) = TitleOnCard(title);
+        if (title.Length == 0) return $"The arcade card shows about {CardTitleLetters()} letters of the title.";
+        return fits ? $"The whole title fits on the arcade card. About {CardTitleLetters()} letters fit."
             : $"<color={Amber}>The arcade card cuts the title after \"{Escape(shown)}\". About {CardTitleLetters()} letters fit.</color>";
     }
 

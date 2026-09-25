@@ -22,6 +22,12 @@ internal static class CardLayout
     internal const int CrispSide = 128;
     /// <summary>The slot's size in the arcade menu's units, and in screen pixels at 1080p.</summary>
     internal const double SlotUnits = 76.154, SlotPixels1080 = 228;
+    /// <summary>
+    /// A smooth picture more than this many pixels across the slot keeps mipmaps: the slot is 228 px
+    /// at 1080p but 152 px at 720p and on the Steam Deck, and a picture drawn at a third of its size
+    /// without them shimmers as the list scrolls.
+    /// </summary>
+    internal const int MipSide = 228;
 
     /// <summary>battle.json's card keys, as read.</summary>
     internal readonly struct Look
@@ -79,6 +85,9 @@ internal static class CardLayout
 
         /// <summary>Whether the card shows less than the kept picture.</summary>
         internal bool Cropped => PartWidth != Width || PartHeight != Height;
+
+        /// <summary>Whether the kept picture has mipmaps: smooth, and more than <see cref="MipSide"/> across the slot.</summary>
+        internal bool Mips => !Crisp && Math.Max(PartWidth, PartHeight) > MipSide;
     }
 
     /// <summary>The side of the picture that goes across the slot, in its own pixels: the short side when it fills the square, else the long side.</summary>
