@@ -535,7 +535,7 @@ internal static partial class BattleDialogue
                 if (liveStyle != null) HideLive();
                 return;
             }
-            if (conductor.Paused || AudioController.IsPausedCombat) return;
+            if (conductor.Paused || m.paused) return;
             var song = conductor.songPosition;
             if (song == null) return;
             double now = song.RawTime;

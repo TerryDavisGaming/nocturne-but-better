@@ -98,6 +98,25 @@ internal static class CustomMusic
     /// </summary>
     internal static void Hold(bool on) => held = on;
 
+    /// <summary>
+    /// Whether this conductor's battle is paused (the pause menu, or a dialogue break that stops the
+    /// song), from its combat manager, which clears it whenever a battle starts or ends.
+    /// AudioController.IsPausedCombat isn't used: the game sets it when pausing and clears it only when
+    /// the pause menu resumes, so a quit from the pause menu leaves it on into later battles, where the
+    /// song would never play and the chart would keep being pulled back to it.
+    /// </summary>
+    internal static bool BattlePaused(WwiseConductor? c)
+    {
+        var m = CombatManager.Instance?.TryCast<CombatManagerV3>();
+        if (m == null || !m) return false;
+        if (c != null)
+        {
+            var own = m.conductor;
+            if (own == null || !own || own.Pointer != c.Pointer) return false;
+        }
+        return m.paused;
+    }
+
     /// <summary>Whether <see cref="Hold"/> is on (for QA).</summary>
     internal static bool Held => held;
 
@@ -469,7 +488,7 @@ internal static class CustomMusic
             }
             // A song paused when its battle ends (quit from the pause menu) stays paused while it
             // fades, rather than playing on for a moment as the game unpauses.
-            bool pause = held || (paused && (!live || fadeStart >= 0)) || (live && (AudioController.IsPausedCombat || c.Paused));
+            bool pause = held || (paused && (!live || fadeStart >= 0)) || (live && (BattlePaused(c) || c.Paused));
             if (pause != paused)
             {
                 paused = pause;

@@ -46,6 +46,9 @@ internal static partial class EnemyArt
             ?? throw new MissingMethodException(typeof(CombatEnemyView).FullName, "Initialize");
         var playAttack = Method(typeof(CombatEnemyView), "PlayAttack");
         var playHit = Method(typeof(CombatEnemyView), "PlayHit");
+        // The game's own death (its dissolve), which only a real defeat plays: an enemy's health can reach
+        // 0 while its fight goes on (enemies defeated only by a flag), and the view's "murdered" stays on then.
+        var playDeath = Method(typeof(CombatEnemyView), "PlayDeath");
         var attacking = Method(typeof(CombatEnemyView), "IsPlayingAttackAnimation");
         var click = Method(typeof(ArcadeMenuV2), "ArcadeSongGroup_OnClick");
         // The card highlight (keys, or the mouse: OnHoverEnter jumps straight into OnSelected).
@@ -56,6 +59,7 @@ internal static partial class EnemyArt
         harmony.Patch(initialize, prefix: Hook(nameof(InitializePrefix)), postfix: Hook(nameof(InitializePostfix)));
         harmony.Patch(playAttack, postfix: Hook(nameof(PlayAttackPostfix)));
         harmony.Patch(playHit, postfix: Hook(nameof(PlayHitPostfix)));
+        harmony.Patch(playDeath, postfix: Hook(nameof(PlayDeathPostfix)));
         harmony.Patch(attacking, postfix: Hook(nameof(IsPlayingAttackAnimationPostfix)));
         harmony.Patch(click, postfix: Hook(nameof(ArcadeClickPostfix)));
         harmony.Patch(select, postfix: Hook(nameof(ArcadeSelectPostfix)));
@@ -209,6 +213,16 @@ internal static partial class EnemyArt
         catch (Exception ex) { ReportHook(ex); }
     }
 
+    private static void PlayDeathPostfix(CombatEnemyView __instance)
+    {
+        try
+        {
+            var f = fight;
+            if (f != null && f.Set != null && __instance != null && __instance.Pointer == f.ViewPointer) f.Die();
+        }
+        catch (Exception ex) { ReportHook(ex); }
+    }
+
     // The game holds back the enemy's energy while its attack animation plays; a custom attack
     // counts for as long as it shows.
     private static void IsPlayingAttackAnimationPostfix(CombatEnemyView __instance, ref bool __result)
@@ -316,6 +330,8 @@ internal static partial class EnemyArt
         private float clipTime;
         private int shown = -1;
         private bool frozen, defeated, idleFailed;
+        // The game played the enemy's death (PlayDeath): the defeat shows from then on.
+        private bool died;
         private float hurtTime = -1;
         private Sprite? rigSprite;
 
@@ -475,7 +491,7 @@ internal static partial class EnemyArt
             var idle = Idle();
             Clip? next;
             bool freeze = false;
-            if (View.murdered)
+            if (died)
             {
                 if (!defeated)
                 {
@@ -598,18 +614,24 @@ internal static partial class EnemyArt
 
         private bool GamePaused()
         {
-            if (AudioController.IsPausedCombat) return true;
+            // The manager's own pause, not AudioController.IsPausedCombat: that one stays on after a quit
+            // from the pause menu (CustomMusic.BattlePaused).
             var m = Manager();
-            var conductor = m != null ? m.conductor : null;
+            if (m == null) return false;
+            if (m.paused) return true;
+            var conductor = m.conductor;
             return conductor != null && conductor && conductor.Paused;
         }
 
         // ---- hurt ----
 
+        /// <summary>The game plays the enemy's death: the defeat art shows (Pick).</summary>
+        internal void Die() => died = true;
+
         internal void Hurt()
         {
             // The stock hurt waits for an attack to end; a custom one is left out then.
-            if (View.murdered || AttackShowing || !renderer) return;
+            if (died || AttackShowing || !renderer) return;
             hurtTime = 0;
             var hurt = Get("hurt");
             if (hurt != null && clip == hurt) Show(hurt);
