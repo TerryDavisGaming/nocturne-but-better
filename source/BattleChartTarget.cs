@@ -20,6 +20,13 @@ internal sealed record BattleChartTarget(string Folder, string ChartPath, string
     internal Func<string?>? Manifest { get; init; }
 
     /// <summary>
+    /// The dialogue as the battle creator has it now (its JSON object), so a test play uses its
+    /// unsaved lines even when battle.json keeps them in a file of their own; null, or no
+    /// function, uses battle.json's (from <see cref="Manifest"/>) or the file it names.
+    /// </summary>
+    internal Func<string?>? DialogueJson { get; init; }
+
+    /// <summary>
     /// Reads what the editor needs from a battle folder's battle.json: the chart it names, the
     /// song (battle.json's "audio", else the chart's #MUSIC), the lanes (else those of the
     /// chart's first difficulty with notes, else 4) and the title. Nothing else is checked, so a

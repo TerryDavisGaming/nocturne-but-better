@@ -35,8 +35,17 @@ internal static class TestPlay
         internal string MusicName = "";
         internal string Label = "";
         internal bool SkipReady;                   // QA hook only: no Ready prompt
+        internal bool DialogueOn;                  // Kind.Battle: the chart editor's "Dialogue in tests"
         internal int FirstRow, Notes, Events, Carried;   // for the log
         internal IntPtr Conductor;                 // the battle's conductor, once it takes the test
+
+        /// <summary>
+        /// Whether the battle's lines before the fight play: a battle's test with dialogue on,
+        /// from the song's start (a test from partway in has none), with such lines. They play
+        /// while the Ready prompt is held back, so such a test asks for the prompt even with
+        /// <see cref="SkipReady"/>; the dialogue then starts the countdown itself.
+        /// </summary>
+        internal bool HoldsForDialogue => Kind == Kind.Battle && DialogueOn && T0 <= 0 && Battle?.Package.Dialogue.Before.Count > 0;
     }
 
     /// <summary>How a test ended, for the editor's status line.</summary>
@@ -253,7 +262,8 @@ internal static class TestPlay
             returnedAt = -1f;
             loggedClaim = loggedFadeIn = loggedSaveBlock = false;
             ModLog.Info($"Test play: starting {next.Kind} \"{next.Label}\" from {next.T0:0.000} s (first note row {next.FirstRow}, " +
-                        $"{next.Notes} notes, {next.Events} events, {next.Carried} carried), music: {next.MusicName}.");
+                        $"{next.Notes} notes, {next.Events} events, {next.Carried} carried), music: {next.MusicName}" +
+                        $"{(next.Kind == Kind.Battle ? $", dialogue {(next.DialogueOn ? "on" : "off")}" : "")}.");
             // The game's own start (private in the game): the sting, the fade to black, then the battle.
             transitions!.GoToCombat(options, new Il2CppSystem.Nullable<Color>(), false);
             return true;
@@ -287,7 +297,8 @@ internal static class TestPlay
         options.FullHealthEnd = true;
         options.automateInput = false;
         options.inputScript = null;
-        options.WaitForPlayerReady = !next.SkipReady;
+        // Lines before the fight hold the Ready prompt back, so they need it asked for.
+        options.WaitForPlayerReady = !next.SkipReady || next.HoldsForDialogue;
         return options;
     }
 

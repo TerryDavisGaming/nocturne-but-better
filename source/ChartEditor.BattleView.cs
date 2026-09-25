@@ -6,7 +6,8 @@ namespace NocturneFlatScroll;
 
 // The screen's extra pieces for a custom battle: the difficulty tabs above the playfield, the
 // panel on a difficulty that isn't charted yet, the Timing tab's tempo and offset tools, the
-// Setup tab's difficulty actions, the unsaved-changes prompt, and the 5-lane attack lane.
+// Setup tab's difficulty actions and "Dialogue in tests", the unsaved-changes prompt, and the
+// 5-lane attack lane.
 internal static partial class ChartEditor
 {
     private const float DifficultyH = 52f;
@@ -148,6 +149,11 @@ internal static partial class ChartEditor
         chartIt.Text = () => tabCharted ? $"Delete the {SlotName(slot)} chart" : $"Start {SlotName(slot)} empty";
         chartIt.Visible = () => tab == Tab.Setup;
         PlaceTop(chartIt.Rect, 16, -316, width, 40);
+        var talk = Ui.MakeButton(rightPanel!, "", ToggleTestDialogue);
+        talk.Text = () => $"Dialogue in tests: {(TestDialogue ? "on" : "off")}";
+        talk.Active = () => TestDialogue;
+        talk.Visible = () => tab == Tab.Setup;
+        PlaceTop(talk.Rect, 16, -362, width, 40);
         for (int i = 0; i < BattleChartFile.SlotCount; i++)
         {
             int s = i;
@@ -207,7 +213,7 @@ internal static partial class ChartEditor
                 FlowButtons(overlayCopyButtons, 24, -202, 512, 40, 2, 8);
             }
         }
-        if (tab == Tab.Setup) FlowButtons(setupCopyButtons, 16, -362, RightW - 32, 40, 2, 8);
+        if (tab == Tab.Setup) FlowButtons(setupCopyButtons, 16, -408, RightW - 32, 40, 2, 8);
         if (promptLayer && promptLayer!.gameObject.activeSelf != closePrompt) promptLayer.gameObject.SetActive(closePrompt);
     }
 
