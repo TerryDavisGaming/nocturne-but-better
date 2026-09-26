@@ -99,14 +99,17 @@ internal static class AkumaNoteColors
     /// </summary>
     internal static void SetColorsPrefix(NocturneCombatNoteView __instance, ref CombatNoteColorSet colors)
     {
-        // Other palettes, misses, mines and criticals: nothing to read from the note.
-        if (style == null || !IsMark(colors)) return;
         try
         {
-            if (!__instance) return;
+            // Other palettes, misses, mines and criticals: nothing to read from the note.
+            if (style == null || !IsMark(colors) || !__instance) return;
             colors = Apply(colors, __instance.column, __instance.columnCount);
         }
-        catch (Exception ex) { ReportOnce(ex); }
+        catch (Exception ex)
+        {
+            // Nothing may escape: an exception here makes the loader skip the game's SetColors for every note.
+            try { ReportOnce(ex); } catch { }
+        }
     }
 
     /// <summary>
