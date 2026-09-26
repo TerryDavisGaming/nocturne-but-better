@@ -52,7 +52,7 @@ miss sound, also in options > audio, turns the game's miss sound on or off. it's
 
 press left or right to change a value, and hold to keep changing it. all the settings are saved on that pc. reset to default in options > gameplay puts the eleven gameplay rows back to default, 0%, 100%, 100%, default, on, off, below enemy, 100%, off, and off. the game's own reset there also turns miss sounds back on. like the game's own sound settings, the rest of the audio page has no reset, so the hit sound settings and the miss sound volume stay as they are. upgrading from an earlier version keeps your saved settings.
 
-both flat modes keep the game's artwork, icons, and vertical meter text. player meters sit lower left and enemy meters upper right, each pair close to the chart.
+both flat modes keep the game's artwork, icons, and vertical meter text. player meters sit lower left and enemy meters upper right, each pair close to the chart. the enemy's armor badge, the shield with the damage a hit needs to get through its armor, sits beside the top of its health bar with the enemy's statuses under it. when the enemy info boxes in the top right corner would cover it, the badge and the statuses move down to just below them.
 
 at the "press any key" screen before a battle, alt, tab, and the windows key DON'T COUNT, so alt-tabbing away or opening the start menu won't start the fight. alt or windows held together with another key doesn't count either, since those are windows shortcuts. any other key, or a controller button, still starts it. other "press any key" screens, like the title screen, are unchanged.
 
