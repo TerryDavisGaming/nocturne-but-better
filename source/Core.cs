@@ -50,6 +50,7 @@ public static class SettingsState
     private const string TimingBarTopKey = "NocturneFlatScroll.TimingBarPosition.v1";
     private const string NoteFlaresKey = "NocturneFlatScroll.NoteFlares.v1";
     private const string InfiniteConsumablesKey = "NocturneFlatScroll.InfiniteArcadeConsumables.v1";
+    private const string ArcadeGearAllItemsKey = "NocturneFlatScroll.ArcadeGearAllItems.v1";
     public const int MinReceptorHeight = -10;
     public const int MaxReceptorHeight = 30;
     private static ScrollMode? _mode;
@@ -60,6 +61,7 @@ public static class SettingsState
     private static bool? _timingBarTop;
     private static bool? _noteFlares;
     private static bool? _infiniteConsumables;
+    private static bool? _arcadeGearAllItems;
     public static ScrollMode Mode => _mode ??= LoadMode();
 
     /// <summary>How notes and receptors are drawn; Default keeps the game's own bars.</summary>
@@ -140,6 +142,21 @@ public static class SettingsState
         PlayerPrefs.SetInt(InfiniteConsumablesKey, value ? 1 : 0);
         PlayerPrefs.Save();
         ModLog.Info("Infinite consumables (arcade): " + (value ? "On" : "Off"));
+    }
+
+    /// <summary>
+    /// Whether the main-menu arcade's own gear may use every item, not only the ones the save owns.
+    /// Off unless turned on. A battle with an item the save doesn't own saves no score and counts
+    /// for no achievements.
+    /// </summary>
+    public static bool ArcadeGearAllItems => _arcadeGearAllItems ??= PlayerPrefs.GetInt(ArcadeGearAllItemsKey, 0) == 1;
+
+    public static void SetArcadeGearAllItems(bool value)
+    {
+        _arcadeGearAllItems = value;
+        PlayerPrefs.SetInt(ArcadeGearAllItemsKey, value ? 1 : 0);
+        PlayerPrefs.Save();
+        ModLog.Info("All items (arcade gear): " + (value ? "On" : "Off"));
     }
 
     /// <summary>

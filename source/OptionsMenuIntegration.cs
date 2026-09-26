@@ -67,6 +67,12 @@ internal static class OptionsMenuIntegration
             new[] { "Off", "On" },
             () => SettingsState.InfiniteArcadeConsumables ? 1 : 0,
             (direction, wrap) => SettingsState.SetInfiniteArcadeConsumables(!SettingsState.InfiniteArcadeConsumables)),
+        new("StateToggle_FlatArcadeGearAllItems",
+            "All items (arcade gear)",
+            "The main menu's arcade gear can use any item, not just the ones your save owns. A battle with one you don't own saves no score and counts for no achievements.",
+            new[] { "Off", "On" },
+            () => SettingsState.ArcadeGearAllItems ? 1 : 0,
+            (direction, wrap) => SettingsState.SetArcadeGearAllItems(!SettingsState.ArcadeGearAllItems)),
     };
 
     // The hit and miss sound rows are on the Audio page (AudioOptionsIntegration).
@@ -482,6 +488,7 @@ internal static class OptionsMenuIntegration
             SettingsState.LaneSpacing.Set(SettingsState.LaneSpacing.Default);
             SettingsState.EnemyAttackOpacity.Set(SettingsState.EnemyAttackOpacity.Default);
             SettingsState.SetInfiniteArcadeConsumables(false);
+            SettingsState.SetArcadeGearAllItems(false);
             if (!SettingsState.NoteFlares) SetNoteFlares(true);
             RefreshAll();
         }

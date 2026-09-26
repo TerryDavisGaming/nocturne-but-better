@@ -12,7 +12,9 @@ namespace NocturneFlatScroll;
 /// and every battle there whose gear a custom battle doesn't set is fought with them
 /// (BattleGear.Loadout.cs). The story save is never written, not even in memory: the page only
 /// reads it, and a battle runs on a copy, as a set-gear battle does. Only items the save owned
-/// when the arcade opened can be used. The story's own arcade cabinet is unchanged. The rules are in ArcadeGear.Rules.cs.
+/// when the arcade opened can be used, unless "All items (arcade gear)" is on; a battle with an
+/// item the save doesn't own then saves no score and counts for no achievements. The story's own
+/// arcade cabinet is unchanged. The rules are in ArcadeGear.Rules.cs.
 /// </summary>
 internal static partial class ArcadeGear
 {
@@ -38,6 +40,9 @@ internal static partial class ArcadeGear
 
     /// <summary>What the Gear control says, worked out when the visit starts, when the page closes and after each battle.</summary>
     internal static GearLabel Label { get; private set; }
+
+    /// <summary>Whether the next battle with the arcade gear keeps its score out of the save (it has an item the save doesn't own).</summary>
+    internal static bool ScoresOff => session && Label.AllItems;
 
     /// <summary>The save slot of this visit, as its scores are written.</summary>
     internal static int SaveSlot => saveSlot;
@@ -142,6 +147,12 @@ internal static partial class ArcadeGear
     // The save slot has choices that aren't used at all now.
     private static bool IgnoredEntry => session && (EarlierGame || ReadOnly) && Entry.Choices.Count > 0;
 
+    /// <summary>Whether "all items" can work: the score save and the achievements can be held back.</summary>
+    internal static bool AllItemsAvailable => TestPlay.ScoresGuarded && BattleGear.AchievementsGuarded && CustomBattles.EndGuarded;
+
+    /// <summary>Whether items the save doesn't own may be used now.</summary>
+    internal static bool AllItems => SettingsState.ArcadeGearAllItems && AllItemsAvailable;
+
     /// <summary>
     /// Whether a battle now is fought with the arcade gear: in the main-menu arcade, when this save
     /// has choices, or when the arcade gear used up a consumable this visit (so its count stays right).
@@ -154,7 +165,7 @@ internal static partial class ArcadeGear
         var counts = Counts(own);
         var equipment = own.equipmentData;
         return ArcadeGearRules.Resolve(Choices, slot => StoryItem(equipment, slot), visitStart, id => LeftThisVisit(counts, id),
-                                       GearCatalog.Find, allItems: false);
+                                       GearCatalog.Find, AllItems);
     }
 
     /// <summary>The save's item counts now.</summary>
@@ -279,6 +290,7 @@ internal static partial class ArcadeGear
     /// </summary>
     private static void Refresh()
     {
+        lastAllItems = SettingsState.ArcadeGearAllItems;
         if (!session)
         {
             Label = default;

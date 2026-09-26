@@ -390,6 +390,12 @@ internal static class ArcadeSession
     private static bool WriteFilePrefix(string filename)
     {
         bool blocked = TestPlay.Active ? IsProdFile(filename) : Active && IsStoryFile(filename);
+        if (!blocked && BattleGear.ScoresHeld && IsProdFile(filename))
+        {
+            // An arcade battle with an item the save doesn't own: its scores aren't saved by any way.
+            ModLog.Info($"Arcade gear: blocked writing {filename}; this battle's score isn't saved.");
+            return false;
+        }
         if (!blocked) return true;
         Blocked("writing " + filename);
         return false;

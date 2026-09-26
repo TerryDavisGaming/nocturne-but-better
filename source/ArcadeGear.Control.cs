@@ -33,6 +33,8 @@ internal static partial class ArcadeGear
     private static string shownText = "";
     private static float closedAt = -100f;
     private static bool wasRunning, noHeader;
+    // The "all items" setting when the label was last worked out (the pause menu's options can change it).
+    private static bool? lastAllItems;
     // The arcade's selected card this frame and the last: a click on the control lands on no game
     // button, and the game clears the selection for that before the page opens.
     private static GameObject? selectedNow, selectedLastFrame;
@@ -53,8 +55,8 @@ internal static partial class ArcadeGear
             return;
         }
         bool running = ArcadeUtility.IsRunning;
-        // A battle may have used up a consumable.
-        if (!running && wasRunning) Refresh();
+        // A battle may have used up a consumable, and the pause menu's options may have changed "all items".
+        if (!running && (wasRunning || lastAllItems != SettingsState.ArcadeGearAllItems)) Refresh();
         wasRunning = running;
         if (menu == null || !menu)
         {

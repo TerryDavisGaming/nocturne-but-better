@@ -11,7 +11,8 @@ namespace NocturneFlatScroll;
 /// battle is selected, the box under the score on the right says so ("Sets your level and gear.",
 /// the level, the items), in smaller text when that is what it takes to show it all, then shows the
 /// battle's lore if there is room; the game has that box (its lore box) but keeps it hidden, so it
-/// is shown for custom battles only. The battle's card gets a
+/// is shown for custom battles only, and for any song while the main-menu arcade's gear keeps
+/// scores out of the save ("All items: scores aren't saved."). The battle's card gets a
 /// short tag under its melody, like "Set gear, level 12". The game reuses its score views and
 /// cards for every song, so both are hidden again for the game's own songs. The text comes from
 /// <see cref="BattleNotice"/>, as the battle creator's preview does.
@@ -107,6 +108,13 @@ internal static class BattleNoticeArcade
             }
             var battle = currentSong != null ? CustomBattles.Find(currentSong.songData) : null;
             var input = battle != null ? InputFor(battle.Package) : null;
+            // The main-menu arcade's gear with an item the save doesn't own: said for every song it
+            // would be used with, the game's own too (a battle's set gear wins over it).
+            if (currentSong != null && ArcadeGear.ScoresOff && (battle == null || !(BattleGear.Installed && battle.Package.Gear.IsSet)))
+            {
+                input ??= new NoticeInput();
+                input.AllItems = true;
+            }
             if (input == null || BattleNotice.Whole(input) == null)
             {
                 // A game song (the view is shared), or a battle with nothing to say.

@@ -75,6 +75,8 @@ internal static partial class ArcadeGear
                 ? $"{FileName} couldn't be read (the log says why), so the arcade uses your story gear. Changing a slot starts a new file and keeps the old one as {FileName}.bad."
                 : ReadOnly ? $"{FileName} was made by a newer version of the mod, so it can't be changed here, and the arcade uses your story gear."
                 : EarlierGame ? EarlierText()
+                : SettingsState.ArcadeGearAllItems && !AllItemsAvailable
+                ? "All items is on, but it can't work: a game hook couldn't be installed (see the log). Only items this save owns are listed."
                 : null;
             if (message != null) ui.Say(message, 12f);
             ModLog.Info($"Arcade gear: opened (save slot {saveSlot}).");
@@ -100,7 +102,11 @@ internal static partial class ArcadeGear
         Reselect();
         selectedBefore = null;
         closedAt = Time.unscaledTime;
-        if (!ArcadeUtility.IsRunning) Refresh();
+        if (!ArcadeUtility.IsRunning)
+        {
+            Refresh();
+            RefreshArcadeBox();
+        }
         ModLog.Info($"Arcade gear: closed ({reason}).");
     }
 
@@ -141,6 +147,19 @@ internal static partial class ArcadeGear
             if (now == null || !now) events.SetSelectedGameObject(before);
         }
         catch (Exception ex) { Note("Arcade gear: the arcade's card couldn't be selected again: " + ex.Message); }
+    }
+
+    // The box on the right says when the arcade gear keeps scores out; the game shows the selected
+    // card's score again (with no card selected it would hide the score view, so it's left alone then).
+    private static void RefreshArcadeBox()
+    {
+        try
+        {
+            if (menu == null || !menu || !menu.Active) return;
+            var card = menu.selectedSongGroup;
+            if (card != null && card && menu.selectedMelodyIndex >= 0) menu.RefreshHighScore();
+        }
+        catch (Exception ex) { Note("Arcade gear: the arcade's score box couldn't be shown again: " + ex.Message); }
     }
 
     private static void ShowScreen(Screen next)
@@ -364,9 +383,9 @@ internal static partial class ArcadeGear
         var items = GearCatalog.ForSlot(slot, includeDebug: true);
         Choices.TryGetValue(slot, out string? choice);
         pickSlot = slot;
-        pickHasItems = items.Any(i => ArcadeGearRules.Owned(visitStart, i.Id));
+        pickHasItems = items.Any(i => AllItems || ArcadeGearRules.Owned(visitStart, i.Id));
         picks = ArcadeGearRules.Picks(slot, items, choice, StoryItem(own.equipmentData, slot), visitStart, id => LeftThisVisit(counts, id),
-                                      GearCatalog.Find, allItems: false);
+                                      GearCatalog.Find, AllItems);
         // It opens on the current choice.
         pickIndex = Math.Max(0, picks.FindIndex(p => p.Current));
         ShowScreen(Screen.Pick);
@@ -410,10 +429,11 @@ internal static partial class ArcadeGear
         var item = row.Item;
         if (item == null) return $"The game has no item \"{row.Value}\", so your story gear is used. Your choice is kept until you pick another.";
         if (item.Slot != pickSlot) return $"{item.Name} doesn't go in the {GearCatalog.LabelOf(pickSlot)} slot, so your story gear is used.";
-        if (row.Unowned)
+        if (row.Unowned && !AllItems)
             return $"You don't have {item.Name} in this save any more, so your story gear is used. Your choice is kept, and comes back if the save gets the item again.";
         string hint = GearCatalog.Hint(item);
         if (row.UsedUp) hint += "  None left this visit. It's full again the next time you open the arcade.";
+        if (row.Unowned) hint += "  Not owned: scores aren't saved and achievements don't count with it.";
         return hint;
     }
 
@@ -484,7 +504,15 @@ internal static partial class ArcadeGear
     {
         string own = (ownLevel > 0 ? $"Level {ownLevel} and {ownHealth}" : ownHealth.ToString()) +
                      $" health upgrade{(ownHealth == 1 ? "" : "s")}, from your save. ";
-        return own + "Only items this save owns are listed.\nYour story save never changes: this gear is used only in this arcade.";
+        var lines = new List<string>
+        {
+            own + (AllItems ? "All items is on (Options > Gameplay): every item is listed."
+                : SettingsState.ArcadeGearAllItems ? "Only items this save owns are listed: all items can't work (see the log)."
+                : "Only items this save owns are listed."),
+            "Your story save never changes: this gear is used only in this arcade."
+        };
+        if (AllItems) lines.Add("All items: in a battle with an item this save doesn't own, scores aren't saved and achievements don't count.");
+        return string.Join("\n", lines);
     }
 
     // ---- for the QA drivers: reads only --------------------------------------------------------------

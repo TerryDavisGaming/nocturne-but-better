@@ -9,7 +9,9 @@ namespace NocturneFlatScroll;
 /// battle runs on a throwaway inventory, here a copy of everything the player has (less the
 /// consumables the arcade gear used up this visit) with the arcade gear equipped. The level, the
 /// health upgrades and the pet stay the player's own. Nothing of the player's is written, and the
-/// battle's end and the backstops take the copy out again.
+/// battle's end and the backstops take the copy out again. An item the save doesn't own ("all
+/// items") also keeps the battle's score out of the save (BattleGear.Scores.cs) and holds its
+/// achievements back.
 /// </summary>
 internal static partial class BattleGear
 {
@@ -66,7 +68,7 @@ internal static partial class BattleGear
     /// it, noted as the swap before anything is written, then the game's two references to the
     /// player's manager pointed at it, and the stats worked out again.
     /// </summary>
-    private static void PutIn(OwnSide own, SavedGameDataV105 save, string title, bool loadout, string holderName)
+    private static void PutIn(OwnSide own, SavedGameDataV105 save, string title, bool loadout, bool allItems, string holderName)
     {
         var holder = ScriptableObject.CreateInstance(Il2CppType.Of<GameDataScriptableObject>())?.TryCast<GameDataScriptableObject>()
             ?? throw new InvalidOperationException("the game couldn't make a save holder");
@@ -84,7 +86,7 @@ internal static partial class BattleGear
         // Noted before anything is written, so a failure part-way puts the player's manager back.
         swap = new Swap
         {
-            Title = title, Loadout = loadout, Game = own.Game, Player = own.Player, Own = own.Inventory,
+            Title = title, Loadout = loadout, AllItems = allItems, Game = own.Game, Player = own.Player, Own = own.Inventory,
             Manager = manager, Holder = holder
         };
         var battleInventory = new IInventoryManager(manager.Pointer);
@@ -109,6 +111,7 @@ internal static partial class BattleGear
         try { SetLoadout(title); }
         catch (Exception ex)
         {
+            if (heldScores != null) ReleaseScores("the arcade gear couldn't be put in", backstop: false);
             if (swap != null) Restore("the arcade gear couldn't be put in", backstop: false);
             ModLog.Error($"Arcade gear: {title}: the arcade gear couldn't be put in, so you fight with your story gear: {ex}");
         }
@@ -119,6 +122,7 @@ internal static partial class BattleGear
     {
         var own = FindOwn();
         var gear = ArcadeGear.Resolve(own.Data);
+        bool allItems = ArcadeGearRules.HoldsScores(gear);
 
         // A fresh save: its constructor makes the player's inventory and equipment.
         var save = new SavedGameDataV105();
@@ -143,8 +147,8 @@ internal static partial class BattleGear
         {
             // An empty slot keeps the fresh save's empty value, as set gear leaves it.
             if (slot.Id == null) continue;
-            // Equipped items are in the inventory too, as the game keeps them.
-            if (!data.inventory.ContainsKey(slot.Id)) data.inventory[slot.Id] = Math.Max(1, slot.Count);
+            // Equipped items are in the inventory too, as the game keeps them: an item the save doesn't own is added.
+            if (slot.Unowned || !data.inventory.ContainsKey(slot.Id)) data.inventory[slot.Id] = Math.Max(1, slot.Count);
             SetSlot(equipment, slot.Slot, slot.Id);
         }
         equipment.pet = own.Data.equipmentData?.pet;
@@ -152,8 +156,10 @@ internal static partial class BattleGear
         // The level before the swap's stat update, which a battle's level would change.
         string level = levelOverride is int set ? $"level {set} is the battle's" : $"level {(PlayerLevel() is int l ? l.ToString() : "?")} is your own";
         int health = data.inventory.ContainsKey(ExtraHealthId) ? data.inventory[ExtraHealthId] : 0;
-        PutIn(own, save, title, loadout: true, "arcadegear");
+        PutIn(own, save, title, loadout: true, allItems, "arcadegear");
         ModLog.Info($"Arcade gear: {title}: {ArcadeGearRules.Describe(gear)}; health upgrades {health} are your own and {level}.");
+        // Its score isn't saved, and its achievements are held back while the swap is in.
+        if (allItems) HoldScores(title);
     }
 
     // A game song's name for the log (its SongData's asset name).

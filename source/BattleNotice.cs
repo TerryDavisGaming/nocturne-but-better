@@ -17,13 +17,19 @@ internal sealed class NoticeInput
     internal int? YourLevel;
     /// <summary>The battle's lore, or who made its song and charts.</summary>
     internal string Lore = "";
+    /// <summary>
+    /// The main-menu arcade's gear, which this battle is fought with, has an item the save doesn't
+    /// own ("all items"), so its score isn't saved. Game songs show only this.
+    /// </summary>
+    internal bool AllItems;
 }
 
 /// <summary>
 /// The text that tells players what a custom battle sets before they start it: the box on the
 /// right of the arcade when the battle is selected, the tag on its card, and the battle creator's
-/// list and preview all come from here, so they always agree. The text is plain ASCII (and "…"),
-/// which the arcade's fonts can all draw.
+/// list and preview all come from here, so they always agree. The box also says when the main-menu
+/// arcade's gear keeps a battle's score out of the save ("all items"), for game songs too. The text
+/// is plain ASCII (and "…"), which the arcade's fonts can all draw.
 /// This file has no Unity or game dependencies.
 /// </summary>
 internal static class BattleNotice
@@ -54,6 +60,10 @@ internal static class BattleNotice
 
     internal const string Ellipsis = "\u2026";
     private const string HeaderColor = "#EAE6F5";
+    // The mod's warning amber, as on the cards' tags.
+    private const string WarningColor = "#F2B02E";
+    /// <summary>The box's line when the arcade gear keeps the score out of the save.</summary>
+    internal const string AllItemsLine = "All items: scores aren't saved.";
 
     /// <summary>
     /// The notice's input from a battle's gear and level. <paramref name="name"/> gives an item's
@@ -139,16 +149,22 @@ internal static class BattleNotice
     /// <summary>The box's whole text, as nothing trims it: what the battle sets, then all its lore. Null when there is nothing to show.</summary>
     internal static string? Whole(NoticeInput n) => Box(n, (_, _) => true, out _);
 
-    /// <summary>What the battle sets, whole (rich text, no lore); null when it sets neither gear nor level.</summary>
-    internal static string? Sets(NoticeInput n) => n.GearSet || n.Level != null ? Compose(n, n.Items.Count) : null;
+    /// <summary>
+    /// What the battle sets, whole (rich text, no lore), and the arcade gear's "all items" line;
+    /// null when there is neither.
+    /// </summary>
+    internal static string? Sets(NoticeInput n) => n.GearSet || n.Level != null || n.AllItems ? Compose(n, n.Items.Count) : null;
 
-    // The header, the level, the gear (the first `shown` items) and the last line.
+    // The header, the level, the gear (the first `shown` items) and the last line; then "all items".
     private static string Compose(NoticeInput n, int shown)
     {
         bool level = n.Level != null, gear = n.GearSet;
+        string? allItems = n.AllItems ? $"<color={WarningColor}>{AllItemsLine}</color>" : null;
+        if (!level && !gear) return allItems ?? "";
         string header = level && gear ? "Sets your level and gear." : level ? "Sets your level." : "Sets your gear.";
         string last = level && gear ? "Yours come back afterward." : level ? "Your level comes back afterward." : "Your gear comes back afterward.";
-        return Join($"<color={HeaderColor}>{header}</color>", level ? LevelLine(n.Level!.Value, n.YourLevel) : null, gear ? GearLine(n, shown) : null, last);
+        return Join($"<color={HeaderColor}>{header}</color>", level ? LevelLine(n.Level!.Value, n.YourLevel) : null, gear ? GearLine(n, shown) : null, last,
+                    allItems);
     }
 
     internal static string LevelLine(int level, int? yours) =>
@@ -205,7 +221,7 @@ internal static class BattleNotice
     /// </summary>
     internal static int LoreRoom(NoticeInput n)
     {
-        var notice = new NoticeInput { GearSet = n.GearSet, Items = n.Items, ExtraHealth = n.ExtraHealth, Level = n.Level, YourLevel = n.YourLevel };
+        var notice = new NoticeInput { GearSet = n.GearSet, Items = n.Items, ExtraHealth = n.ExtraHealth, Level = n.Level, YourLevel = n.YourLevel, AllItems = n.AllItems };
         string? text = Box(notice, FitsLines, out float size);
         return text == null ? BoxLines : Math.Max(0, LinesAt(size) - CountLines(text, CharsAt(size)));
     }

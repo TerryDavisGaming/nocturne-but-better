@@ -916,20 +916,24 @@ internal static class CustomBattles
 
     // A custom battle is anyone's chart, so its battles don't count towards the game's (Steam)
     // achievements, which can't be taken back. The game checks them all when a battle ends. Nor
-    // does a test play from the chart editor, whatever song it is. A custom difficulty's battle
-    // is checked as usual, but with the song's own score key: its trophy ranks read every arcade
-    // song's scores through that key, and the custom difficulty's score isn't the song's.
+    // does a test play from the chart editor, whatever song it is, or an arcade battle with gear
+    // the save doesn't own ("all items"). A custom difficulty's battle is checked as usual, but
+    // with the song's own score key: its trophy ranks read every arcade song's scores through that
+    // key, and the custom difficulty's score isn't the song's.
     private static bool CombatEndedPrefix(CombatSummary summary)
     {
         try
         {
-            bool testing = TestPlay.Active;
-            if (ChartSwap.PlayingBattle == null && !IsRuntimeName(summary?.EnemyId) && !testing)
+            bool testing = TestPlay.Active, allItems = BattleGear.AllItemsBattle;
+            if (ChartSwap.PlayingBattle == null && !IsRuntimeName(summary?.EnemyId) && !testing && !allItems)
             {
                 if (ChartSwap.SuspendScoreKey()) Note("Custom difficulty: the achievement check reads the song's own scores, not this chart's.", error: false);
                 return true;
             }
-            Note(testing ? "Test play: test battles don't count towards achievements." : "Custom battles don't count towards achievements.", error: false);
+            Note(testing ? "Test play: test battles don't count towards achievements."
+                : allItems && ChartSwap.PlayingBattle == null && !IsRuntimeName(summary?.EnemyId)
+                ? "Arcade gear: battles with items your save doesn't own don't count towards achievements."
+                : "Custom battles don't count towards achievements.", error: false);
             return false;
         }
         catch (Exception ex)

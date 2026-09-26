@@ -88,6 +88,9 @@ internal static class TestPlay
     /// <summary>Whether every hook a test needs is in: without the score, save and achievement guards a test would record things.</summary>
     internal static bool Available => installed && ChartSwap.Installed && BattleGear.AchievementsGuarded && CustomBattles.EndGuarded;
 
+    /// <summary>Whether saving the scores can be refused (the arcade gear's "all items" needs it too).</summary>
+    internal static bool ScoresGuarded => installed;
+
     // ---- installing ------------------------------------------------------------------------------
 
     internal static void Install(HarmonyLib.Harmony harmony)
@@ -566,10 +569,16 @@ internal static class TestPlay
         return false;
     }
 
-    // Leaving any battle saves the scores to the save's .score file; a test saves nothing.
+    // Leaving any battle saves the scores to the save's .score file; a test saves nothing, and
+    // neither does an arcade battle with an item the save doesn't own (BattleGear.Scores.cs).
     private static bool SaveScoresPrefix()
     {
-        if (phase == Phase.Idle) return true;
+        if (phase == Phase.Idle)
+        {
+            if (!BattleGear.ScoresHeld) return true;
+            BattleGear.NoteScoresBlocked();
+            return false;
+        }
         if (!loggedSaveBlock)
         {
             loggedSaveBlock = true;

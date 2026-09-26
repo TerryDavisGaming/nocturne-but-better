@@ -31,6 +31,8 @@ internal static partial class BattleGear
         internal string Title = "";
         // The arcade gear rather than a battle's set gear.
         internal bool Loadout;
+        // The arcade gear has an item the save doesn't own ("all items"): no score, no achievements.
+        internal bool AllItems;
         internal PlayingGameDataManager Game = null!;
         internal PlayerDataManager Player = null!;
         internal IInventoryManager Own = null!;              // the player's manager, put back afterwards
@@ -133,6 +135,7 @@ internal static partial class BattleGear
         {
             if (swap != null) Restore("a new battle started", backstop: true);
             if (levelOverride != null) ClearLevel("a new battle started", backstop: true);
+            if (heldScores != null) ReleaseScores("a new battle started", backstop: true);
             setBattle = null;
             customBattle = null;
             inBattle = ArcadeUtility.IsRunning;
@@ -204,6 +207,8 @@ internal static partial class BattleGear
             // The level first, so the restore's stat update uses the player's own level.
             if (levelOverride != null) ClearLevel("the battle ended", backstop: false);
             if (swapped) Restore("the battle ended", backstop: false);
+            // The scores after the game's own save of them, which comes just before this.
+            if (heldScores != null) ReleaseScores("the battle ended", backstop: false);
             if (ended) Dump(swapped ? "battle end, after the restore" : "battle end");
         }
         catch (Exception ex) { Report(ex); }
@@ -250,7 +255,7 @@ internal static partial class BattleGear
         if (health > 0) data.inventory[ExtraHealthId] = health;
         parts.Add($"health upgrades {health}{(gear.extraHealth == null ? " (your own)" : "")}");
 
-        PutIn(own, save, battle.Title, loadout: false, "gear");
+        PutIn(own, save, battle.Title, loadout: false, allItems: false, "gear");
         ModLog.Info($"Battle gear: {battle.Title}: set gear for this battle: {string.Join(", ", parts)}.");
     }
 
@@ -354,9 +359,10 @@ internal static partial class BattleGear
 
     // ---- backstops -------------------------------------------------------------------------------
 
-    // Something of a custom battle or the arcade gear is still in: its inventory, its level, or
-    // its holds on achievements and item use.
-    private static bool Pending => swap != null || setBattle != null || customBattle != null || usingConsumable || levelOverride != null;
+    // Something of a custom battle or the arcade gear is still in: its inventory, its level, the
+    // scores it keeps out, or its holds on achievements and item use.
+    private static bool Pending => swap != null || setBattle != null || customBattle != null || usingConsumable || levelOverride != null ||
+                                   heldScores != null;
 
     /// <summary>Ends what's left of a custom battle when no arcade battle can be running any more.</summary>
     internal static void Backstop(string reason)
@@ -384,8 +390,10 @@ internal static partial class BattleGear
         usingConsumable = false;
         inBattle = false;
         if (levelOverride != null) ClearLevel(reason, backstop: true);
-        if (swap != null) Restore(reason, backstop: true);
-        else if (battle != null)
+        bool swapped = swap != null;
+        if (swapped) Restore(reason, backstop: true);
+        if (heldScores != null) ReleaseScores(reason, backstop: true);
+        else if (!swapped && battle != null)
             ModLog.Info($"Battle gear: backstop: {reason}; {battle.Title} is over, so achievements and items work as usual again.");
     }
 
@@ -418,10 +426,14 @@ internal static partial class BattleGear
     // The game checks achievements on many events, not only at a battle's end (a riposte unlocks
     // one mid-battle); a custom battle counts for none of them, and neither may its gear or level
     // count as the player's (the game has a "level 20" achievement). A test play from the chart
-    // editor counts for none either. The arcade gear is items the player owns and counts as usual.
+    // editor counts for none either. The arcade gear is items the player owns and counts as usual,
+    // unless it has one they don't ("all items").
     private static bool HoldsAchievements =>
-        setBattle != null || swap is { Loadout: false } || levelOverride != null || customBattle != null || ChartSwap.CurrentBattle != null ||
-        TestPlay.Active;
+        setBattle != null || swap is { Loadout: false } || AllItemsBattle || levelOverride != null || customBattle != null ||
+        ChartSwap.CurrentBattle != null || TestPlay.Active;
+
+    /// <summary>Whether the battle running now has arcade gear with an item the save doesn't own: its score and achievements are held back.</summary>
+    internal static bool AllItemsBattle => swap is { AllItems: true } || heldScores != null;
 
     private static bool UnlockAchievementPrefix(string achievementId)
     {
@@ -430,6 +442,8 @@ internal static partial class BattleGear
             if (!HoldsAchievements) return true;
             Note(TestPlay.Active
                 ? $"Test play: held back achievement {achievementId}."
+                : customBattle == null && ChartSwap.CurrentBattle == null && AllItemsBattle
+                ? $"Arcade gear: held back achievement {achievementId}: a battle with items your save doesn't own doesn't count towards achievements."
                 : $"Custom battle: held back achievement {achievementId}: custom battles don't count towards achievements.", error: false);
             return false;
         }
