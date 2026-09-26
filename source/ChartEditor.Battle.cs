@@ -296,10 +296,32 @@ internal static partial class ChartEditor
     {
         PushUndo();
         double beat = SnapRow(chart!.SecondsToRow(Now)) / (double)EditorChart.RowsPerBeat;
+        // A new battle's 120 BPM is only a stand-in. Kept in front of the song's own tempo, it would be
+        // the chart's top tempo, and with Speed Mod the song's start would scroll faster than the rest.
+        // So while the timing is still the new battle's, the change sets the song's tempo from here,
+        // as Set BPM and First beat here would. Undo, then the change again, keeps the 120 BPM.
+        if (beat > 0 && NewBattleTiming())
+        {
+            chart.Bpms.Clear();
+            chart.Bpms.Add((0, bpm));
+            chart.Offset = BattleTiming.OffsetForFirstBeat(Now);
+            TimingEdited();
+            SayTiming($"The song's tempo is {bpm:0.##} BPM with beat 0 here, at {FormatTime(-chart.Offset)}: the new battle's 120 BPM wasn't kept " +
+                      $"in front of it. To keep it, undo ({ShortKey(EditorAction.Undo)}) and add the change again", 7f);
+            return;
+        }
         BattleTiming.AddChange(chart.Bpms, beat, bpm);
         TimingEdited();
         SayTiming($"The tempo changes to {bpm:0.##} BPM at beat {beat:0.##}");
     }
+
+    /// <summary>
+    /// Whether the timing is still a new battle's, untouched since the editor opened: beat 0 at the
+    /// song's start, 120 BPM, no stops or scroll speed changes, and no notes on any difficulty.
+    /// </summary>
+    private static bool NewBattleTiming() =>
+        !timingEdited && chart!.Offset == 0 && chart.Bpms.Count == 1 && chart.Bpms[0] == (0, 120) &&
+        chart.Stops.Count == 0 && scrolls.Count == 0 && !ChartedTabs().Any(c => c);
 
     private static void RemoveTempoChange()
     {
@@ -325,12 +347,12 @@ internal static partial class ChartEditor
     /// move with them, and so do dialogue lines placed on beats; events are at times in seconds,
     /// so they stay where they were, and so do dialogue lines placed at times.
     /// </summary>
-    private static void SayTiming(string what)
+    private static void SayTiming(string what, float seconds = 3f)
     {
         bool notes = ChartedTabs().Any(c => c), lines = cues.Any(c => c.Beat != null);
-        if (!notes && !lines) { Say(what, 3f); return; }
+        if (!notes && !lines) { Say(what, seconds); return; }
         string moved = notes && lines ? "The notes on every difficulty and the dialogue lines on beats" : notes ? "The notes on every difficulty" : "The dialogue lines on beats";
-        Say($"{what}. {moved} moved with the beats{(events.Count > 0 ? "; events keep their times." : ".")}", 6f);
+        Say($"{what}. {moved} moved with the beats{(events.Count > 0 ? "; events keep their times." : ".")}", Math.Max(6f, seconds));
     }
 
     /// <summary>Moves every beat (and the notes on them) later against the music; earlier when negative.</summary>
