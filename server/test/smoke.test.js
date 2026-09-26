@@ -1,5 +1,5 @@
 import { assertEquals } from "./assert.js";
-import { fakeKey, makeHub, publish, register, upload } from "./helpers.js";
+import { fakeKey, makeHub, register, upload } from "./helpers.js";
 import { goodBattle } from "./make-fixtures.js";
 
 Deno.test("smoke: register, upload, list, detail, download", async () => {

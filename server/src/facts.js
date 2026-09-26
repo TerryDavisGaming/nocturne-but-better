@@ -42,7 +42,7 @@ export async function checkPackage(files, key, size, kind, limits) {
 async function readRootJson(files, key, entry, cdOffset) {
   const name = entry.relative;
   if (entry.usize > MAX_ROOT_JSON || entry.csize > MAX_ROOT_JSON) throw new ZipProblem(`${name} is over 256 KB.`);
-  let buf = await readRange(files, key, entry.offset, Math.min(30 + entry.nameLength + LOCAL_SLACK + entry.csize, cdOffset - entry.offset));
+  const buf = await readRange(files, key, entry.offset, Math.min(30 + entry.nameLength + LOCAL_SLACK + entry.csize, cdOffset - entry.offset));
   const local = parseLocal(buf, 0);
   const why = localProblem(local, entry, buf.subarray(30, 30 + entry.nameLength));
   if (why) throw new ZipProblem(`${name} ${why}.`);

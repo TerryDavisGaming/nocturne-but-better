@@ -20,7 +20,7 @@ import { adminPage, asset, homePage, legalPage, robots } from "./pages.js";
 
 export const API_VERSION = 1;
 const WRITES = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-const PAGES = new Set(["home", "robots", "admin-page", "asset"]);
+const PAGES = new Set(["home", "legal", "robots", "admin-page", "asset"]); // these work without the database
 
 async function info(env, request) {
   const s = await loadSettings(env.DB);
@@ -70,7 +70,7 @@ function route(request, env, ctx) {
     throw notFound();
   }
 
-  const [, a, b, c, d, e] = parts; // "", "v1", ...
+  const [, a, b, c, d] = parts; // "v1", then the route's parts
   const rest = parts.slice(2);
   if (a === "info" && rest.length === 0 && is("GET")) return ["info", () => info(env, request)];
   if (a === "packages") {
@@ -113,7 +113,6 @@ function route(request, env, ctx) {
       return adminRoute(env, request, ctx, rest);
     }];
   }
-  void e;
   throw notFound();
 }
 

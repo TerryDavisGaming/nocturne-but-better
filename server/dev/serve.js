@@ -95,7 +95,7 @@ function setPath(obj, path, value) {
   if (at && typeof at === "object") at[parts[parts.length - 1]] = value;
 }
 
-async function applyFault(rule, request, run) {
+async function applyFault(rule, run) {
   if (rule.delayMs) await new Promise((r) => setTimeout(r, rule.delayMs));
   if (rule.html1027) return new Response(PAGE_1027, { status: 503, headers: { "Content-Type": "text/html" } });
   if (rule.status) {
@@ -148,7 +148,7 @@ async function handle(request, info) {
       await Deno.writeTextFile(`${dataDir}/faults.json`, JSON.stringify(faults, null, 2));
     }
     console.log(`fault: ${line}`);
-    return applyFault(rule, forwarded, run);
+    return applyFault(rule, run);
   }
   const response = await run();
   console.log(`${response.status} ${line}`);

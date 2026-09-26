@@ -414,7 +414,7 @@ export class FakeAnalytics {
   }
   /** A fetch function that answers the Analytics Engine SQL API from the recorded points. */
   sqlApi(expect = {}) {
-    return async (url, init) => {
+    return async (_url, init) => {
       if (expect.token && init.headers.Authorization !== `Bearer ${expect.token}`) return new Response("{}", { status: 403 });
       const sql = String(init.body);
       const m = /timestamp > toDateTime\((\d+)\) AND timestamp <= toDateTime\((\d+)\)/.exec(sql);

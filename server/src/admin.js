@@ -127,7 +127,6 @@ export async function restorePackage(env, ctx, id) {
   } else if (row.status !== "hidden" && !(await env.FILES.head(key))) {
     throw new HubError(409, "files_gone", "The entry's file is gone (its time in the trash ran out).");
   }
-  const t = now();
   const stmts = [
     db.prepare("UPDATE packages SET status = 'live', removed_reason = NULL, removed_note = NULL, removed_at = NULL WHERE id = ?1").bind(id),
     db.prepare("DELETE FROM trash WHERE r2_key = ?1").bind(key),

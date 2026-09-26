@@ -96,7 +96,7 @@ a copyright notice (see `/legal` for what one must contain):
 2. the entry disappears from the hub at once. its file is kept 30 days, so a counter-notice can bring it back.
 3. 3 copyright strikes ban the uploader's key. that's the repeat-infringer policy on `/legal`.
 4. the same uploader can't upload that battle again. another uploader can (so removing a copy never locks out the real creator); release the battle id if you removed it by mistake.
-5. a valid counter-notice: wait 10 to 14 business days, and if the claimant doesn't go to court, press restore.
+5. a valid counter-notice: wait 10 to 14 business days, and if the claimant doesn't go to court, press restore. a restore doesn't take the strike back; set the uploader's strikes on their panel if it shouldn't count.
 
 offensive, spam or broken entries: remove with that reason. the file is kept 24 hours. hide instead if you want to look at it first; the uploader sees "under review".
 
