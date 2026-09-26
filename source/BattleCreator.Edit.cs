@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.RegularExpressions;
 using UnityEngine;
 using static NocturneFlatScroll.EditorInput;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
@@ -1019,8 +1018,8 @@ internal static partial class BattleCreator
             Heading = $"{GearCatalog.LabelOf(slot)} for this battle",
             Rows = rows,
             Hint = i => i <= 0 ? "Nothing in this slot.  Esc goes back."
-                : i <= keep ? (current != null ? ItemHint(current) : $"The game has no item \"{currentId}\", so the battle leaves this slot empty.  Esc goes back.")
-                : i - keep <= items.Count ? ItemHint(items[i - keep - 1]) : "",
+                : i <= keep ? (current != null ? GearCatalog.Hint(current) : $"The game has no item \"{currentId}\", so the battle leaves this slot empty.  Esc goes back.")
+                : i - keep <= items.Count ? GearCatalog.Hint(items[i - keep - 1]) : "",
             Index = currentId == null ? 0 : keep == 1 ? 1 : index + 1,
             Choose = i =>
             {
@@ -1031,15 +1030,6 @@ internal static partial class BattleCreator
             },
             Back = BackFromPicker,
         });
-    }
-
-    private static readonly Regex Tags = new("<[^>]*>");
-
-    private static string ItemHint(GearItem item)
-    {
-        string text = Tags.Replace(item.Description, "").Replace("\r", " ").Replace("\n", " ").Trim();
-        if (text.Length > 150) text = text.Substring(0, 147).TrimEnd() + "...";
-        return (text.Length > 0 ? text + "  " : "") + $"(id {item.Id})";
     }
 
     // Health upgrades change what the arcade shows ("Health upgrades: 3."), so the preview is worked out again.

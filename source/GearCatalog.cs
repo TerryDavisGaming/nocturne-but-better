@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace NocturneFlatScroll;
 
 /// <summary>One item a custom battle's creator can pick: its id (what saves and battle.json use) and name.</summary>
@@ -61,6 +63,16 @@ internal static class GearCatalog
         return All.FirstOrDefault(i => i.Id.Equals(key, StringComparison.Ordinal))
             ?? All.FirstOrDefault(i => i.Id.Equals(key, StringComparison.OrdinalIgnoreCase))
             ?? All.FirstOrDefault(i => i.AssetName.Equals(key, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static readonly Regex Tags = new("<[^>]*>");
+
+    /// <summary>An item's description on one line, without the game's rich text and cut to 150 characters, then its id.</summary>
+    internal static string Hint(GearItem item)
+    {
+        string text = Tags.Replace(item.Description, "").Replace("\r", " ").Replace("\n", " ").Trim();
+        if (text.Length > 150) text = text.Substring(0, 147).TrimEnd() + "...";
+        return (text.Length > 0 ? text + "  " : "") + $"(id {item.Id})";
     }
 
     private static List<GearItem> Read()
