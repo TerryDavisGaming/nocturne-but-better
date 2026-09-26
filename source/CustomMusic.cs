@@ -78,6 +78,9 @@ internal static class CustomMusic
     private const float UnloadFade = 0.4f;
     // About six minutes of 44.1 kHz stereo; longer songs are decoded again for a retry.
     private const int MaxCachedSamples = 32 * 1024 * 1024;
+    // After a long frame, the chart's clock aims at most this far ahead of the song, or two usual
+    // frames, whichever is more (see BeatmapPrefix).
+    private const double MinFrameLead = 1.0 / 30;
 
     private static Pending? pending;
     private static WwiseConductor? owner;      // the conductor of the battle the song belongs to
@@ -92,6 +95,7 @@ internal static class CustomMusic
     private static (string Key, Song Song)? decoded;   // the last song decoded, for a quick retry
     private static bool reportedError;
     private static bool loggedFollow;   // "the chart follows the song file", once per song
+    private static double usualFrame = 1.0 / 60;   // the frame time, smoothed, for MinFrameLead
 
     internal static bool Active => player != null;
 
@@ -346,8 +350,10 @@ internal static class CustomMusic
         // it takes the player's position plus ClockLead. Starting the player that much and a frame
         // before the chart's time makes that reading match the chart, as it does for the rest of
         // the song, rather than pulling the chart about 60 ms over the song's first half second.
-        player.Seek(now - origin - ClockLead - FrameTime());   // in the lead-in silence at the song's start
+        double frame = FrameTime();
+        player.Seek(now - origin - ClockLead - frame);   // in the lead-in silence at the song's start
         player.Play();
+        usualFrame = Math.Max(frame, 1.0 / 240);
 
         // The conductor takes the mod's id as the playing Wwise track. With gotSyncBeat off it
         // doesn't ask Wwise where that id is (BeatmapPrefix sets its clock instead), and with no
@@ -398,6 +404,12 @@ internal static class CustomMusic
     // (Not a patch on AudioController.TryGetSongPosition: MelonLoader's Il2CppInterop can't call a
     // patched method with an out double from native code, so any patch there breaks every battle.)
     // Before the song starts, SongUpdate calls it too, to move the notes of a lead-in (BeforeSong).
+    // The game's drift is the song's time less the clock before this frame's step, and the step adds
+    // this frame's time on top, so the clock settles one frame ahead of the song, a frame being the
+    // one just gone. After a long frame (a hitch) that's far ahead: the notes jump up to twice the
+    // frame's length, then back on the next frame. So the clock aims at most MinFrameLead, or two
+    // usual frames, ahead of the song. With steady frames that's the game's own lead, so the
+    // latency calibration made against Wwise stays right.
     private static void BeatmapPrefix(WwiseConductor __instance, double deltaTime)
     {
         var p = player;
@@ -424,13 +436,16 @@ internal static class CustomMusic
             var song = c.songPosition;
             if (song == null) return;
             c.currentWwiseTrackTime = position;
-            double drift = position + c.previousSongSegmentTime - song.RawTime;
+            double measured = position + c.previousSongSegmentTime - song.RawTime;
+            // The clock then aims at the song plus the shorter of this frame and the lead.
+            double drift = measured - Math.Max(0, deltaTime - Math.Max(MinFrameLead, 2 * usualFrame));
+            usualFrame += (Math.Min(deltaTime, 0.25) - usualFrame) * 0.1;
             c.timeDrift = drift;
-            if (Math.Abs((float)drift) > 0.5f) c.OnLargeTimeDrift?.Invoke();
+            if (Math.Abs((float)measured) > 0.5f) c.OnLargeTimeDrift?.Invoke();
             if (!loggedFollow)
             {
                 loggedFollow = true;
-                ModLog.Info($"Custom music {playingName}: the chart follows the song file (clock {position:0.000}, drift {drift:0.0000}).");
+                ModLog.Info($"Custom music {playingName}: the chart follows the song file (clock {position:0.000}, drift {measured:0.0000}).");
             }
         }
         catch (Exception ex) { Report(ex); }
