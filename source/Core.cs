@@ -433,7 +433,12 @@ internal static class LayoutDriver
                 int id = view.GetInstanceID();
                 Cameras.TryGetValue(id, out var camera);
                 FieldTransforms.TryGetValue(id, out var field);
-                if (!view.gameObject.activeInHierarchy) FadeAttacks(view, false);
+                if (!view.gameObject.activeInHierarchy)
+                {
+                    FadeAttacks(view, false);
+                    // The game's field Animator starts from the HUD's values when the view shows again.
+                    HudLayout.Hidden(view);
+                }
                 if (mode != ScrollMode.Default && !view.gameObject.activeInHierarchy)
                 {
                     FieldLayout.Hidden(view);

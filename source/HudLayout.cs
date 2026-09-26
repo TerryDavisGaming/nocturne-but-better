@@ -305,6 +305,24 @@ namespace NocturneFlatScroll
             foreach (NativeTransform original in state.Originals) original.RecordWritten();
         }
 
+        /// <summary>
+        /// Call every frame while a view is hidden, as it is between battles. The field's Animator
+        /// takes the current values as its defaults when the view shows again, and states such as
+        /// the five-lane ones write those defaults to the status columns every frame, so a 2D layout
+        /// left in place would stay after a switch to Default. The next 2D frame captures the
+        /// game's values again.
+        /// </summary>
+        public static void Hidden(CombatNoteFieldView view)
+        {
+            if (!view)
+                return;
+            if (!States.TryGetValue(view.GetInstanceID(), out LayoutState? state) || state == null)
+                return;
+            Restore(state);
+            // Each battle reports its badge, even when its enemy's model has the last one's address.
+            state.ArmorReported = false;
+        }
+
         private static bool Initialize(LayoutState state)
         {
             Transform canvas = state.View.transform.Find("FieldPivot/Canvas");
