@@ -1,0 +1,50 @@
+// nocturne but better hub: the Worker's Cloudflare config (DESIGN-HUB 2.1).
+// The name, the domain and the bindings must NEVER change after a mod release ships the address.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nbb-hub",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-01",
+
+  // The hub's address: a Workers custom domain on the owner's own zone. Cloudflare makes the DNS record
+  // and the certificate on deploy. workers.dev stays OFF, so a flood can't go around the domain's
+  // optional WAF rate-limiting rule (README, "optional: a rate-limiting rule").
+  "routes": [
+    { "pattern": "hub.nocturnbutbetter.com", "zone_name": "nocturnbutbetter.com", "custom_domain": true }
+  ],
+  "workers_dev": false,
+  // Version (preview) URLs would run old code against the real database and bucket, with their own caches.
+  "preview_urls": false,
+  // Emergency variables set in the dashboard (BLOCKED_IDS, UPLOADS_OPEN, READ_ONLY, STATS_ACCOUNT_ID)
+  // survive the next build.
+  "keep_vars": true,
+
+  "d1_databases": [
+    { "binding": "DB", "database_name": "nbb-hub", "migrations_dir": "migrations" }
+  ],
+  "r2_buckets": [
+    { "binding": "FILES", "bucket_name": "nbb-hub-files" }
+  ],
+  "analytics_engine_datasets": [
+    { "binding": "DL", "dataset": "nbb_downloads" }
+  ],
+  // Random namespace ids: namespaces are shared by every Worker on the account.
+  "ratelimits": [
+    { "name": "RL_IP",      "namespace_id": "725284802", "simple": { "limit": 300, "period": 60 } },
+    { "name": "RL_SEARCH",  "namespace_id": "991021168", "simple": { "limit": 10,  "period": 60 } },
+    { "name": "RL_NEWKEY",  "namespace_id": "735748552", "simple": { "limit": 3,   "period": 60 } },
+    { "name": "RL_WRITE",   "namespace_id": "360018454", "simple": { "limit": 60,  "period": 60 } },
+    { "name": "RL_INSTALL", "namespace_id": "954644384", "simple": { "limit": 5,   "period": 60 } },
+    { "name": "RL_REPORT",  "namespace_id": "784229736", "simple": { "limit": 5,   "period": 60 } }
+  ],
+
+  // Workers Cache: lists 60 s, files 1 day, purged by tag on the owner's actions. Never cross_version_cache.
+  "cache": { "enabled": true },
+  // Errors are logged (route and code only); the per-request invocation logs are off.
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } },
+  // Hourly and daily jobs (2 of the 5 cron triggers a free account has). These strings must equal
+  // src/cron.js CRONS exactly. Cloudflare numbers weekdays 1-7 (1 = Sunday) or SUN-SAT: a 0 fails the deploy.
+  "triggers": { "crons": ["7 * * * *", "17 3 * * *"] },
+  // Everything the owner may change lives in the database and is edited on /admin.
+  "vars": {}
+}

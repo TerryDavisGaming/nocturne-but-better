@@ -1,0 +1,7 @@
+# secrets and local state never go in the repo
+.dev.vars
+.env
+node_modules/
+.wrangler/
+dev-data/
+test/fixtures/
