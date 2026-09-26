@@ -183,9 +183,21 @@ export async function deleteOwnPackage(env, request, ctx, id) {
     db.prepare("INSERT INTO audit (at, actor, action, package_id, uploader_id) VALUES (?1, 'uploader', 'delete', ?2, ?3)").bind(t, id, uploader.id),
     queueStatement(db, listTags([id])),
   ]);
-  if (open) await dropUploadObject(env, open);
+  if (open) await dropStopped(env, [open]);
   await runPurges(env, ctx);
   return noContent();
+}
+
+/**
+ * Drops the objects of uploads that the database now shows as stopped (aborted, expired or refused).
+ * Always change the state first and drop second, so an upload that went live meanwhile keeps its file.
+ */
+export async function dropStopped(env, uploads) {
+  if (!uploads.length) return;
+  const { results } = await env.DB.prepare(
+    "SELECT id, r2_key, r2_upload_id FROM uploads WHERE id IN (SELECT value FROM json_each(?1)) AND state IN ('aborted','expired','refused')",
+  ).bind(JSON.stringify(uploads.map((u) => u.id))).all();
+  for (const u of results) await dropUploadObject(env, u).catch(() => {});
 }
 
 /** Aborts an upload's multipart upload and deletes its object (both free in R2). */

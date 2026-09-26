@@ -3,10 +3,10 @@
 
 import { PKG_ID, now } from "./ids.js";
 import { getSetting, upsertSetting } from "./settings.js";
-import { dropUploadObject } from "./packages.js";
+import { dropStopped } from "./packages.js";
 import { runPurges } from "./purge.js";
 import { foldDownloads, rotateSaltStatements } from "./stats.js";
-import { IDLE_FIRST_PART, IDLE_NEXT_PART } from "./uploads.js";
+import { IDLE_FIRST_PART, IDLE_NEXT_PART, IDLE_WHERE } from "./uploads.js";
 
 export const HOURLY = "7 * * * *";
 export const DAILY = "17 3 * * *";
@@ -29,15 +29,15 @@ export async function expireIdleUploads(env, t = now()) {
     "SELECT id, r2_key, r2_upload_id FROM uploads WHERE (state = 'open' AND ((last_part_at IS NULL AND created_at < ?1) OR last_part_at < ?2)) " +
       "OR (state = 'completing' AND completing_at < ?2) LIMIT ?3",
   ).bind(t - IDLE_FIRST_PART, t - IDLE_NEXT_PART, PER_RUN).all();
-  for (const u of results) await dropUploadObject(env, u);
-  if (results.length) {
-    const ids = JSON.stringify(results.map((u) => u.id));
-    await env.DB.batch([
-      env.DB.prepare("UPDATE uploads SET state = 'expired', meta = NULL, updated_at = ?2 WHERE id IN (SELECT value FROM json_each(?1)) AND state IN ('open','completing')").bind(ids, t),
-      env.DB.prepare("DELETE FROM upload_parts WHERE upload_id IN (SELECT value FROM json_each(?1))").bind(ids),
-    ]);
-  }
-  return { expired: results.length };
+  if (!results.length) return { expired: 0 };
+  const ids = JSON.stringify(results.map((u) => u.id));
+  const [r] = await env.DB.batch([
+    env.DB.prepare(`UPDATE uploads SET state = 'expired', meta = NULL, updated_at = ?2 WHERE id IN (SELECT value FROM json_each(?1)) AND ${IDLE_WHERE}`)
+      .bind(ids, t, t - IDLE_FIRST_PART, t - IDLE_NEXT_PART),
+    env.DB.prepare("DELETE FROM upload_parts WHERE upload_id IN (SELECT id FROM uploads WHERE id IN (SELECT value FROM json_each(?1)) AND state = 'expired')").bind(ids),
+  ]);
+  await dropStopped(env, results);
+  return { expired: r.meta.changes };
 }
 
 /** Deletes trash objects whose time is up and takes their bytes off storage_used. */

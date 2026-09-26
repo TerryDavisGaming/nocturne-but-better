@@ -28,6 +28,7 @@ export class FakeD1 {
     this.limitSpent = false;
     this.down = false;
     this.failNextBatch = null; // an Error to throw from the next batch, once
+    this.beforeBatch = null; // a function run once just before the next batch (to stage a race)
     this.statements = []; // every statement run: { sql, changes }
     this.maxQueries = 50;
   }
@@ -110,6 +111,11 @@ class D1Binding {
   async batch(statements) {
     this.checkState();
     this.countQueries(statements.length);
+    if (this.fake.beforeBatch) {
+      const f = this.fake.beforeBatch;
+      this.fake.beforeBatch = null;
+      f(statements);
+    }
     if (this.fake.failNextBatch) {
       const e = this.fake.failNextBatch;
       this.fake.failNextBatch = null;

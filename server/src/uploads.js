@@ -29,13 +29,21 @@ export function isExpired(u, t) {
   return false;
 }
 
-/** Expires an idle upload: the multipart upload aborted, the object deleted, its reserved bytes released. */
+/** SQL for "still idle", with ?3 = now - 15 minutes and ?4 = now - 1 hour. */
+export const IDLE_WHERE =
+  "((state = 'open' AND ((last_part_at IS NULL AND created_at < ?3) OR last_part_at < ?4)) OR (state = 'completing' AND completing_at < ?4))";
+
+/**
+ * Expires an idle upload: marked expired first (only while it's still idle), then the multipart upload
+ * aborted and the object deleted. Leaving 'open' releases its reserved bytes.
+ */
 export async function expireUpload(env, u, t) {
-  await dropUploadObject(env, u);
-  await env.DB.batch([
-    env.DB.prepare("UPDATE uploads SET state = 'expired', meta = NULL, updated_at = ?2 WHERE id = ?1 AND state IN ('open','completing')").bind(u.id, t),
-    env.DB.prepare("DELETE FROM upload_parts WHERE upload_id = ?1").bind(u.id),
-  ]);
+  const r = await env.DB.prepare(`UPDATE uploads SET state = 'expired', meta = NULL, updated_at = ?2 WHERE id = ?1 AND ${IDLE_WHERE}`)
+    .bind(u.id, t, t - IDLE_FIRST_PART, t - IDLE_NEXT_PART).run();
+  if (r.meta.changes !== 1) return false;
+  await env.DB.prepare("DELETE FROM upload_parts WHERE upload_id = ?1").bind(u.id).run();
+  await dropUploadObject(env, u).catch(() => {});
+  return true;
 }
 
 const uploadBody = (u) => ({
@@ -153,8 +161,9 @@ export async function startUpload(env, request) {
   }
   const open = await db.prepare("SELECT * FROM uploads WHERE uploader_id = ?1 AND state IN ('open','completing')").bind(uploader.id).first();
   if (open) {
-    if (!isExpired(open, t)) throw new HubError(409, "upload_in_progress", "Another upload with this hub key is still running.");
-    await expireUpload(env, open, t);
+    if (!isExpired(open, t) || !(await expireUpload(env, open, t))) {
+      throw new HubError(409, "upload_in_progress", "Another upload with this hub key is still running.");
+    }
   }
 
   const reserved = await db.prepare("SELECT coalesce(sum(received_bytes), 0) AS n FROM uploads WHERE state = 'open'").first("n");
@@ -194,8 +203,9 @@ export async function startUpload(env, request) {
     if (pkg.status !== "live") throw new HubError(409, "not_live", "Only a live entry can get a new version.");
     const pending = await db.prepare("SELECT * FROM uploads WHERE package_id = ?1 AND state IN ('open','completing')").bind(pkg.id).first();
     if (pending) {
-      if (!isExpired(pending, t)) throw new HubError(409, "upload_in_progress", "A new version of this entry is already being uploaded.");
-      await expireUpload(env, pending, t);
+      if (!isExpired(pending, t) || !(await expireUpload(env, pending, t))) {
+        throw new HubError(409, "upload_in_progress", "A new version of this entry is already being uploaded.");
+      }
     }
     packageId = pkg.id;
     version = pkg.version + 1;
@@ -293,11 +303,12 @@ export async function abortUpload(env, request, uploadId) {
   if (!u) throw new HubError(404, "not_found", "There's no such upload.");
   if (u.state === "completing" && u.completing_at >= t - COMPLETE_RETRY) throw new HubError(409, "busy", "That upload is being finished right now.", { retryAfter: COMPLETE_RETRY });
   if (u.state === "open" || u.state === "completing") {
-    await dropUploadObject(env, u);
-    await env.DB.batch([
-      env.DB.prepare("UPDATE uploads SET state = 'aborted', meta = NULL, updated_at = ?2 WHERE id = ?1 AND state IN ('open','completing')").bind(u.id, t),
-      env.DB.prepare("DELETE FROM upload_parts WHERE upload_id = ?1").bind(u.id),
+    const [r] = await env.DB.batch([
+      env.DB.prepare("UPDATE uploads SET state = 'aborted', meta = NULL, updated_at = ?2 WHERE id = ?1 AND (state = 'open' OR (state = 'completing' AND completing_at < ?3))")
+        .bind(u.id, t, t - COMPLETE_RETRY),
+      env.DB.prepare("DELETE FROM upload_parts WHERE upload_id = ?1 AND (SELECT state FROM uploads WHERE id = ?1) = 'aborted'").bind(u.id),
     ]);
+    if (r.meta.changes === 1) await dropUploadObject(env, u).catch(() => {});
   }
   return noContent();
 }
@@ -306,11 +317,21 @@ export async function abortUpload(env, request, uploadId) {
 
 async function refuse(env, u, status, code, message, extra = {}) {
   const body = { error: code, message, ...extra };
-  await dropUploadObject(env, u).catch(() => {});
-  await env.DB.batch([
-    env.DB.prepare("UPDATE uploads SET state = 'refused', meta = NULL, result = ?2, updated_at = ?3 WHERE id = ?1").bind(u.id, JSON.stringify({ status, body }), now()),
-    env.DB.prepare("DELETE FROM upload_parts WHERE upload_id = ?1").bind(u.id),
+  const [r] = await env.DB.batch([
+    env.DB.prepare("UPDATE uploads SET state = 'refused', meta = NULL, result = ?2, updated_at = ?3 WHERE id = ?1 AND state = 'completing'")
+      .bind(u.id, JSON.stringify({ status, body }), now()),
+    env.DB.prepare("DELETE FROM upload_parts WHERE upload_id = ?1 AND (SELECT state FROM uploads WHERE id = ?1) = 'refused'").bind(u.id),
   ]);
+  if (r.meta.changes !== 1) {
+    // Another complete of the same upload finished first: its answer stands, and its file stays.
+    const cur = await env.DB.prepare("SELECT state, result FROM uploads WHERE id = ?1").bind(u.id).first();
+    if (cur && cur.result) {
+      const stored = JSON.parse(cur.result);
+      return json(stored.body, stored.status);
+    }
+    throw new HubError(409, "upload_closed", "That upload is already finished or stopped.");
+  }
+  await dropUploadObject(env, u).catch(() => {});
   return json(body, status);
 }
 
@@ -493,6 +514,12 @@ export async function completeUpload(env, request, ctx, uploadId) {
     results = await db.batch(stmts);
   } catch (e) {
     if (classifyDbError(e)) throw e;
+    // A complete picked up after 60 s may overlap a slow first one that has just finished.
+    const done = await db.prepare("SELECT state, result FROM uploads WHERE id = ?1").bind(u.id).first();
+    if (done && done.state === "live" && done.result) {
+      const stored = JSON.parse(done.result);
+      return json(stored.body, stored.status);
+    }
     if (isUniqueError(e, "battle_id")) {
       const other = await db.prepare("SELECT id FROM packages WHERE battle_id = ?1 AND status IN ('live','hidden')").bind(facts.battleId).first("id");
       return refuse(env, u, 409, "battle_taken", "Another entry already has this battle's id.", { packageId: other });

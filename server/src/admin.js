@@ -7,7 +7,7 @@ import { LIMITS, cleanText, indexText } from "./names.js";
 import { DEFAULTS, EDITABLE, READ_ONLY_KEYS, checkSettingChanges, loadSettings, upsertSetting } from "./settings.js";
 import { blockedIds, countsOn, isUniqueError, readOnly, uploadsVarClosed } from "./guard.js";
 import { listTags, queueStatement, runPurges } from "./purge.js";
-import { dropUploadObject, fileHeaders } from "./packages.js";
+import { dropStopped, fileHeaders } from "./packages.js";
 import { REASONS } from "./reports.js";
 import { tagOf } from "./ids.js";
 
@@ -83,7 +83,7 @@ export async function removePackages(env, ctx, ids, reason, text, strike) {
   }
   stmts.push(queueStatement(db, listTags(rows.map((r) => r.id))));
   await db.batch(stmts);
-  for (const u of uploads) await dropUploadObject(env, u).catch(() => {});
+  await dropStopped(env, uploads);
   return { changed: rows.length, purge: await afterChange(env, ctx) };
 }
 
@@ -112,7 +112,7 @@ export async function quarantinePackage(env, ctx, id, text) {
     audit(db, "quarantine", id, null, JSON.stringify({ note: text, moved })),
     queueStatement(db, listTags([id])),
   ]);
-  for (const u of uploads) await dropUploadObject(env, u).catch(() => {});
+  await dropStopped(env, uploads);
   return { changed: 1, moved, purge: await afterChange(env, ctx) };
 }
 

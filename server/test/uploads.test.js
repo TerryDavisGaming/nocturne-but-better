@@ -472,3 +472,28 @@ Deno.test("rows written: a publish stays small and needs no cache purge", async 
   assert(rows <= 25, `rows written: ${rows}`);
   assertEquals(hub.cache.purged.length, 0);
 });
+
+Deno.test("races: a refusal never deletes the file of an upload that another complete just published", async () => {
+  const { hub, key } = await ready();
+  const bytes = await goodBattle({ files: { "audio/song.ogg": { data: media.flac() } } });
+  const r = await upload(hub, key, bytes, { noComplete: true });
+  const id = r.start.body.uploadId;
+  const stored = JSON.stringify({ status: 200, body: { packageId: r.start.body.packageId, version: 1, status: "live" } });
+  // Just before the refusal is written, the other complete wins.
+  hub.d1.beforeBatch = () => hub.d1.sqlite.prepare("UPDATE uploads SET state = 'live', result = ? WHERE id = ?").run(stored, id);
+  const done = await hub.call("POST", `/v1/uploads/${id}/complete`, { key, json: {} });
+  assertEquals(done.status, 200);
+  assertEquals(done.body.status, "live");
+  assertEquals(hub.r2.objects.size, 1);
+});
+
+Deno.test("races: an expiry never deletes the file of an upload that completed meanwhile", async () => {
+  const { hub, key } = await ready();
+  const bytes = await goodBattle();
+  const r = await upload(hub, key, bytes, { noComplete: true });
+  advance(2 * 3600);
+  hub.d1.beforeBatch = () => hub.d1.sqlite.prepare("UPDATE uploads SET state = 'live' WHERE id = ?").run(r.start.body.uploadId);
+  const report = await hub.cron(HOURLY);
+  assertEquals(report.expire.expired, 0);
+  assertEquals(hub.r2.objects.size, 1);
+});
