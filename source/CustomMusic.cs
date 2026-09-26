@@ -63,6 +63,8 @@ internal static class CustomMusic
         internal bool HeldCombat;          // the wait set waitForStartCue, so combat waits too
         internal bool Waited;
         internal bool Silenced;            // the music from before the battle was faded as the notes started
+        internal int LeadInFrames;         // frames the notes moved before the song started (a lead-in)
+        internal double LongestLeadInFrame;
     }
 
     // The conductor ignores positions for a playing id of 0, and real Wwise ids count up from 1.
@@ -81,6 +83,8 @@ internal static class CustomMusic
     // After a long frame, the chart's clock aims at most this far ahead of the song, or two usual
     // frames, whichever is more (see BeatmapPrefix).
     private const double MinFrameLead = 1.0 / 30;
+    // When the song's start report is logged, in seconds after it started.
+    private const double ReportAfter = 5;
 
     private static Pending? pending;
     private static WwiseConductor? owner;      // the conductor of the battle the song belongs to
@@ -96,6 +100,7 @@ internal static class CustomMusic
     private static bool reportedError;
     private static bool loggedFollow;   // "the chart follows the song file", once per song
     private static double usualFrame = 1.0 / 60;   // the frame time, smoothed, for MinFrameLead
+    private static StartReport? report;            // the song's first seconds, until they're logged
 
     internal static bool Active => player != null;
 
@@ -354,6 +359,7 @@ internal static class CustomMusic
         player.Seek(now - origin - ClockLead - frame);   // in the lead-in silence at the song's start
         player.Play();
         usualFrame = Math.Max(frame, 1.0 / 240);
+        report = StartReport.Begin(playingName, player);
 
         // The conductor takes the mod's id as the playing Wwise track. With gotSyncBeat off it
         // doesn't ask Wwise where that id is (BeatmapPrefix sets its clock instead), and with no
@@ -370,6 +376,7 @@ internal static class CustomMusic
         if (!p.Silenced) PostSilence();
         if (p.StartCue) InvokeStartCue(c);
         ModLog.Info($"Custom music {playingName} started at song time {now:0.000} ({player.Length:0.0}s).");
+        StartReport.LogStart(playingName, p);
     }
 
     // The time until the next frame, from the last one's; a hitch doesn't count as a frame.
@@ -415,7 +422,7 @@ internal static class CustomMusic
         var p = player;
         if (p == null)
         {
-            BeforeSong(__instance);
+            BeforeSong(__instance, deltaTime);
             return;
         }
         try
@@ -426,10 +433,15 @@ internal static class CustomMusic
             if (!c.playingWwiseTrack || c.currentPlayingId != FakePlayingId) return;
             double position = SegmentTime(p);
             double before = c.currentWwiseTrackTime - deltaTime;   // the clock before SongUpdate's step
-            if (Math.Abs(position - before) > 1.0) return;          // the game ignores jumps over a second
+            if (Math.Abs(position - before) > 1.0)                  // the game ignores jumps over a second
+            {
+                SkipInReport(c, deltaTime);
+                return;
+            }
             if (c.skipNextSongPosition)
             {
                 if (!((double)0.05f > Math.Abs(position - c.activePlayingDuration))) c.skipNextSongPosition = false;
+                SkipInReport(c, deltaTime);
                 return;
             }
             if (position > c.activePlayingDuration) return;
@@ -447,6 +459,9 @@ internal static class CustomMusic
                 loggedFollow = true;
                 ModLog.Info($"Custom music {playingName}: the chart follows the song file (clock {position:0.000}, drift {measured:0.0000}).");
             }
+            // The player's own time is the position less what SegmentTime adds.
+            if (report?.Frame(deltaTime, position - ClockLead - origin + c.previousSongSegmentTime, measured, drift, song.RawTime) == true)
+                EndReport(stopped: false);
         }
         catch (Exception ex) { Report(ex); }
     }
@@ -454,14 +469,18 @@ internal static class CustomMusic
     // A battle whose clock starts before its song (ChartSwap's lead-in) moves its notes before the
     // conductor starts the music: SongUpdate calls UpdateBeatmapPosition while the clock is before
     // -0.1 s. The music from before the battle fades as those notes start, as it does when the song
-    // starts with the clock, rather than playing on under them until the song starts.
-    private static void BeforeSong(WwiseConductor c)
+    // starts with the clock, rather than playing on under them until the song starts. Its frames
+    // are counted for the song's start report.
+    private static void BeforeSong(WwiseConductor c, double deltaTime)
     {
         var p = pending;
-        if (p == null || p.Silenced) return;
+        if (p == null) return;
         try
         {
             if (!c || c.Pointer != p.Conductor) return;
+            p.LeadInFrames++;
+            p.LongestLeadInFrame = Math.Max(p.LongestLeadInFrame, deltaTime);
+            if (p.Silenced) return;
             p.Silenced = true;
             PostSilence();
         }
@@ -536,6 +555,7 @@ internal static class CustomMusic
             {
                 paused = pause;
                 if (pause) p.Pause(); else p.Play();
+                if (pause && report != null) report.Paused = true;
             }
             p.SetMusicVolume(Volume() * fade);
         }
@@ -609,6 +629,8 @@ internal static class CustomMusic
 
     private static void DisposePlayer()
     {
+        // A song that stops within its first seconds still reports them.
+        EndReport(stopped: true);
         if (player != null)
         {
             // Stopping and closing the sound device take up to tens of ms, so they're done on a worker.
@@ -660,5 +682,182 @@ internal static class CustomMusic
         if (reportedError) return;
         reportedError = true;
         ModLog.Error("Custom music playback failed: " + ex);
+    }
+
+    // ---- the start report ------------------------------------------------------------------------
+
+    // A frame whose song position the game doesn't take, for the start report.
+    private static void SkipInReport(WwiseConductor c, double deltaTime)
+    {
+        var r = report;
+        if (r == null) return;
+        var song = c.songPosition;
+        if (r.Skip(deltaTime, song != null ? song.RawTime : double.NaN)) EndReport(stopped: false);
+    }
+
+    /// <summary>Logs the song's start report if it hasn't been, and lets it go.</summary>
+    private static void EndReport(bool stopped)
+    {
+        var r = report;
+        report = null;
+        r?.Log(stopped);
+    }
+
+    /// <summary>
+    /// What a song's first seconds did to the chart's clock, so a player's log shows why the first
+    /// notes looked fast or jerky: long frames, the drift between the clock and the song and how the
+    /// game took it up, the fastest the notes moved against real time, and the song's time from the
+    /// sound device against real time (a device that starts late, or counts audio as played before
+    /// it's heard).
+    /// Logged once, <see cref="ReportAfter"/> s after the song starts or when it stops sooner. Until
+    /// then a timer read and a few sums a frame, and nothing after.
+    /// </summary>
+    private sealed class StartReport
+    {
+        private static readonly double TickSeconds = 1.0 / System.Diagnostics.Stopwatch.Frequency;
+        private readonly string name;
+        private readonly long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        private readonly double from;   // the player's time as it started
+        private int frames, longFrames, limited, whole, half, nudged, skipped, still;
+        private double longest, longestAt, driftLow = double.NaN, driftHigh = double.NaN, fastest, fastestAt;
+        private double offLow = double.NaN, offHigh = double.NaN, offAtOne = double.NaN, off = double.NaN;
+        private double clockAtOne = double.NaN, realAtOne, endClock = double.NaN, endReal;
+        private double lastClock = double.NaN, lastReal, lastStep, lastSong, movedAt;
+        internal bool Paused;   // paused in its first seconds, so its times include the pause
+
+        private StartReport(string name, double from)
+        {
+            this.name = name;
+            this.from = from;
+            lastSong = from;
+        }
+
+        /// <summary>A report for a song that just started playing on <paramref name="player"/>.</summary>
+        internal static StartReport? Begin(string name, EditorAudio player)
+        {
+            try { return new StartReport(name, player.Time); }
+            catch { return null; }
+        }
+
+        /// <summary>The first line, as the song starts: the frame it started on, the lead-in and the wait.</summary>
+        internal static void LogStart(string name, Pending p)
+        {
+            try
+            {
+                ModLog.Info($"Custom music {name}: the song started on a {Time.unscaledDeltaTime * 1000:0} ms frame, " +
+                            (p.LeadInFrames > 0 ? $"after {Count(p.LeadInFrames, "frame")} of lead-in (the longest {p.LongestLeadInFrame * 1000:0} ms)" : "with no lead-in") +
+                            (p.Waited ? $", after waiting {Time.unscaledTime - p.WaitingSince:0.00} s for the file" : "") +
+                            $"; time scale {Time.timeScale:0.##}.");
+            }
+            catch { }
+        }
+
+        private double Seconds() => (System.Diagnostics.Stopwatch.GetTimestamp() - started) * TickSeconds;
+
+        /// <summary>
+        /// A frame whose song position the game doesn't take (a jump over a second, or one it skips);
+        /// <paramref name="clock"/> is the chart's clock before this frame's step. True once the report is due.
+        /// </summary>
+        internal bool Skip(double deltaTime, double clock)
+        {
+            skipped++;
+            Length(deltaTime, clock);
+            // The clock's next step isn't compared with this frame's.
+            lastClock = double.NaN;
+            lastReal = Seconds();
+            return lastReal >= ReportAfter;
+        }
+
+        private void Length(double deltaTime, double clock)
+        {
+            if (deltaTime > 0.1) longFrames++;
+            if (deltaTime > longest)
+            {
+                longest = deltaTime;
+                longestAt = clock;
+            }
+        }
+
+        /// <summary>
+        /// A frame the chart followed the song: <paramref name="song"/> is the player's time,
+        /// <paramref name="measured"/> the drift the game would take, <paramref name="drift"/> the
+        /// drift it was given, and <paramref name="clock"/> the chart's clock before this frame's
+        /// step. True once the report is due.
+        /// </summary>
+        internal bool Frame(double deltaTime, double song, double measured, double drift, double clock)
+        {
+            double real = Seconds();
+            frames++;
+            Length(deltaTime, clock);
+            if (drift != measured) limited++;
+            driftLow = double.IsNaN(driftLow) ? measured : Math.Min(driftLow, measured);
+            driftHigh = double.IsNaN(driftHigh) ? measured : Math.Max(driftHigh, measured);
+            // The game's GetTimeCorrection: over 0.3 s at once, over 0.1 s by half, from 0.01 s by 10% of the frame.
+            double size = Math.Abs(drift);
+            if (size > 0.3) whole++;
+            else if (size > 0.1) half++;
+            else if (size >= 0.01) nudged++;
+            // The clock's step on the last frame (the clock now less then) shows over the time that
+            // frame took (from the frame before to then), against which 1 is normal speed.
+            if (!double.IsNaN(lastClock) && lastStep > 0.001)
+            {
+                double speed = (clock - lastClock) / lastStep;
+                if (speed > fastest)
+                {
+                    fastest = speed;
+                    fastestAt = lastClock;
+                }
+            }
+            lastStep = real - lastReal;
+            lastClock = endClock = clock;
+            lastReal = endReal = real;
+            // The player's time against real time since it started: steady is right (a few ms under 0
+            // is the sound device starting), a rise is audio counted as played before it was heard,
+            // and a fall or standing still is the device stopping for a moment.
+            off = song - from - real;
+            if (real <= 1)
+            {
+                offLow = double.IsNaN(offLow) ? off : Math.Min(offLow, off);
+                offHigh = double.IsNaN(offHigh) ? off : Math.Max(offHigh, off);
+            }
+            else if (double.IsNaN(offAtOne))
+            {
+                offAtOne = off;
+                clockAtOne = clock;
+                realAtOne = real;
+            }
+            // Positions come in steps of up to tens of ms, so it stood still once one lasts over 50 ms.
+            if (song != lastSong) movedAt = real;
+            else if (real - movedAt > 0.05) still++;
+            lastSong = song;
+            return real >= ReportAfter;
+        }
+
+        internal void Log(bool stopped)
+        {
+            try
+            {
+                string first = $"the first {Math.Max(endReal, lastReal):0.0} s{(stopped ? " (it stopped)" : "")}";
+                if (frames == 0)
+                {
+                    ModLog.Info($"Custom music {name}, {first}: the chart never followed the song ({Count(skipped, "song position")} skipped).");
+                    return;
+                }
+                string rate = !double.IsNaN(clockAtOne) && endReal - realAtOne >= 0.5 ? ((endClock - clockAtOne) / (endReal - realAtOne)).ToString("0.000") : "-";
+                ModLog.Info($"Custom music {name}, {first}: {Count(frames, "frame")}, the longest {longest * 1000:0} ms at clock {Clock(longestAt)} ({longFrames} over 100 ms); " +
+                            $"drift {Ms(driftLow)} to {Ms(driftHigh)} ms, taken up {Count(whole, "time")} at once, {Count(half, "time")} by half and {Count(nudged, "frame")} by 10%; " +
+                            $"the clock's lead was held back after {Count(limited, "long frame")}; the notes moved at most {fastest:0.00}x normal speed (at clock {Clock(fastestAt)}); " +
+                            $"the clock ran {rate}x real time after the first second; {Count(skipped, "song position")} skipped.");
+                ModLog.Info($"Custom music {name}: the sound device's time ran {Ms(offLow)} to {Ms(offHigh)} ms from real time in the first second, " +
+                            $"{Ms(offAtOne)} ms at 1 s and {Ms(off)} ms at {endReal:0.0} s; it stood still for {Count(still, "frame")}{(Paused ? "; the song was paused in between" : "")}.");
+            }
+            catch { }
+        }
+
+        private static string Ms(double seconds) => double.IsNaN(seconds) ? "-" : (seconds * 1000).ToString("+0;-0;0");
+
+        private static string Clock(double seconds) => (Math.Abs(seconds) < 0.005 ? 0 : seconds).ToString("0.00");
+
+        private static string Count(int count, string what) => count == 1 ? $"1 {what}" : $"{count} {what}s";
     }
 }
