@@ -71,6 +71,7 @@ function Get-ExistingFolder([string]$Path) {
 }
 
 function Get-SteamRoots {
+    $found = $false
     foreach ($registryPath in @('HKCU:\Software\Valve\Steam', 'HKLM:\SOFTWARE\Valve\Steam', 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam')) {
         try {
             $entry = Get-ItemProperty -LiteralPath $registryPath -ErrorAction SilentlyContinue
@@ -78,40 +79,57 @@ function Get-SteamRoots {
             foreach ($property in @('SteamPath', 'InstallPath')) {
                 $value = $entry.PSObject.Properties[$property]
                 if ($null -ne $value -and -not [string]::IsNullOrWhiteSpace([string]$value.Value)) {
-                    Write-Output ([string]$value.Value)
+                    $folder = Get-ExistingFolder ([string]$value.Value)
+                    if ($folder) { $found = $true; Write-Output $folder }
                 }
             }
         }
         catch { continue }
     }
-    if (${env:ProgramFiles(x86)}) { Write-Output (${env:ProgramFiles(x86)}.TrimEnd('\') + '\Steam') }
+    # Steam rewrites SteamPath each time it starts, so its default folder is only a fallback. Beside a real
+    # one it can be a junction to it, which would list the same game twice.
+    if (-not $found -and ${env:ProgramFiles(x86)}) { Write-Output (${env:ProgramFiles(x86)}.TrimEnd('\') + '\Steam') }
 }
 
-function Find-NocturneGamePath([string]$ExplicitPath, [string[]]$SteamRoots) {
+function Find-NocturneGamePath([string]$ExplicitPath) {
     if (-not [string]::IsNullOrWhiteSpace($ExplicitPath)) {
         $resolved = $null
-        try { $resolved = [IO.Path]::GetFullPath($ExplicitPath.Trim().Trim('"')) } catch { $resolved = $null }
+        try {
+            # A relative path starts at PowerShell's current folder; cd doesn't change the one .NET uses.
+            $resolved = $ExplicitPath.Trim().Trim('"')
+            if (-not [IO.Path]::IsPathRooted($resolved)) {
+                $resolved = [IO.Path]::Combine((Get-Location -PSProvider FileSystem).ProviderPath, $resolved)
+            }
+            $resolved = [IO.Path]::GetFullPath($resolved)
+        }
+        catch { $resolved = $null }
         if (-not $resolved -or -not [IO.Directory]::Exists($resolved)) { throw 'GamePath must name the Nocturne installation folder.' }
         if ($resolved.Length -gt 3) { $resolved = $resolved.TrimEnd('\', '/') }
         return $resolved
     }
-    if (-not $PSBoundParameters.ContainsKey('SteamRoots')) { $SteamRoots = @(Get-SteamRoots) }
 
     # One bad library (a missing drive, an offline share, an unreadable file) only skips that library.
     $libraries = New-Object 'System.Collections.Generic.List[string]'
     $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-    foreach ($steamRoot in @($SteamRoots)) {
+    # Each Steam folder's vdf is read once and each missing library is checked once: an offline share
+    # can take many seconds to answer.
+    $vdfRead = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $missing = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($steamRoot in @(Get-SteamRoots)) {
         try {
             $rootFolder = Get-ExistingFolder $steamRoot
-            if (-not $rootFolder) { continue }
+            if (-not $rootFolder -or -not $vdfRead.Add($rootFolder)) { continue }
             if ($seen.Add($rootFolder)) { $libraries.Add($rootFolder) }
             $libraryFile = [IO.Path]::Combine($rootFolder, 'steamapps\libraryfolders.vdf')
             if (-not [IO.File]::Exists($libraryFile)) { continue }
             $libraryText = Read-SharedText $libraryFile
             # Current VDF uses path properties; older Steam versions used numbered values.
             foreach ($match in [regex]::Matches($libraryText, '"(?:path|\d+)"\s+"((?:\\.|[^"\\])*)"')) {
-                $library = Get-ExistingFolder $match.Groups[1].Value.Replace('\\', '\')
-                if ($library -and $seen.Add($library)) { $libraries.Add($library) }
+                $path = $match.Groups[1].Value.Replace('\\', '\')
+                if ($missing.Contains($path)) { continue }
+                $library = Get-ExistingFolder $path
+                if (-not $library) { [void]$missing.Add($path) }
+                elseif ($seen.Add($library)) { $libraries.Add($library) }
             }
         }
         catch { continue }
@@ -125,7 +143,8 @@ function Find-NocturneGamePath([string]$ExplicitPath, [string[]]$SteamRoots) {
             $manifest = [IO.Path]::Combine($library, 'steamapps\appmanifest_1374860.acf')
             if ([IO.File]::Exists($manifest)) {
                 try {
-                    $match = [regex]::Match((Read-SharedText $manifest), '"installdir"\s+"([^"\\/]+)"')
+                    # No slash or colon: a folder name, never a path such as C:Elsewhere or ..\x.
+                    $match = [regex]::Match((Read-SharedText $manifest), '"installdir"\s+"([^"\\/:]+)"')
                     if ($match.Success -and $match.Groups[1].Value -notin @('.', '..')) { $folder = $match.Groups[1].Value }
                 }
                 catch { $folder = 'Nocturne' }
@@ -201,7 +220,7 @@ function Get-SteamManifestPath([string]$GameRoot) {
     return [IO.Path]::Combine($steamApps, 'appmanifest_1374860.acf')
 }
 
-# Dot-sourcing exposes the helpers for read-only discovery tests. It changes nothing.
+# Dot-sourcing only loads the functions above. It changes nothing.
 if ($MyInvocation.InvocationName -eq '.') { return }
 
 $root = Find-NocturneGamePath $GamePath

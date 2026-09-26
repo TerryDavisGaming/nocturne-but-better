@@ -90,6 +90,7 @@ function Get-ExistingFolder([string]$Path) {
 
 function Get-SteamRoots {
     # The registry's SteamPath uses forward slashes, like c:/program files (x86)/steam.
+    $found = $false
     foreach ($location in @(
         @('HKCU:\Software\Valve\Steam', 'SteamPath'),
         @('HKLM:\SOFTWARE\WOW6432Node\Valve\Steam', 'InstallPath'),
@@ -99,32 +100,42 @@ function Get-SteamRoots {
             $item = Get-ItemProperty -LiteralPath $location[0] -ErrorAction SilentlyContinue
             if ($item) {
                 $property = $item.PSObject.Properties[$location[1]]
-                if ($property -and $property.Value) { Write-Output ([string]$property.Value) }
+                if ($property -and $property.Value) {
+                    $folder = Get-ExistingFolder ([string]$property.Value)
+                    if ($folder) { $found = $true; Write-Output $folder }
+                }
             }
         }
         catch { Write-Verbose "Skipped $($location[0]): $($_.Exception.Message)" }
     }
-    if (${env:ProgramFiles(x86)}) { Write-Output (${env:ProgramFiles(x86)}.TrimEnd('\') + '\Steam') }
+    # Steam rewrites SteamPath each time it starts, so its default folder is only a fallback. Beside a real
+    # one it can be a junction to it, which would list the same game twice.
+    if (-not $found -and ${env:ProgramFiles(x86)}) { Write-Output (${env:ProgramFiles(x86)}.TrimEnd('\') + '\Steam') }
 }
 
 function Find-SteamGames {
-    param([string[]]$SteamRoots)
-    if (-not $PSBoundParameters.ContainsKey('SteamRoots')) { $SteamRoots = @(Get-SteamRoots) }
     # One bad library (a missing drive, an offline share, an unreadable file) only skips that library.
     $libraries = New-Object 'System.Collections.Generic.List[string]'
     $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-    foreach ($root in @($SteamRoots)) {
+    # Each Steam folder's vdf is read once and each missing library is checked once: an offline share
+    # can take many seconds to answer.
+    $vdfRead = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $missing = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($root in @(Get-SteamRoots)) {
         try {
             $rootFolder = Get-ExistingFolder $root
-            if (-not $rootFolder) { continue }
+            if (-not $rootFolder -or -not $vdfRead.Add($rootFolder)) { continue }
             if ($seen.Add($rootFolder)) { $libraries.Add($rootFolder) }
             $vdf = [IO.Path]::Combine($rootFolder, 'steamapps\libraryfolders.vdf')
             if (-not [IO.File]::Exists($vdf)) { continue }
             $contents = Read-SharedText $vdf
             # Current VDF uses path properties; older Steam versions used numbered values.
             foreach ($match in [regex]::Matches($contents, '"(?:path|\d+)"\s+"((?:\\.|[^"\\])*)"')) {
-                $library = Get-ExistingFolder (ConvertFrom-VdfPath $match.Groups[1].Value)
-                if ($library -and $seen.Add($library)) { $libraries.Add($library) }
+                $path = ConvertFrom-VdfPath $match.Groups[1].Value
+                if ($missing.Contains($path)) { continue }
+                $library = Get-ExistingFolder $path
+                if (-not $library) { [void]$missing.Add($path) }
+                elseif ($seen.Add($library)) { $libraries.Add($library) }
             }
         }
         catch { Write-Verbose "Skipped Steam folder ${root}: $($_.Exception.Message)" }
@@ -173,6 +184,10 @@ function Resolve-GameRoot([string]$RequestedPath) {
     $isGame = $false
     # A missing drive, an offline share or a mistyped path gets the same plain answer, not a PowerShell error.
     try {
+        # A relative path starts at PowerShell's current folder; cd doesn't change the one .NET uses.
+        if (-not [IO.Path]::IsPathRooted($resolved)) {
+            $resolved = [IO.Path]::Combine((Get-Location -PSProvider FileSystem).ProviderPath, $resolved)
+        }
         $resolved = [IO.Path]::GetFullPath($resolved)
         $isGame = [IO.File]::Exists([IO.Path]::Combine($resolved, 'Nocturne.exe')) -and
             [IO.Directory]::Exists([IO.Path]::Combine($resolved, 'Nocturne_Data'))
