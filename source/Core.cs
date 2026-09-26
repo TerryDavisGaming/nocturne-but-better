@@ -394,6 +394,8 @@ internal static class LayoutDriver
             MenuFieldLayout.Discover();
         }
         catch (Exception ex) { Report(ex); }
+        // Also once a second. It catches its own errors, so it never stops the layout.
+        AkumaNoteColors.Update();
     }
 
     public static void LateUpdate()

@@ -38,9 +38,13 @@ internal static class NoteSkins
             AccessTools.DeclaredMethod(typeof(NocturneCombatNoteView), "SetNote")
                 ?? throw new MissingMethodException(typeof(NocturneCombatNoteView).FullName, "SetNote"),
             postfix: new HarmonyMethod(typeof(NoteSkins), nameof(SetNotePostfix)));
+        // The Akuma palette's lane colors go in first, so the game's shapes, the hold and the skins
+        // all get them. Both are in one Patch call, since MelonLoader's Il2CppInterop isn't proven
+        // with two separate patches on one method.
         harmony.Patch(
             AccessTools.DeclaredMethod(typeof(NocturneCombatNoteView), "SetColors", new[] { typeof(CombatNoteColorSet) })
                 ?? throw new MissingMethodException(typeof(NocturneCombatNoteView).FullName, "SetColors"),
+            prefix: new HarmonyMethod(typeof(AkumaNoteColors), nameof(AkumaNoteColors.SetColorsPrefix)),
             postfix: new HarmonyMethod(typeof(NoteSkins), nameof(SetColorsPostfix)));
         // Hit flares are sized with the notes, or hidden when note flares are off. The game
         // resets a flare's scale when it plays a tap flare, but not a hold flare.
