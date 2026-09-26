@@ -66,50 +66,104 @@ function ConvertFrom-VdfPath([string]$Value) {
     return $Value.Replace('\\', '\').Replace('\"', '"')
 }
 
-function Find-SteamGames {
-    $roots = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+function Read-SharedText([string]$Path) {
+    # Steam writes its .vdf and .acf files as UTF-8 and may have them open.
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]'ReadWrite, Delete')
+    try { return (New-Object IO.StreamReader($stream, [Text.Encoding]::UTF8, $true)).ReadToEnd() }
+    finally { $stream.Dispose() }
+}
+
+function Get-ExistingFolder([string]$Path) {
+    # Steam keeps listing libraries on drives that are gone, and PS 5.1's Join-Path throws for a missing
+    # drive. Plain string and .NET checks only: anything that isn't an existing absolute folder is $null.
+    try {
+        if (-not $Path) { return $null }
+        $Path = $Path.Trim().Replace('/', '\')
+        if ($Path -notmatch '^(?:[A-Za-z]:\\|\\\\[^\\])') { return $null }
+        $full = [IO.Path]::GetFullPath($Path)
+        if (-not [IO.Directory]::Exists($full)) { return $null }
+        if ($full.Length -gt 3) { $full = $full.TrimEnd('\') }
+        return $full
+    }
+    catch { return $null }
+}
+
+function Get-SteamRoots {
+    # The registry's SteamPath uses forward slashes, like c:/program files (x86)/steam.
+    $found = $false
     foreach ($location in @(
         @('HKCU:\Software\Valve\Steam', 'SteamPath'),
         @('HKLM:\SOFTWARE\WOW6432Node\Valve\Steam', 'InstallPath'),
         @('HKLM:\SOFTWARE\Valve\Steam', 'InstallPath')
     )) {
-        $item = Get-ItemProperty -LiteralPath $location[0] -ErrorAction SilentlyContinue
-        if ($item) {
-            $property = $item.PSObject.Properties[$location[1]]
-            if ($property -and $property.Value) { [void]$roots.Add([string]$property.Value) }
+        try {
+            $item = Get-ItemProperty -LiteralPath $location[0] -ErrorAction SilentlyContinue
+            if ($item) {
+                $property = $item.PSObject.Properties[$location[1]]
+                if ($property -and $property.Value) {
+                    $folder = Get-ExistingFolder ([string]$property.Value)
+                    if ($folder) { $found = $true; Write-Output $folder }
+                }
+            }
         }
+        catch { Write-Verbose "Skipped $($location[0]): $($_.Exception.Message)" }
     }
-    if (${env:ProgramFiles(x86)}) { [void]$roots.Add((Join-Path ${env:ProgramFiles(x86)} 'Steam')) }
-    $libraries = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-    foreach ($root in $roots) {
-        [void]$libraries.Add($root)
-        $vdf = Join-Path $root 'steamapps\libraryfolders.vdf'
-        if (-not (Test-Path -LiteralPath $vdf -PathType Leaf)) { continue }
-        $contents = Get-Content -LiteralPath $vdf -Raw
-        # Current VDF uses path properties; older Steam versions used numbered values.
-        foreach ($match in [regex]::Matches($contents, '"(?:path|\d+)"\s+"((?:\\.|[^"\\])*)"')) {
-            $library = ConvertFrom-VdfPath $match.Groups[1].Value
-            if ([IO.Path]::IsPathRooted($library)) { [void]$libraries.Add($library) }
+    # Steam rewrites SteamPath each time it starts, so its default folder is only a fallback. Beside a real
+    # one it can be a junction to it, which would list the same game twice.
+    if (-not $found -and ${env:ProgramFiles(x86)}) { Write-Output (${env:ProgramFiles(x86)}.TrimEnd('\') + '\Steam') }
+}
+
+function Find-SteamGames {
+    # One bad library (a missing drive, an offline share, an unreadable file) only skips that library.
+    $libraries = New-Object 'System.Collections.Generic.List[string]'
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    # Each Steam folder's vdf is read once and each missing library is checked once: an offline share
+    # can take many seconds to answer.
+    $vdfRead = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $missing = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($root in @(Get-SteamRoots)) {
+        try {
+            $rootFolder = Get-ExistingFolder $root
+            if (-not $rootFolder -or -not $vdfRead.Add($rootFolder)) { continue }
+            if ($seen.Add($rootFolder)) { $libraries.Add($rootFolder) }
+            $vdf = [IO.Path]::Combine($rootFolder, 'steamapps\libraryfolders.vdf')
+            if (-not [IO.File]::Exists($vdf)) { continue }
+            $contents = Read-SharedText $vdf
+            # Current VDF uses path properties; older Steam versions used numbered values.
+            foreach ($match in [regex]::Matches($contents, '"(?:path|\d+)"\s+"((?:\\.|[^"\\])*)"')) {
+                $path = ConvertFrom-VdfPath $match.Groups[1].Value
+                if ($missing.Contains($path)) { continue }
+                $library = Get-ExistingFolder $path
+                if (-not $library) { [void]$missing.Add($path) }
+                elseif ($seen.Add($library)) { $libraries.Add($library) }
+            }
         }
+        catch { Write-Verbose "Skipped Steam folder ${root}: $($_.Exception.Message)" }
     }
     $candidates = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     foreach ($library in $libraries) {
-        $apps = Join-Path $library 'steamapps'
-        $manifest = Join-Path $apps 'appmanifest_1374860.acf'
-        $installName = 'Nocturne'
-        if (Test-Path -LiteralPath $manifest -PathType Leaf) {
-            $contents = Get-Content -LiteralPath $manifest -Raw
-            $match = [regex]::Match($contents, '"installdir"\s+"((?:\\.|[^"\\])*)"')
-            if ($match.Success) { $installName = ConvertFrom-VdfPath $match.Groups[1].Value }
+        try {
+            $apps = [IO.Path]::Combine($library, 'steamapps')
+            $manifest = [IO.Path]::Combine($apps, 'appmanifest_1374860.acf')
+            $installName = 'Nocturne'
+            if ([IO.File]::Exists($manifest)) {
+                # An unreadable manifest leaves Steam's default folder name.
+                try {
+                    $match = [regex]::Match((Read-SharedText $manifest), '"installdir"\s+"((?:\\.|[^"\\])*)"')
+                    if ($match.Success) { $installName = ConvertFrom-VdfPath $match.Groups[1].Value }
+                }
+                catch { Write-Verbose "Could not read ${manifest}: $($_.Exception.Message)" }
+            }
+            # Never interpret an untrusted manifest's install folder as an absolute/traversal path.
+            if ($installName -match '[\\/:]' -or $installName -in @('.', '..')) { continue }
+            $candidate = [IO.Path]::Combine([IO.Path]::Combine($apps, 'common'), $installName)
+            if ([IO.File]::Exists([IO.Path]::Combine($candidate, 'Nocturne.exe'))) {
+                $candidate = [IO.Path]::GetFullPath($candidate)
+                if ($candidates.Add($candidate)) { Write-Output $candidate }
+            }
         }
-        # Never interpret an untrusted manifest's install folder as an absolute/traversal path.
-        if ($installName -match '[\\/:]' -or $installName -in @('.', '..')) { continue }
-        $candidate = Join-Path (Join-Path $apps 'common') $installName
-        if (Test-Path -LiteralPath (Join-Path $candidate 'Nocturne.exe') -PathType Leaf) {
-            [void]$candidates.Add([IO.Path]::GetFullPath($candidate))
-        }
+        catch { Write-Verbose "Skipped Steam library ${library}: $($_.Exception.Message)" }
     }
-    foreach ($candidate in $candidates) { Write-Output $candidate }
 }
 
 function Resolve-GameRoot([string]$RequestedPath) {
@@ -125,13 +179,32 @@ function Resolve-GameRoot([string]$RequestedPath) {
             $RequestedPath = Read-Host 'Enter the full folder path containing Nocturne.exe'
         }
     }
-    if (-not $RequestedPath) { throw 'A Nocturne game folder is required.' }
-    $resolved = [IO.Path]::GetFullPath($RequestedPath.Trim().Trim('"'))
-    if (-not (Test-Path -LiteralPath (Join-Path $resolved 'Nocturne.exe') -PathType Leaf) -or
-        -not (Test-Path -LiteralPath (Join-Path $resolved 'Nocturne_Data') -PathType Container)) {
-        throw "This is not the Nocturne game folder: $resolved"
+    if (-not $RequestedPath -or -not $RequestedPath.Trim().Trim('"')) { throw 'A Nocturne game folder is required.' }
+    $resolved = $RequestedPath.Trim().Trim('"')
+    $isGame = $false
+    # A missing drive, an offline share or a mistyped path gets the same plain answer, not a PowerShell error.
+    try {
+        # A relative path starts at PowerShell's current folder; cd doesn't change the one .NET uses.
+        if (-not [IO.Path]::IsPathRooted($resolved)) {
+            $resolved = [IO.Path]::Combine((Get-Location -PSProvider FileSystem).ProviderPath, $resolved)
+        }
+        $resolved = [IO.Path]::GetFullPath($resolved)
+        $isGame = [IO.File]::Exists([IO.Path]::Combine($resolved, 'Nocturne.exe')) -and
+            [IO.Directory]::Exists([IO.Path]::Combine($resolved, 'Nocturne_Data'))
     }
+    catch { $isGame = $false }
+    if (-not $isGame) { throw "This is not the Nocturne game folder: $resolved" }
     return $resolved.TrimEnd('\', '/')
+}
+
+function Get-SteamManifestPath([string]$GameRoot) {
+    # A Steam game sits in <library>\steamapps\common\<folder>. A copy elsewhere, even straight
+    # under a drive root, has no manifest to check.
+    $common = [IO.Path]::GetDirectoryName($GameRoot.TrimEnd('\', '/'))
+    if (-not $common) { return $null }
+    $steamApps = [IO.Path]::GetDirectoryName($common)
+    if (-not $steamApps) { return $null }
+    return [IO.Path]::Combine($steamApps, 'appmanifest_1374860.acf')
 }
 
 function Assert-SafeTarget([string]$Root, [string]$Path) {
@@ -397,11 +470,12 @@ try {
         Assert-Hash $sourcePath $sourceHash
     }
     foreach ($relative in $gameHashes.Keys) { Assert-Hash (Join-Path $gameRoot $relative) $gameHashes[$relative] }
-    $steamApps = Split-Path -Parent (Split-Path -Parent $gameRoot)
-    $manifestPath = Join-Path $steamApps 'appmanifest_1374860.acf'
-    if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
-        $manifest = Get-Content -LiteralPath $manifestPath -Raw
-        if ($manifest -notmatch '"appid"\s+"1374860"' -or $manifest -notmatch '"buildid"\s+"25487568"') {
+    $manifestPath = Get-SteamManifestPath $gameRoot
+    if ($manifestPath -and [IO.File]::Exists($manifestPath)) {
+        $manifest = $null
+        try { $manifest = Read-SharedText $manifestPath }
+        catch { Write-Host "Steam's Nocturne manifest could not be read, so its build number was not checked. The game files match build 25487568." }
+        if ($null -ne $manifest -and ($manifest -notmatch '"appid"\s+"1374860"' -or $manifest -notmatch '"buildid"\s+"25487568"')) {
             throw 'Steam reports a different Nocturne build. This package supports build 25487568 only.'
         }
     }
