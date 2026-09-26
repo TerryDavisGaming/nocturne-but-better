@@ -1,6 +1,7 @@
 using System.Globalization;
 using UnityEngine;
 using static NocturneFlatScroll.EditorInput;
+using static NocturneFlatScroll.EditorPageKit;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using InputMouse = UnityEngine.InputSystem.Mouse;
 using Key = UnityEngine.InputSystem.Key;
@@ -159,122 +160,44 @@ internal static partial class BattleCreator
         }
         if (HandleArtKeys(k)) return true;
         if (HandleDialogueKeys(k)) return true;
-        var shown = VisibleControls();
-        if (Pressed(k, Key.DownArrow)) focus = shown.Count == 0 ? -1 : Math.Min(shown.Count - 1, focus + 1);
-        if (Pressed(k, Key.UpArrow)) focus = shown.Count == 0 ? -1 : Math.Max(0, focus - 1);
-        if ((Pressed(k, Key.Enter) || Pressed(k, Key.NumpadEnter)) && focus >= 0 && focus < shown.Count) shown[focus].Activate();
+        WalkControls(k, VisibleControls(), ref focus);
         return IsOpen && screen == Screen.Edit;
     }
 
-    // ---- text fields ------------------------------------------------------------------------------
+    // ---- text fields (the kit's TextField and its typing) ------------------------------------------
 
-    /// <summary>A value typed on a page: how to show it, and how to keep what was typed (Set throws InvalidDataException to refuse it).</summary>
-    private sealed class TextField
+    // The field being typed in and what's typed so far, under their old names (the pages read
+    // them; the QA drivers also set what's typed).
+    private static TextField? typing => kit?.Typing;
+
+    private static string typed
     {
-        internal string Label = "";
-        internal Func<string> Get = () => "";
-        internal Action<string> Set = _ => { };
-        /// <summary>What an empty value shows, like the enemy's own stat.</summary>
-        internal Func<string>? Empty;
-        internal int Max = 80;
-        internal bool MultiLine;
-        /// <summary>Tall and wrapped like a multi-line text, but one line: Enter ends it (a line of dialogue).</summary>
-        internal bool Wrap;
-        internal bool Tall => MultiLine || Wrap;
-        internal string Hint = "Type, then Enter. Esc cancels.";
-        /// <summary>A part of the enemy, which can't change while the enemy's file can't be read.</summary>
-        internal bool Enemy;
-        /// <summary>More for the typing hint, worked out from what is typed (like how many lines it takes).</summary>
-        internal Func<string, string>? Measure;
-        /// <summary>Letters that typing leaves out, and what it says when one is typed.</summary>
-        internal char[]? Refused;
-        internal string RefusedText = "";
+        get => kit?.Typed ?? "";
+        set { if (kit != null) kit.Typed = value; }
     }
 
-    private static TextField? typing;
-    private static string typed = "";
-    // Until when the typing hint says a letter was left out.
-    private static float refusedUntil;
+    private static void StartTyping(TextField field) => kit?.StartTyping(field);
 
-    private static void StartTyping(TextField field)
-    {
-        if (draft == null) return;
-        if (!FinishTyping()) return;
-        if (field.Enemy && !EnemyEditable()) return;
-        typing = field;
-        typed = field.Get();
-        refusedUntil = 0;
-        BeginText();
-        SayTypingHint();
-    }
-
-    // The hint while typing. The long texts, and those with a measure (like the info boxes' lines),
-    // also show how much of them is used, so it's clear why typing stops at the limit.
-    private static void SayTypingHint()
-    {
-        var field = typing;
-        if (field == null) return;
-        string hint = field.MultiLine ? "Type, then Enter. Shift+Enter starts a new line. Esc cancels." : field.Hint;
-        if (Time.unscaledTime < refusedUntil) hint = field.RefusedText + "  " + hint;
-        if (field.Max >= 100 || field.Measure != null) hint += BattleDraft.TypingCount(typed.Length, field.Max, field.Measure?.Invoke(typed));
-        Say(hint, 3600f);
-    }
-
-    private static void UpdateTyping(InputKeyboard k)
-    {
-        var field = typing!;
-        if (Pressed(k, Key.Escape)) { EndTyping(); return; }
-        if (Ctrl(k) && Pressed(k, Key.S)) { Save(); return; }
-        bool enter = Pressed(k, Key.Enter) || Pressed(k, Key.NumpadEnter);
-        if (enter && field.MultiLine && Shift(k))
-        {
-            if (typed.Length < field.Max)
-            {
-                typed += "\n";
-                SayTypingHint();
-            }
-            return;
-        }
-        if (TypeText(k, ref typed, field.Max))
-        {
-            if (field.Refused is { } refused && typed.IndexOfAny(refused) >= 0)
-            {
-                typed = new string(typed.Where(c => Array.IndexOf(refused, c) < 0).ToArray());
-                refusedUntil = Time.unscaledTime + 4f;
-            }
-            SayTypingHint();
-        }
-        if (enter) CommitTyping();
-    }
+    private static void UpdateTyping(InputKeyboard k) => Kit.UpdateTyping(k);
 
     /// <summary>
     /// Keeps what was typed. False when the field refuses it (like "abc" for HP): the field stays
     /// open with the reason showing, and nothing is saved until it's fixed or Esc cancels it.
     /// </summary>
-    private static bool CommitTyping()
-    {
-        var field = typing;
-        if (field == null) return true;
-        try { field.Set(typed); }
-        catch (InvalidDataException ex)
-        {
-            Say(ex.Message + "  Fix it, or Esc keeps the old value.", 3600f);
-            return false;
-        }
-        EndTyping();
-        return true;
-    }
+    private static bool CommitTyping() => kit?.CommitTyping() ?? true;
 
     /// <summary>Keeps what is being typed, if anything; false when the field refused it (see <see cref="CommitTyping"/>).</summary>
-    private static bool FinishTyping() => typing == null || CommitTyping();
+    private static bool FinishTyping() => kit?.FinishTyping() ?? true;
 
     /// <summary>Stops typing and drops what was typed.</summary>
-    private static void EndTyping()
+    private static void EndTyping() => kit?.EndTyping();
+
+    // Ctrl+S saves while a field is open too.
+    private static bool SaveKey(InputKeyboard k)
     {
-        if (typing == null) return;
-        typing = null;
-        EndText();
-        Say("", 0f);
+        if (!Ctrl(k) || !Pressed(k, Key.S)) return false;
+        Save();
+        return true;
     }
 
     // The enemy can't change while its own file can't be read (see BattleDraft.EnemyLocked).
@@ -366,7 +289,7 @@ internal static partial class BattleCreator
     {
         Label = "Enemy name",
         Max = 60,
-        Enemy = true,
+        MayEdit = EnemyEditable,
         Get = () => draft?.EnemyName ?? "",
         Set = text => draft!.EnemyName = text,
         Empty = () => "(none)",
@@ -387,7 +310,7 @@ internal static partial class BattleCreator
     {
         Label = s.Label,
         Max = 12,
-        Enemy = true,
+        MayEdit = EnemyEditable,
         Get = () => draft?.Stat(s.Key) is double v ? Num(v) : "",
         Set = text => draft!.SetStat(s.Key, ParseNumber(text, s.Min, s.Max, s.Label)),
         Empty = () => EnemyChoices.Find(draft?.Placeholder) is { } c ? $"{c.Name}'s own: {Num(c.OwnStat(s.Key))}" : "the enemy's own",
@@ -401,7 +324,7 @@ internal static partial class BattleCreator
     {
         Label = $"Box {i + 1} title",
         Max = 60,
-        Enemy = true,
+        MayEdit = EnemyEditable,
         Get = () => draft?.InfoBox(i).Title ?? "",
         Set = text => draft!.SetInfoBox(i, text, null),
         Empty = () => draft?.EnemyName is { Length: > 0 } name ? $"(empty: shows the enemy name, {name})" : "(empty: no title)",
@@ -414,7 +337,7 @@ internal static partial class BattleCreator
         Label = $"Box {i + 1} text",
         Max = BattleDraft.InfoMaxLines * BattleDraft.InfoLineChars,
         MultiLine = true,
-        Enemy = true,
+        MayEdit = EnemyEditable,
         Get = () => draft?.InfoBox(i).Description ?? "",
         Set = text => draft!.SetInfoBox(i, null, text),
         Empty = () => "(empty: the battle doesn't show this box)",

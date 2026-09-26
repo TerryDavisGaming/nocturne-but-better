@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using UnityEngine;
-using UnityEngine.UI;
 using static NocturneFlatScroll.EditorInput;
+using static NocturneFlatScroll.EditorPageKit;
 using static NocturneFlatScroll.EditorUi;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using InputMouse = UnityEngine.InputSystem.Mouse;
@@ -32,17 +32,13 @@ internal static partial class BattleCreator
     // Names the creator to EditorOverlay, which keeps the menus locked while any editor is open.
     private static readonly object OverlayOwner = "battle creator";
 
-    // Keys pressed on the frame the creator opens or comes back from the chart editor belong to
-    // what opened it (the Enter that picked the menu row, the Esc that closed the chart editor).
-    private static int ignoreKeysFrame = -1;
-    private static bool Live => Time.frameCount > ignoreKeysFrame;
-
-    // Clicks wait a moment after the screen changes, so the second click of a double-click (or a
-    // click that lands where the button that opened the screen was) doesn't choose on the new one.
-    // Two prompts in a row count as a change, so a double-click can't answer both.
-    private const float ClickDelay = 0.5f;
-    private static float clicksFrom;
-    private static bool ClicksLive => Time.unscaledTime >= clicksFrom;
+    // The page kit, built with the screen: pickers, typing, work that finishes later, and when
+    // keys and clicks count (keys on the frame the creator opens or comes back from the chart
+    // editor, and clicks just after the screen changes, belong to what came before).
+    private static EditorPageKit? kit;
+    private static EditorPageKit Kit => kit ?? throw new InvalidOperationException("the battle creator's screen isn't built");
+    private static bool Live => kit?.Live ?? true;
+    private static bool ClicksLive => kit?.ClicksLive ?? true;
 
     private static string Root => CustomBattles.Folder;
 
@@ -55,12 +51,13 @@ internal static partial class BattleCreator
         try
         {
             ui = new EditorUi("NocturneButBetter Battle Creator");
+            kit = new EditorPageKit(Ui, "Battle creator") { CanType = () => draft != null, KeysWhileTyping = SaveKey };
             Ui.BuildList();
             BuildListBack();
-            BuildPickerFace();
+            Kit.BuildPickerFace();
             BuildEdit();
             EditorOverlay.Enter(OverlayOwner);
-            ignoreKeysFrame = Time.frameCount;
+            Kit.IgnoreKeysNow();
             gameWindow = Process.GetCurrentProcess().MainWindowHandle;
             try { BattleFiles.CleanWork(Root); }
             catch (Exception ex) { ModLog.Error("Battle creator: clearing old work folders failed: " + ex.Message); }
@@ -85,27 +82,21 @@ internal static partial class BattleCreator
         EndTyping();
         ui?.Destroy();
         ui = null;
-        pickerFaceBox = null;
-        pickerFace = null;
-        pickerFaceNote = null;
+        // The kit goes with the screen, and with it the picker showing and any work still going.
+        // A read still running is dropped (it writes nothing); a battle being made still finishes,
+        // and shows the next time the creator opens.
+        kit = null;
         // Gives the cursor back; the menus come back once the key that closed the creator is let go.
         EditorOverlay.Leave(OverlayOwner);
         draft = null;
         song = null;
         audioLoad = null;
-        picker = null;
-        // A read still running is dropped (it writes nothing); a battle being made still finishes,
-        // and shows the next time the creator opens.
         ClearOsz();
-        pending = null;
-        pendingDone = null;
         handedOver = false;
         touched.Clear();
         pagePanels.Clear();
         controls.Clear();
         barControls.Clear();
-        markerOn = null;
-        fittedField = null;
         ModLog.Info("Battle creator: closed.");
     }
 
@@ -131,7 +122,7 @@ internal static partial class BattleCreator
             UpdatePreview();
             var keyboard = InputKeyboard.current;
             if (keyboard == null) return;
-            FinishPending();
+            Kit.FinishPending();
             if (!IsOpen) return;
             switch (screen)
             {
@@ -150,24 +141,11 @@ internal static partial class BattleCreator
     private static void ShowScreen(Screen next)
     {
         screen = next;
-        clicksFrom = Time.unscaledTime + ClickDelay;
+        Kit.DelayClicks();
         Ui.ListPanel!.gameObject.SetActive(next != Screen.Edit);
         editPanel!.gameObject.SetActive(next == Screen.Edit);
         // A picker with a picture shows it again on its first update.
-        if (pickerFaceBox) pickerFaceBox!.gameObject.SetActive(false);
-    }
-
-    /// <summary>
-    /// Whether a list row was picked, like <see cref="EditorUi.Chosen"/>, except that a click in
-    /// the first moment after the screen changed doesn't count (Enter always does).
-    /// </summary>
-    private static bool Chosen(InputKeyboard keyboard, int count, ref int index)
-    {
-        int before = index;
-        bool chosen = Ui.Chosen(keyboard, count, ref index);
-        if (!chosen || ClicksLive || Pressed(keyboard, Key.Enter) || Pressed(keyboard, Key.NumpadEnter)) return chosen;
-        index = before;
-        return false;
+        Kit.HidePickerFace();
     }
 
     // The list screens' button for the mouse: Close on the list of battles, Back on a prompt or a
@@ -192,63 +170,21 @@ internal static partial class BattleCreator
 
     // ---- work that finishes later: file pickers, copying, zipping ------------------------------
 
-    private static Task? pending;
-    private static Action<Task>? pendingDone;
-    private static string pendingWhat = "";
     private static IntPtr gameWindow;
 
     /// <summary>
     /// Waits for <paramref name="task"/> without stopping the game, then runs <paramref name="done"/>
-    /// with its result. Keys and clicks wait meanwhile; <paramref name="what"/> shows until then.
+    /// with its result (see <see cref="EditorPageKit.Run"/>). Keys and clicks wait meanwhile;
+    /// <paramref name="what"/> shows until then. Dropped when the creator is closed.
     /// </summary>
-    private static void Run<T>(Task<T> task, string what, Action<T> done)
-    {
-        pending = task;
-        pendingWhat = what;
-        pendingDone = finished => done(((Task<T>)finished).Result);
-        Say(what, 3600f);
-    }
-
-    private static void FinishPending()
-    {
-        if (pending == null || !pending.IsCompleted) return;
-        var task = pending;
-        var done = pendingDone;
-        pending = null;
-        pendingDone = null;
-        Say("", 0f);
-        try { done?.Invoke(task); }
-        catch (Exception ex)
-        {
-            var reason = Unwrap(ex);
-            bool expected = reason is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException
-                or NotSupportedException or System.Text.Json.JsonException;
-            ModLog.Error($"Battle creator: {pendingWhat.TrimEnd('.')} failed: {(expected ? reason.Message : reason.ToString())}");
-            Say("That didn't work: " + reason.Message, 7f);
-        }
-    }
-
-    private static Exception Unwrap(Exception ex)
-    {
-        while (ex is AggregateException agg && agg.InnerException != null) ex = agg.InnerException;
-        return ex;
-    }
+    private static void Run<T>(Task<T> task, string what, Action<T> done) => kit?.Run(task, what, done);
 
     private static bool Busy => pending != null;
 
-    /// <summary>Runs <paramref name="work"/> on a thread of its own in a single-threaded apartment, as the Windows shell asks.</summary>
-    private static Task<T> OnShellThread<T>(Func<T> work)
-    {
-        var result = new TaskCompletionSource<T>();
-        var thread = new Thread(() =>
-        {
-            try { result.SetResult(work()); }
-            catch (Exception ex) { result.SetException(ex); }
-        }) { IsBackground = true, Name = "NocturneButBetter battle creator" };
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        return result.Task;
-    }
+    // The work still going, or null (the QA drivers wait on it).
+    private static Task? pending => kit?.Pending;
+
+    private static Task<T> OnShellThread<T>(Func<T> work) => EditorPageKit.OnShellThread(work, "NocturneButBetter battle creator");
 
     private static void OpenInExplorer(string folder)
     {
@@ -298,7 +234,7 @@ internal static partial class BattleCreator
         if (live && Pressed(keyboard, Key.F5)) { Rescan(); Say("Read the battles folder again.", 2f); }
         if (live) listIndex = MoveInList(keyboard, listIndex, count);
         // A row clicked with the mouse is chosen on the next update.
-        bool chosen = Chosen(keyboard, count, ref listIndex);
+        bool chosen = Kit.Chosen(keyboard, count, ref listIndex);
         if (live && chosen)
         {
             ChooseListRow(listIndex);
@@ -483,92 +419,25 @@ internal static partial class BattleCreator
         listIndex = i >= 0 ? ActionRows + i : 0;
     }
 
-    // ---- small list screens: pick one of a few rows ------------------------------------------------
+    // ---- small list screens: pick one of a few rows (the kit's pickers) -----------------------------
 
-    private sealed class Picker
+    // The picker showing, under its old name (the pages and the QA drivers set it).
+    private static Picker? picker
     {
-        internal string Heading = "";
-        internal List<string> Rows = new();
-        internal Func<int, string> Hint = _ => "";
-        internal Action<int> Choose = _ => { };
-        internal Action Back = () => { };
-        internal int Index;
-        /// <summary>Typing letters jumps to the first row that starts with them (for long lists).</summary>
-        internal bool Jump;
-        /// <summary>A picture beside the list for the highlighted row (null shows none), and a line under it.</summary>
-        internal Func<int, Sprite?>? Face;
-        internal Func<int, string>? FaceNote;
+        get => kit?.Picking;
+        set { if (kit != null) kit.Picking = value; }
     }
 
-    private static Picker? picker;
-    // What has been typed to jump in the list, and when last (a pause starts it over).
-    private static string jumpTyped = "";
-    private static float jumpAt;
-    private static RectTransform? pickerFaceBox;
-    private static Image? pickerFace;
-    private static TMP_Text? pickerFaceNote;
+    // What has been typed to jump in the picker's list (the QA drivers read it).
+    private static string jumpTyped => kit?.JumpTyped ?? "";
 
     private static void ShowPicker(Picker next)
     {
         // A prompt or a list interrupts the song's preview, and the dialogue's.
         StopPreview();
         StopDialoguePlay();
-        picker = next;
-        jumpTyped = "";
+        Kit.ShowPicker(next);
         ShowScreen(Screen.Pick);
-    }
-
-    // The picture beside a picker's list, right of its box (the list's box is 1200 wide, so the
-    // canvas has room at any window shape).
-    private static void BuildPickerFace()
-    {
-        pickerFaceBox = MakeImage("FaceBox", Ui.ListPanel!, PanelColor).rectTransform;
-        Place(pickerFaceBox, new Vector2(0.5f, 0.5f), new Vector2(780, 60), new Vector2(320, 440));
-        pickerFace = MakeImage("Face", pickerFaceBox, Color.white);
-        pickerFace.preserveAspect = true;
-        PlaceTop(pickerFace.rectTransform, 10, -10, 300, 300);
-        pickerFaceNote = MakeText("Note", pickerFaceBox, 18, TextAlignmentOptions.Top);
-        pickerFaceNote.color = DimText;
-        PlaceTop(pickerFaceNote.rectTransform, 12, -318, 296, 112);
-        pickerFaceBox.gameObject.SetActive(false);
-    }
-
-    private static void DrawPickerFace(Picker p)
-    {
-        bool show = p.Face != null;
-        if (pickerFaceBox!.gameObject.activeSelf != show) pickerFaceBox.gameObject.SetActive(show);
-        if (!show) return;
-        Sprite? face = null;
-        string note;
-        // The picture is only a help: if it fails, the list still works.
-        try
-        {
-            face = p.Face!(p.Index);
-            note = p.FaceNote?.Invoke(p.Index) ?? "";
-        }
-        catch (Exception ex)
-        {
-            if (!reportedPickerFace) ModLog.Error("Battle creator: the picture beside the list failed: " + ex);
-            reportedPickerFace = true;
-            note = "";
-        }
-        if (pickerFace!.sprite != face) pickerFace.sprite = face;
-        if (pickerFace.enabled != (face != null)) pickerFace.enabled = face != null;
-        pickerFaceNote!.text = Escape(note);
-    }
-
-    private static bool reportedPickerFace;
-
-    // Typing letters jumps to the first row that starts with them; a pause of a second starts over.
-    private static void TypeJump(InputKeyboard keyboard, Picker p)
-    {
-        if (Time.unscaledTime > jumpAt + 1f) jumpTyped = "";
-        string before = jumpTyped;
-        if (!TypeInto(keyboard, ref jumpTyped, 24) || jumpTyped == before) return;
-        jumpAt = Time.unscaledTime;
-        if (jumpTyped.Trim().Length == 0) return;
-        int row = p.Rows.FindIndex(r => r.StartsWith(jumpTyped, StringComparison.OrdinalIgnoreCase));
-        if (row >= 0) p.Index = row;
     }
 
     /// <summary>Back to the battle's pages when one is open, else to the list.</summary>
@@ -581,45 +450,21 @@ internal static partial class BattleCreator
     private static void UpdatePicker(InputKeyboard keyboard)
     {
         var p = picker;
-        if (p == null) { BackFromPicker(); return; }
-        bool live = Live && !Busy;
-        if (live && Pressed(keyboard, Key.Escape)) { picker = null; p.Back(); return; }
-        int before = p.Index;
-        if (live) p.Index = MoveInList(keyboard, p.Index, p.Rows.Count);
-        if (live && p.Jump) TypeJump(keyboard, p);
-        // A message shows where the hint goes; moving to another row brings back that row's hint.
-        if (p.Index != before && Ui.MessageShowing) Ui.ClearMessage();
-        bool chosen = Chosen(keyboard, p.Rows.Count, ref p.Index);
-        if (live && chosen)
+        switch (Kit.UpdatePicker(keyboard))
         {
-            picker = null;
-            p.Choose(p.Index);
-            // A choice that doesn't go anywhere else goes back.
-            if (IsOpen && screen == Screen.Pick && picker == null) BackFromPicker();
-            return;
+            case PickerStep.None:
+                BackFromPicker();
+                return;
+            case PickerStep.Chosen:
+                // A choice that doesn't go anywhere else goes back.
+                if (IsOpen && screen == Screen.Pick && picker == null) BackFromPicker();
+                return;
+            case PickerStep.Shown:
+                // Only the highlighted row's faces stay loaded (see FacesOf).
+                if (p!.Face != null) ReleaseUnwantedFaces();
+                return;
         }
-        string hint = Ui.MessageShowing ? Ui.Message : p.Hint(p.Index);
-        if (p.Jump && jumpTyped.Trim().Length > 0 && Time.unscaledTime <= jumpAt + 1f) hint = $"Jump: {jumpTyped}   " + hint;
-        Ui.DrawList(Escape(p.Heading), Escape(hint), p.Rows, p.Index);
-        DrawPickerFace(p);
-        // Only the highlighted row's faces stay loaded (see FacesOf).
-        if (p.Face != null) ReleaseUnwantedFaces();
     }
-
-    /// <summary>A yes or no prompt, with the cursor on no.</summary>
-    /// <param name="yesFirst">
-    /// Yes on the first row instead of the second: a second prompt right after a first one
-    /// then has its No where the first one had its Yes.
-    /// </param>
-    private static Picker Confirm(string heading, string no, string yes, string hint, Action onYes, Action onNo, bool yesFirst = false) => new()
-    {
-        Heading = heading,
-        Rows = yesFirst ? new List<string> { yes, no } : new List<string> { no, yes },
-        Index = yesFirst ? 1 : 0,
-        Hint = _ => hint,
-        Choose = i => { if (i == (yesFirst ? 0 : 1)) onYes(); else onNo(); },
-        Back = onNo,
-    };
 
     // ---- the chart editor ---------------------------------------------------------------------------
 
@@ -692,8 +537,8 @@ internal static partial class BattleCreator
     {
         if (!IsOpen || !handedOver || TestPlay.Active) return;
         handedOver = false;
-        ignoreKeysFrame = Time.frameCount;
-        clicksFrom = Time.unscaledTime + ClickDelay;
+        Kit.IgnoreKeysNow();
+        Kit.DelayClicks();
         Ui.SetVisible(true);
         if (draft != null)
         {

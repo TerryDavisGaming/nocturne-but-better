@@ -1,10 +1,8 @@
 using UnityEngine;
-using static NocturneFlatScroll.EditorInput;
 using static NocturneFlatScroll.EditorUi;
 using EventSystem = UnityEngine.EventSystems.EventSystem;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using InputMouse = UnityEngine.InputSystem.Mouse;
-using Key = UnityEngine.InputSystem.Key;
 
 namespace NocturneFlatScroll;
 
@@ -23,13 +21,14 @@ internal static partial class ArcadeGear
 
     private enum RowKind { Slot, Adopt, Clear, Done }
 
-    // Clicks wait a moment after the screen changes, as in the battle creator.
-    private const float ClickDelay = 0.5f;
-
     // Names the page to EditorOverlay, which keeps the arcade locked while it is open.
     private static readonly object OverlayOwner = "arcade gear";
 
     private static EditorUi? ui;
+    // The page kit, built with the screen: keys and pad buttons on the frame a screen opens belong
+    // to what opened it, and clicks wait a moment after the screen changes, as in the battle creator.
+    private static EditorPageKit? kit;
+    private static EditorPageKit Kit => kit ?? throw new InvalidOperationException("the arcade gear page isn't open");
     private static Screen screen;
     private static int slotIndex, pickIndex, confirmIndex;
     private static GearSlot pickSlot;
@@ -43,12 +42,6 @@ internal static partial class ArcadeGear
     private static TMP_Text? note;
     private static GameObject? selectedBefore;
     private static TabbedButtonBar? pausedTabs;
-    // Keys and pad buttons on the frame a screen opens belong to what opened it.
-    private static int ignoreKeysFrame = -1;
-    private static float clicksFrom;
-
-    private static bool Live => Time.frameCount > ignoreKeysFrame;
-    private static bool ClicksLive => Time.unscaledTime >= clicksFrom;
 
     /// <summary>Whether the page is open.</summary>
     internal static bool PageOpen => ui != null && ui.IsAlive;
@@ -62,6 +55,7 @@ internal static partial class ArcadeGear
         try
         {
             ui = new EditorUi("NocturneButBetter Arcade Gear", blockGameClicks: true);
+            kit = new EditorPageKit(ui, "Arcade gear");
             ui.BuildList();
             BuildBack();
             BuildNote();
@@ -94,6 +88,7 @@ internal static partial class ArcadeGear
         if (ui == null) return;
         ui.Destroy();
         ui = null;
+        kit = null;
         note = null;
         picks = new List<PickRow>();
         // Gives the cursor back; the arcade's input comes back once the key that closed the page is let go.
@@ -165,8 +160,8 @@ internal static partial class ArcadeGear
     private static void ShowScreen(Screen next)
     {
         screen = next;
-        ignoreKeysFrame = Time.frameCount;
-        clicksFrom = Time.unscaledTime + ClickDelay;
+        Kit.IgnoreKeysNow();
+        Kit.DelayClicks();
     }
 
     // Worked out on open and after each change.
@@ -223,39 +218,10 @@ internal static partial class ArcadeGear
         }
     }
 
-    // Esc, X, a right click or the pad's B.
-    private static bool BackPressed(InputKeyboard keyboard, InputMouse? mouse) =>
-        Live && (Pressed(keyboard, Key.Escape) || Pressed(keyboard, Key.X) || PadInput.Pressed(PadButton.East) ||
-                 (ClicksLive && mouse != null && mouse.rightButton.wasPressedThisFrame));
-
-    /// <summary>
-    /// Moves the highlight (Up/Down, PgUp/PgDn, the wheel, the pad's d-pad or stick) and says whether
-    /// the highlighted row was chosen: a click (not in the first moment after the screen changed),
-    /// Enter, Z or the pad's A.
-    /// </summary>
-    private static bool Choose(InputKeyboard keyboard, int count, ref int index)
-    {
-        if (Live)
-        {
-            index = MoveInList(keyboard, index, count);
-            int step = PadInput.Move();
-            if (step != 0 && count > 0) index = Math.Clamp(index + step, 0, count - 1);
-        }
-        int before = index;
-        bool chosen = ui!.Chosen(keyboard, count, ref index);
-        if (chosen && !ClicksLive && !Pressed(keyboard, Key.Enter) && !Pressed(keyboard, Key.NumpadEnter))
-        {
-            index = before;
-            chosen = false;
-        }
-        if (!chosen && count > 0 && (Pressed(keyboard, Key.Z) || PadInput.Pressed(PadButton.South))) chosen = true;
-        return Live && chosen;
-    }
-
     // What a choice or change says in the hint line, where the row's hint would go.
     private static void Say(string text, float seconds = 6f) => ui?.Say(text, seconds);
 
-    private static string ChooseKey => UsingPad() ? "A" : "Enter";
+    private static string ChooseKey => PadInput.InUse ? "A" : "Enter";
 
     // ---- the slots -------------------------------------------------------------------------------------
 
@@ -293,7 +259,7 @@ internal static partial class ArcadeGear
 
     private static void UpdateSlots(InputKeyboard keyboard, InputMouse? mouse)
     {
-        if (BackPressed(keyboard, mouse))
+        if (Kit.BackPressed(keyboard, mouse))
         {
             ClosePage("Done");
             return;
@@ -301,7 +267,7 @@ internal static partial class ArcadeGear
         var rows = SlotRows();
         slotIndex = Math.Clamp(slotIndex, 0, rows.Count - 1);
         int before = slotIndex;
-        if (Choose(keyboard, rows.Count, ref slotIndex))
+        if (Kit.MoveAndChoose(keyboard, rows.Count, ref slotIndex))
         {
             ChooseSlotRow(rows[slotIndex]);
             if (!PageOpen || screen != Screen.Slots) return;
@@ -393,13 +359,13 @@ internal static partial class ArcadeGear
 
     private static void UpdatePick(InputKeyboard keyboard, InputMouse? mouse)
     {
-        if (BackPressed(keyboard, mouse) || picks.Count == 0)
+        if (Kit.BackPressed(keyboard, mouse) || picks.Count == 0)
         {
             ShowScreen(Screen.Slots);
             return;
         }
         int before = pickIndex;
-        if (Choose(keyboard, picks.Count, ref pickIndex))
+        if (Kit.MoveAndChoose(keyboard, picks.Count, ref pickIndex))
         {
             ChoosePick(picks[pickIndex]);
             return;
@@ -440,13 +406,13 @@ internal static partial class ArcadeGear
 
     private static void UpdateConfirm(InputKeyboard keyboard, InputMouse? mouse)
     {
-        if (BackPressed(keyboard, mouse))
+        if (Kit.BackPressed(keyboard, mouse))
         {
             ShowScreen(Screen.Slots);
             return;
         }
         var rows = new List<string> { "Keep my arcade gear", "Use my story gear" };
-        if (Choose(keyboard, rows.Count, ref confirmIndex))
+        if (Kit.MoveAndChoose(keyboard, rows.Count, ref confirmIndex))
         {
             string? message = null;
             if (confirmIndex == 1 && ClearAll(out message))
@@ -470,11 +436,11 @@ internal static partial class ArcadeGear
     {
         var b = ui!.MakeButton(ui.ListPanel!, "", () =>
         {
-            if (!Live || !ClicksLive) return;
+            if (!Kit.Live || !Kit.ClicksLive) return;
             if (screen == Screen.Slots) ClosePage("Done");
             else ShowScreen(Screen.Slots);
         });
-        b.Text = () => (screen == Screen.Slots ? "Done" : "Back") + $" <size=65%><color=#9D92B4>{(UsingPad() ? "B" : "Esc/X")}</color></size>";
+        b.Text = () => (screen == Screen.Slots ? "Done" : "Back") + $" <size=65%><color=#9D92B4>{(PadInput.InUse ? "B" : "Esc/X")}</color></size>";
         Place(b.Rect, new Vector2(1, 0), new Vector2(-16, 20), new Vector2(170, 52), new Vector2(1, 0));
     }
 

@@ -1,6 +1,7 @@
 using System.Globalization;
 using UnityEngine;
 using UnityEngine.UI;
+using static NocturneFlatScroll.EditorPageKit;
 using static NocturneFlatScroll.EditorUi;
 using Object = UnityEngine.Object;
 
@@ -14,27 +15,16 @@ internal static partial class BattleCreator
 {
     private enum Page { Info, Song, Charts, Enemy, Art, Gear, Dialogue }
 
+    // The frame's bars and side column; a row's height and step are the page kit's (RowH, RowStep).
     private const float TopH = 64f, BottomH = 92f, LeftW = 300f;
-    private const float RowH = 44f, RowStep = 52f;
     // Two columns on the pages: the first from 0, the second from Col2.
     private const float Col1W = 820f, Col2 = 880f, Col2W = 640f;
-
-    /// <summary>A button that the keyboard can reach.</summary>
-    private sealed class Control
-    {
-        internal UiButton Button = null!;
-        internal Func<bool>? Shown;
-        internal Action Activate = null!;
-        internal bool Visible => Shown?.Invoke() ?? true;
-    }
 
     private static Page page = Page.Info;
     private static int focus = -1;
     private static RectTransform? editPanel, pagesArea;
     private static TMP_Text? titleText;
-    private static Image? focusMarker, cardImage;
-    // The button the marker sits on (it is moved into that button, just left of it).
-    private static UiButton? markerOn;
+    private static Image? cardImage;
     private static readonly Dictionary<Page, RectTransform> pagePanels = new();
     private static readonly Dictionary<Page, List<Control>> controls = new();
     // The bottom bar's buttons, after each page's own in the keyboard's order.
@@ -52,7 +42,6 @@ internal static partial class BattleCreator
         pagePanels.Clear();
         controls.Clear();
         barControls.Clear();
-        markerOn = null;
         editPanel = MakeRect("Edit", Ui.CanvasRect);
         Stretch(editPanel, 0, 0, 0, 0);
 
@@ -73,8 +62,7 @@ internal static partial class BattleCreator
         BuildGearPage();
         BuildDialoguePage();
         // The keyboard's marker: a bar left of the button it's on (see DrawEdit).
-        focusMarker = MakeImage("Focus", pagesArea, Accent);
-        focusMarker.gameObject.SetActive(false);
+        Kit.BuildFocusMarker(pagesArea);
 
         BuildTopBar();
         BuildLeftPanel();
@@ -86,12 +74,7 @@ internal static partial class BattleCreator
 
     private static void BuildTopBar()
     {
-        var top = MakeImage("TopBar", editPanel!, PanelColor).rectTransform;
-        top.anchorMin = new Vector2(0, 1);
-        top.anchorMax = new Vector2(1, 1);
-        top.pivot = new Vector2(0.5f, 1);
-        top.sizeDelta = new Vector2(0, TopH);
-        top.anchoredPosition = Vector2.zero;
+        var top = AddBar(editPanel!, "TopBar", true, TopH);
         titleText = MakeText("Title", top, 22, TextAlignmentOptions.Left);
         titleText.enableWordWrapping = false;
         titleText.overflowMode = TextOverflowModes.Ellipsis;
@@ -100,12 +83,7 @@ internal static partial class BattleCreator
 
     private static void BuildLeftPanel()
     {
-        var left = MakeImage("PagesList", editPanel!, PanelColor).rectTransform;
-        left.anchorMin = new Vector2(0, 0);
-        left.anchorMax = new Vector2(0, 1);
-        left.pivot = new Vector2(0, 0.5f);
-        left.offsetMin = new Vector2(0, BottomH);
-        left.offsetMax = new Vector2(LeftW, -TopH);
+        var left = AddSideColumn(editPanel!, "PagesList", LeftW, TopH, BottomH);
         float y = -14;
         Ui.Header(left, "Pages", ref y);
         foreach (var (p, name) in Pages)
@@ -135,12 +113,7 @@ internal static partial class BattleCreator
 
     private static void BuildBottomBar()
     {
-        var bar = MakeImage("BottomBar", editPanel!, PanelColor).rectTransform;
-        bar.anchorMin = new Vector2(0, 0);
-        bar.anchorMax = new Vector2(1, 0);
-        bar.pivot = new Vector2(0.5f, 0);
-        bar.sizeDelta = new Vector2(0, BottomH);
-        bar.anchoredPosition = Vector2.zero;
+        var bar = AddBar(editPanel!, "BottomBar", false, BottomH);
         var buttons = new (string Label, Action Do, float Width)[]
         {
             ("Save", () => Save(), 170), ("Export .nbbbattle...", StartExport, 260), ("Open folder", () => { if (draft != null) OpenInExplorer(draft.Folder); }, 190),
@@ -167,129 +140,35 @@ internal static partial class BattleCreator
         barControls.Add(new Control { Button = back, Activate = goBack });
     }
 
-    // ---- page building blocks ----------------------------------------------------------------------
+    // ---- page building blocks (the kit's rows, on a page's panel and in its keyboard order) ----------
 
-    private static UiButton AddButton(Page p, float x, float y, float w, float h, string text, Action click, Func<bool>? shown = null)
-    {
-        var b = Ui.MakeButton(pagePanels[p], text, () => { if (!Busy) click(); });
-        PlaceTop(b.Rect, x, y, w, h);
-        if (shown != null) b.Visible = shown;
-        controls[p].Add(new Control { Button = b, Shown = shown, Activate = click });
-        return b;
-    }
+    private static UiButton AddButton(Page p, float x, float y, float w, float h, string text, Action click, Func<bool>? shown = null) =>
+        Kit.AddButton(pagePanels[p], controls[p], x, y, w, h, text, click, shown);
 
     /// <summary>A row showing a label and a value; clicking it types a new value.</summary>
-    private static UiButton AddField(Page p, float x, ref float y, float w, TextField field, Func<bool>? shown = null, float h = RowH)
-    {
-        var b = AddButton(p, x, y, w, h, "", () => StartTyping(field), shown);
-        b.Text = () => FieldText(field, b);
-        b.Active = () => typing == field;
-        b.Label.alignment = field.Tall ? TextAlignmentOptions.TopLeft : TextAlignmentOptions.Left;
-        b.Label.margin = new Vector4(16, field.Tall ? 10 : 0, 12, field.Tall ? 8 : 0);
-        b.Label.fontSize = 19;
-        if (field.Tall)
-        {
-            // A long text ends in "..." when it doesn't fit; while it's typed, its end shows instead (FieldText).
-            b.Label.enableWordWrapping = true;
-            b.Label.overflowMode = TextOverflowModes.Ellipsis;
-        }
-        y -= h + (RowStep - RowH);
-        return b;
-    }
+    private static UiButton AddField(Page p, float x, ref float y, float w, TextField field, Func<bool>? shown = null, float h = RowH) =>
+        Kit.AddField(pagePanels[p], controls[p], x, ref y, w, field, shown, h);
 
     /// <summary>A row with a label and a value that picks from a list when clicked.</summary>
-    private static UiButton AddChoice(Page p, float x, ref float y, float w, string label, Func<string> value, Action click, Func<bool>? shown = null)
-    {
-        var b = AddButton(p, x, y, w, RowH, "", click, shown);
-        b.Text = () => $"<color=#9D92B4>{label}</color><pos=32%>{value()}";
-        b.Label.alignment = TextAlignmentOptions.Left;
-        b.Label.margin = new Vector4(16, 0, 12, 0);
-        b.Label.fontSize = 19;
-        y -= RowStep;
-        return b;
-    }
+    private static UiButton AddChoice(Page p, float x, ref float y, float w, string label, Func<string> value, Action click, Func<bool>? shown = null) =>
+        Kit.AddChoice(pagePanels[p], controls[p], x, ref y, w, label, value, click, shown);
 
     /// <summary>A button that shows a setting and flips it; lit while it's on.</summary>
-    private static UiButton AddToggle(Page p, float x, ref float y, float w, Func<string> text, Func<bool> on, Action flip, Func<bool>? shown = null)
-    {
-        var b = AddButton(p, x, y, w, RowH, "", flip, shown);
-        b.Text = text;
-        b.Active = on;
-        b.Label.fontSize = 19;
-        y -= RowStep;
-        return b;
-    }
+    private static UiButton AddToggle(Page p, float x, ref float y, float w, Func<string> text, Func<bool> on, Action flip, Func<bool>? shown = null) =>
+        Kit.AddToggle(pagePanels[p], controls[p], x, ref y, w, text, on, flip, shown);
 
     /// <summary>"-" and "+" around a value.</summary>
-    private static void AddStepper(Page p, float x, ref float y, float w, Func<string> value, Action less, Action more, Func<bool>? shown = null)
-    {
-        AddButton(p, x, y, 56, RowH, "-", less, shown);
-        var label = MakeText("Value", pagePanels[p], 19, TextAlignmentOptions.Center);
-        PlaceTop(label.rectTransform, x + 60, y, w - 120, RowH);
-        var live = Ui.AddLiveText(label, value);
-        if (shown != null) live.Visible = shown;
-        AddButton(p, x + w - 56, y, 56, RowH, "+", more, shown);
-        y -= RowStep;
-    }
+    private static void AddStepper(Page p, float x, ref float y, float w, Func<string> value, Action less, Action more, Func<bool>? shown = null) =>
+        Kit.AddStepper(pagePanels[p], controls[p], x, ref y, w, value, less, more, shown);
 
-    private static void AddHeader(Page p, float x, ref float y, float w, string text, Func<bool>? shown = null)
-    {
-        var t = MakeText(text, pagePanels[p], 15, TextAlignmentOptions.Left);
-        t.text = text.ToUpperInvariant();
-        t.color = DimText;
-        PlaceTop(t.rectTransform, x + 2, y, w, 20);
-        if (shown != null) Ui.AddLiveText(t, () => text.ToUpperInvariant()).Visible = shown;
-        y -= 28;
-    }
+    private static void AddHeader(Page p, float x, ref float y, float w, string text, Func<bool>? shown = null) =>
+        Kit.AddHeader(pagePanels[p], x, ref y, w, text, shown);
 
     /// <summary>Text worked out each frame (rich text allowed; escape anything from files).</summary>
-    private static TMP_Text AddText(Page p, float x, ref float y, float w, float h, Func<string> text, float size = 18, Func<bool>? shown = null)
-    {
-        var t = MakeText("Text", pagePanels[p], size, TextAlignmentOptions.TopLeft);
-        t.color = DimText;
-        PlaceTop(t.rectTransform, x + 2, y, w, h);
-        var live = Ui.AddLiveText(t, text);
-        if (shown != null) live.Visible = shown;
-        y -= h + 8;
-        return t;
-    }
+    private static TMP_Text AddText(Page p, float x, ref float y, float w, float h, Func<string> text, float size = 18, Func<bool>? shown = null) =>
+        Kit.AddText(pagePanels[p], x, ref y, w, h, text, size, shown);
 
-    // What is being typed, as last fitted to its row: it is measured again only when it changes.
-    private static TextField? fittedField;
-    private static string fittedText = "", fittedShown = "";
-
-    private static string FieldText(TextField field, UiButton button)
-    {
-        // While typing the row is lit in the accent colour, where the dim label wouldn't read.
-        string label = typing == field ? field.Label : $"<color=#9D92B4>{field.Label}</color>";
-        string Row(string shown) => field.Tall ? $"{label}\n{shown}" : $"{label}<pos=32%>{shown}";
-        if (typing == field)
-        {
-            // The end of the text, where the "_" cursor is, always shows: what doesn't fit is cut from the start.
-            if (fittedField != field || fittedText != typed)
-            {
-                fittedField = field;
-                fittedText = typed;
-                fittedShown = TextTail.Fit(typed, shown => Fits(button, field.Tall, Row(Escape(shown) + "_"), Escape(shown) + "_"));
-            }
-            return Row(Escape(fittedShown) + "_");
-        }
-        string value = field.Get();
-        return Row(value.Trim().Length == 0 ? $"<color=#9D92B4>{Escape(field.Empty?.Invoke() ?? "(click to set)")}</color>" : Escape(value));
-    }
-
-    /// <summary>Whether a field's row text fits in its button, measured the way TextMeshPro lays it out.</summary>
-    private static bool Fits(UiButton button, bool multiLine, string row, string value)
-    {
-        var text = button.Label;
-        var margin = text.margin;
-        var size = button.Rect.rect.size;
-        float width = size.x - margin.x - margin.z, height = size.y - margin.y - margin.w;
-        if (width <= 0 || height <= 0) return true;
-        if (multiLine) return text.GetPreferredValues(row, width, 0).y <= height;
-        // One line: the value starts at 32% of the width (the <pos=32%> in the row).
-        return text.GetPreferredValues(value).x <= width * 0.68f - 4;
-    }
+    private static string FieldText(TextField field, UiButton button) => Kit.FieldText(field, button);
 
     // ---- the pages ------------------------------------------------------------------------------------
 
@@ -487,24 +366,7 @@ internal static partial class BattleCreator
                           $"{(draft.Dirty ? " <color=#F2B02E>*</color>" : "")}   <size=75%><color=#9D92B4>{Escape(Path.GetFileName(draft.Folder))}</color></size>";
         var shown = VisibleControls();
         if (focus >= shown.Count) focus = shown.Count - 1;
-        if (focus >= 0 && typing == null)
-        {
-            var c = shown[focus];
-            if (markerOn != c.Button)
-            {
-                // Inside the button, just left of it, so it goes wherever the button is (a page or the bottom bar).
-                var rect = focusMarker!.rectTransform;
-                rect.SetParent(c.Button.Rect, false);
-                rect.anchorMin = new Vector2(0, 0);
-                rect.anchorMax = new Vector2(0, 1);
-                rect.pivot = new Vector2(1, 0.5f);
-                rect.sizeDelta = new Vector2(6, 0);
-                rect.anchoredPosition = new Vector2(-8, 0);
-                markerOn = c.Button;
-            }
-            if (!focusMarker!.gameObject.activeSelf) focusMarker.gameObject.SetActive(true);
-        }
-        else if (focusMarker!.gameObject.activeSelf) focusMarker.gameObject.SetActive(false);
+        Kit.DrawFocus(focus >= 0 && typing == null ? shown[focus] : null);
         string status = Ui.MessageShowing ? Escape(Ui.Message) : "";
         Ui.DrawStatus(status, LeftW, 0, BottomH);
     }

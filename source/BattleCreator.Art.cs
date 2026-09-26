@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using UnityEngine;
+using static NocturneFlatScroll.EditorPageKit;
 using static NocturneFlatScroll.EditorUi;
 
 namespace NocturneFlatScroll;
@@ -1014,7 +1015,7 @@ internal static partial class BattleCreator
 
     private static TextField ArtField(string label, Func<string> get, Action<double?> set, double min, double max, string hint, bool optional = false)
     {
-        var field = new TextField { Label = label, Max = 10, Enemy = true, Get = get, Hint = hint };
+        var field = new TextField { Label = label, Max = 10, MayEdit = EnemyEditable, Get = get, Hint = hint };
         field.Set = text =>
         {
             double? value = ParseNumber(text, min, max, field.Label);

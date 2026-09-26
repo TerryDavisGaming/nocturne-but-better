@@ -86,7 +86,7 @@ internal static partial class ArcadeGear
         bool over = false;
         if (shown)
         {
-            ShowText(UsingPad());
+            ShowText(PadInput.InUse);
             over = Cursor.visible && mouse != null && Over(control!, mouse.position.ReadValue());
             var color = over && !PageOpen ? HoverColor : Color.clear;
             if (controlBox != null && controlBox && controlBox.color != color) controlBox.color = color;
@@ -199,12 +199,6 @@ internal static partial class ArcadeGear
         var events = UnityEngine.EventSystems.EventSystem.current;
         var selected = events != null && events ? events.currentSelectedGameObject : null;
         return selected != null && selected ? selected : null;
-    }
-
-    private static bool UsingPad()
-    {
-        try { return NocturneInput.IsUsingGamepad; }
-        catch { return false; }
     }
 
     // ---- for the QA drivers: reads only --------------------------------------------------------------

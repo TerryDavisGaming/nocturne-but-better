@@ -44,6 +44,16 @@ internal static class PadInput
     /// <summary>Up (-1) or down (+1) this frame, from the d-pad or the left stick, with repeat; 0 for none.</summary>
     internal static int Move() => move;
 
+    /// <summary>Whether the game says a pad is in use, so a page names the pad's buttons instead of the keys; false when it can't say.</summary>
+    internal static bool InUse
+    {
+        get
+        {
+            try { return NocturneInput.IsUsingGamepad; }
+            catch { return false; }
+        }
+    }
+
     /// <summary>Called once a frame, before the pages read it; <paramref name="wanted"/>: a page can use the pad now.</summary>
     internal static void Update(bool wanted)
     {

@@ -1,3 +1,5 @@
+using static NocturneFlatScroll.EditorPageKit;
+
 namespace NocturneFlatScroll;
 
 // A new battle from an osu!mania beatmap (beta, not recommended): the .osz is read on a worker

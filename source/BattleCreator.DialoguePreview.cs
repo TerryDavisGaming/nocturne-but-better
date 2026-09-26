@@ -755,7 +755,7 @@ internal static partial class BattleCreator
     {
         foreach (var image in dialoguePortraits)
             if (image) image.sprite = null;
-        if (pickerFace) pickerFace!.sprite = null;
+        kit?.ClearPickerFace();
         foreach (var face in decodedFaces.Values)
         {
             if (face.Sprite != null && face.Sprite) Object.Destroy(face.Sprite);
