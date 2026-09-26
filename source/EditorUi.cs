@@ -53,7 +53,13 @@ internal sealed class EditorUi
     internal bool IsAlive => !destroyed && root;
 
     /// <summary>Builds the canvas: drawn over everything, with the dark background filling it.</summary>
-    internal EditorUi(string name, int sortingOrder = 32000)
+    /// <param name="blockGameClicks">
+    /// The game's menus take mouse clicks and hovers through the EventSystem, which doesn't see this
+    /// canvas. With this, the canvas gets a raycaster and its background takes the ray, so nothing
+    /// the game draws underneath is hovered or clicked while the screen is up. The screen's own
+    /// buttons don't need it: <see cref="UpdateButtons"/> hit-tests them itself.
+    /// </param>
+    internal EditorUi(string name, int sortingOrder = 32000, bool blockGameClicks = false)
     {
         root = new GameObject(name);
         Object.DontDestroyOnLoad(root);
@@ -66,7 +72,11 @@ internal sealed class EditorUi
         // Expand keeps at least 1920x1080 units on screen at any aspect, so nothing is pushed off it.
         scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.Expand;
         CanvasRect = root.GetComponent<RectTransform>();
-        Stretch(MakeImage("Background", CanvasRect, Background).rectTransform, 0, 0, 0, 0);
+        var background = MakeImage("Background", CanvasRect, Background);
+        Stretch(background.rectTransform, 0, 0, 0, 0);
+        if (!blockGameClicks) return;
+        root.AddComponent<GraphicRaycaster>();
+        background.raycastTarget = true;
     }
 
     /// <summary>Removes the canvas and everything on it.</summary>
