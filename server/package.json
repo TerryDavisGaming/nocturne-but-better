@@ -1,0 +1,23 @@
+{
+  "name": "nbb-hub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "the online hub for the nocturne but better mod: custom battles and custom difficulties, on the owner's own cloudflare account",
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "4.69.0"
+  },
+  "cloudflare": {
+    "label": "nocturne but better hub",
+    "products": ["Workers", "D1", "R2"],
+    "bindings": {
+      "ADMIN_KEY": {
+        "description": "the owner's key for the /admin page. make it on your own pc (see the readme), paste it here, keep it in a password manager, and never share it."
+      }
+    }
+  }
+}
