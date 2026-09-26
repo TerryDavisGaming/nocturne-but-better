@@ -1,6 +1,6 @@
 # nocturne but better
 
-flat upscroll and downscroll for nocturne, with compact vertical health and energy bars beside the chart. in the flat modes you can change the receptor height, the note size, and the lane spacing. it also has circle and arrow note skins, an early/late timing bar like the one in osu!mania, an optional hit sound, a miss sound volume that goes up to 300%, see-through enemy attacks, a switch for note flares, a preview of the game's note colors next to the red of a mine, and a "but better" under the nocturne logo. alt, tab, and the windows key no longer start a battle by accident. you can make CUSTOM DIFFICULTIES for the game's songs in an IN-GAME EDITOR LIKE OSU!MANIA'S, play them instead of the game's charts, and share them as one file. and you can build CUSTOM BATTLES: your own song and charts against a game enemy or your own art, with set gear, a set level, and boss-style dialogue if you want them. they play in the arcade, which now opens from the main menu, and they share as one file too. you can switch back to the game's original look from options > gameplay.
+flat upscroll and downscroll for nocturne, with compact vertical health and energy bars beside the chart. in the flat modes you can change the receptor height, the note size, and the lane spacing. it also has circle and arrow note skins, an early/late timing bar like the one in osu!mania, an optional hit sound, a miss sound volume that goes up to 300%, see-through enemy attacks, a switch for note flares, a preview of the game's note colors next to the red of a mine, and a "but better" under the nocturne logo. alt, tab, and the windows key no longer start a battle by accident. you can make CUSTOM DIFFICULTIES for the game's songs in an IN-GAME EDITOR LIKE OSU!MANIA'S, play them instead of the game's charts, and share them as one file. and you can build CUSTOM BATTLES: your own song and charts against a game enemy or your own art, with set gear, a set level, and boss-style dialogue if you want them. they play in the arcade, which now opens from the main menu and has its OWN GEAR that you pick there, and they share as one file too. you can switch back to the game's original look from options > gameplay.
 
 it works on the base steam game, with melonloader, or with bepinex. YOU DON'T NEED A MOD LOADER: on a plain steam install, `install.cmd` sets up the bepinex loader that comes in the zip, so there's nothing else to download. if you already use melonloader 0.7.3 or newer, the mod goes into its `mods` folder instead.
 
@@ -12,7 +12,7 @@ use the release zip to install. github's source download does not include the pl
 
 ## settings
 
-open options > gameplay. the mod adds ten rows above speed mod. [custom difficulties](#custom-difficulties) have their own page, and the [battle creator](#the-battle-creator) opens from it. the hit sound and miss sound settings are in options > audio, under sound effects.
+open options > gameplay. the mod adds eleven rows above speed mod. [custom difficulties](#custom-difficulties) have their own page, and the [battle creator](#the-battle-creator) opens from it. the hit sound and miss sound settings are in options > audio, under sound effects.
 
 note scrolling:
 
@@ -42,13 +42,15 @@ the game's own note colors row, further down the same page, now has a preview un
 
 enemy attack opacity makes the enemy see-through while it attacks, so the notes behind it stay readable. it goes from 0% (invisible) to 100% (unchanged, the default) in 10% steps and works in every scrolling mode. most attacks are drawn as part of the enemy's own animation, like the firefly's beam, so the whole enemy fades for the length of the attack and comes back when the attack ends, taking about a tenth of a second each way. its shadow and any sidekicks fade with it. effects that only show up as attacks, like the vines that grow over the lanes, stay faded the whole time they're on screen. the game's own flashes and tints still show, and a defeated enemy is left alone so its death plays normally.
 
-infinite consumables (arcade), the last of the mod's rows, starts off. when it's on, using a consumable in an arcade battle doesn't use it up. the game's own limits stay, so you still get one use per battle. it works in the main menu's arcade and in the story's arcade cabinet, for the game's songs and for custom battles that use your own gear. a [custom battle that sets your gear](#gear-and-level) uses up its own consumable as usual and never touches yours.
+infinite consumables (arcade) starts off. when it's on, using a consumable in an arcade battle doesn't use it up. the game's own limits stay, so you still get one use per battle. it works in the main menu's arcade and in the story's arcade cabinet, for the game's songs and for custom battles that use your own gear. a [custom battle that sets your gear](#gear-and-level) uses up its own consumable as usual and never touches yours.
+
+all items (arcade gear), the last of the mod's rows, starts off. when it's on, the [arcade's gear page](#gear-in-the-arcade) lists every item in the game, not just the ones your save owns. a battle with an item your save doesn't own SAVES NO SCORE AND COUNTS FOR NO ACHIEVEMENTS, and the arcade says so before you start it.
 
 in options > audio, hit sound plays a short tick when you hit a note, and it starts off. hit sound volume sets how loud the tick is, from 5% to 100% (80% to start with). changing either one plays a tick a moment later, after the menu's own click, so you can hear the new level. the tick is the game's own menu click, so the game's sound effect volume sliders apply to it as well. it plays for taps and the starts of holds that you hit, once for a chord. misses already have the game's own sound, and auto-played lanes and hold releases stay quiet. the tick plays when the game judges your press, a frame or so after the key goes down, plus your audio output delay.
 
 miss sound, also in options > audio, turns the game's miss sound on or off. it's the same setting as note miss sounds in options > gameplay, so changing one changes the other. miss sound volume goes from 10% to 300% in 10% steps, and 100% is the game's normal level. at any other level the mod plays the miss itself, from its own sound source turned up or down, so the music and the other sounds don't change. changing the volume plays a miss a moment later so you can hear it, and the game's sound effect volumes still apply. critical misses are already louder than normal ones, and the game's audio limiter stops them getting much louder past about 160%.
 
-press left or right to change a value, and hold to keep changing it. all the settings are saved on that pc. reset to default in options > gameplay puts the ten gameplay rows back to default, 0%, 100%, 100%, default, on, off, below enemy, 100%, and off. the game's own reset there also turns miss sounds back on. like the game's own sound settings, the rest of the audio page has no reset, so the hit sound settings and the miss sound volume stay as they are. upgrading from an earlier version keeps your saved settings.
+press left or right to change a value, and hold to keep changing it. all the settings are saved on that pc. reset to default in options > gameplay puts the eleven gameplay rows back to default, 0%, 100%, 100%, default, on, off, below enemy, 100%, off, and off. the game's own reset there also turns miss sounds back on. like the game's own sound settings, the rest of the audio page has no reset, so the hit sound settings and the miss sound volume stay as they are. upgrading from an earlier version keeps your saved settings.
 
 both flat modes keep the game's artwork, icons, and vertical meter text. player meters sit lower left and enemy meters upper right, each pair close to the chart.
 
@@ -115,6 +117,16 @@ custom battles get a chapter after the game's own chapters, on a tab called cust
 selecting a battle shows a box under the score on the right: what the battle sets, if it sets anything (see [gear and level](#gear-and-level)), then its lore, or who made the song and the charts when it has none.
 
 the song plays through the mod's own player, without the game's audio engine, and the battle ends a beat after the last note. when the first note comes early in the song, the notes start up to 3 s before the song, so they scroll in from the far end of the lane instead of showing up halfway down it. five-lane battles use the game's centred five-lane layout. custom battles never count towards achievements and give no xp. the arcade keeps their scores under each battle's id, which never changes, so a battle keeps its scores through edits and new titles.
+
+### gear in the arcade
+
+the arcade you open from the main menu has ITS OWN GEAR. its title bar gets a gear control on the right that reads "gear: story" or "gear: arcade". click it, press g, or press view on a controller, and the arcade gear page lists your weapon, armor, head, off hand, amulet and consumable, with what the next battle uses in each. choose a slot to pick "story gear" (whatever your story has equipped, now and later), "(empty)", or one of the items your save owns. a consumable shows how many you have left. your pick is saved at once. "use my story gear in every slot" puts them all back. the page works with the mouse, the keyboard (enter or z picks, esc or x goes back) and a controller (a picks, b goes back).
+
+every battle in that arcade uses this gear: the game's songs, and custom battles that use your gear. a custom battle that sets its own gear still uses its own. your level, health upgrades and pet are always your save's own. achievements count as usual, since the items are yours.
+
+YOUR STORY SAVE NEVER CHANGES. the gear is kept in `nocturnebutbetter\arcadegear.json`, one set for each save slot, and a battle runs on a copy of your items. the story's own arcade cabinet keeps your story gear. with [infinite consumables](#settings) off, a consumable you use in the arcade is gone until you leave the arcade, as it always was, and once none are left its slot is empty. an item your save doesn't have any more falls back to your story gear, and the page says why. a new game in the same save slot starts with story gear, and the page offers "use the gear i set before" to bring the old picks back.
+
+with all items (arcade gear) on in [options > gameplay](#settings), the page lists every item in the game, test items too. a battle with an item your save doesn't own SAVES NO SCORE and COUNTS FOR NO ACHIEVEMENTS: the results screen still shows how you did, but the score never reaches your `.score` file. the gear control then reads "gear: arcade (all items: scores aren't saved)", and the box on the right says "all items: scores aren't saved." for every song it applies to. with only owned items in the slots, scores and achievements count as usual.
 
 ### the battle creator
 
@@ -196,6 +208,8 @@ the gear & level page sets what the player fights with:
 
 in a battle that sets gear, the player has exactly those items, and empty slots stay empty. key items, followers, the pet and money stay theirs. their gear, health upgrades and level COME BACK AFTERWARDS however the battle ends, whether they win, lose, or quit from the pause menu. nothing is saved and no xp is earned. the game allows one consumable use per battle. a set-gear battle uses up its own consumable, never the player's, and [infinite consumables](#settings) doesn't apply to it.
 
+in the arcade from the main menu, "your gear" is the [arcade gear](#gear-in-the-arcade) you picked there: a battle that doesn't set gear uses it, and it's what comes back after a battle that does.
+
 players see what a battle sets before they start. in the arcade, the box on the right says it, like "sets your level and gear. level 12 (yours: 8). gear: only ancient katana, alloy vest, potion. health upgrades: 0. yours come back afterward." ("only" means some slots are left empty), and the card gets an amber tag under its melody row: "set gear, level 12", "set gear" or "set level 12". the page shows the same text under "players see in the arcade".
 
 ### dialogue
@@ -251,7 +265,7 @@ a battle the creator made has:
 - `art`: the enemy's art, and any sprite sheets made with turn into frames.
 - `portraits`: your speakers' pictures.
 
-a `.creator-work` folder inside the battles folder holds battles while they're being made or unpacked, and the creator cleans it out when it opens. videos from zipped battles are copied to `...\nocturnebutbetter\cache\enemyart` before they play, and that folder is trimmed to 1 gb. custom battle scores are kept in your save's `.score` file. uninstalling keeps all of it.
+a `.creator-work` folder inside the battles folder holds battles while they're being made or unpacked, and the creator cleans it out when it opens. videos from zipped battles are copied to `...\nocturnebutbetter\cache\enemyart` before they play, and that folder is trimmed to 1 gb. custom battle scores are kept in your save's `.score` file. the arcade's gear is in `...\nocturnebutbetter\arcadegear.json`. uninstalling keeps all of it.
 
 ## install
 
