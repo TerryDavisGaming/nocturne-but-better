@@ -300,6 +300,21 @@ internal static class CustomCharts
     }
 
     /// <summary>
+    /// The difficulties in a pack, checked the way <see cref="Import"/> checks them (every song is a
+    /// game song that takes custom charts, every block validates, the lanes match), without copying
+    /// anything. The hub checks a downloaded pack with it before the file is moved into place.
+    /// Main thread only (it looks the songs up).
+    /// </summary>
+    internal static List<CustomChart> Probe(string path)
+    {
+        var probe = new List<CustomChart>();
+        AddPack(probe, Path.GetDirectoryName(path)!, path);
+        if (probe.Count == 0) throw new InvalidDataException("the file has no difficulties in it");
+        Check(probe);
+        return probe;
+    }
+
+    /// <summary>
     /// Saves every loaded song's own .sm, tagged with its song and melody, as a starting point for
     /// new charts: copy one out of the folder, change the notes, and it keeps the song's timing.
     /// </summary>

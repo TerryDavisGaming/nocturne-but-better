@@ -277,7 +277,7 @@ internal static class CustomBattles
     }
 
     // The game's own reader must take the chart, or the battle couldn't start.
-    private static void CheckChart(BattlePackage package)
+    internal static void CheckChart(BattlePackage package)
     {
         var built = NotesLoaderSM.Instance.LoadFromText(package.PlayableText);
         if (built == null || built.steps == null || built.steps.Count == 0 || built.timingData == null)

@@ -853,7 +853,7 @@ internal static class BattleFiles
 
     // The loader's limits for each kind of file. Enemy art in art/ may be bigger than a card image,
     // and a speaker's picture in portraits/ smaller.
-    private static long LimitFor(string name)
+    internal static long LimitFor(string name)
     {
         string ext = Path.GetExtension(name).ToLowerInvariant();
         return ext switch
@@ -892,13 +892,13 @@ internal static class BattleFiles
     // ---- exporting a .nbbbattle ------------------------------------------------------------------
 
     // Already compressed: zipping them again only takes time.
-    private static readonly HashSet<string> Packed = new(StringComparer.OrdinalIgnoreCase)
+    internal static readonly HashSet<string> Packed = new(StringComparer.OrdinalIgnoreCase)
     {
         ".ogg", ".mp3", ".m4a", ".aac", ".flac", ".wma", ".opus", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".webm", ".m4v", ".mov"
     };
 
     // Files Windows or the creator leave in folders, which don't belong in a shared battle.
-    private static bool Skipped(string name)
+    internal static bool Skipped(string name)
     {
         string file = Path.GetFileName(name);
         return file.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)
@@ -1088,6 +1088,12 @@ internal static class BattleFiles
         internal readonly List<uint> DeleteFlags = new();
     }
 
+    /// <summary>Thrown when Windows has no Recycle Bin for a file (turned off, or a drive without one); the file stays.</summary>
+    internal sealed class NotRecyclableException : IOException
+    {
+        internal NotRecyclableException(string message) : base(message) { }
+    }
+
     /// <summary>
     /// Moves a file or folder to the Recycle Bin, and never deletes it for good: when Windows
     /// can't put it in the Recycle Bin, it is left where it is and this throws. Refuses anything
@@ -1100,7 +1106,7 @@ internal static class BattleFiles
         if (!File.Exists(full) && !Directory.Exists(full)) return;
         var outcome = ShellRecycle(full, owner);
         string name = Path.GetFileName(full);
-        if (outcome.NotRecyclable) throw new IOException($"Windows can't put {name} in the Recycle Bin (it would be deleted for good), so it was left where it is");
+        if (outcome.NotRecyclable) throw new NotRecyclableException($"Windows can't put {name} in the Recycle Bin (it would be deleted for good), so it was left where it is");
         if (File.Exists(full) || Directory.Exists(full))
             throw new IOException(outcome.Result < 0 && outcome.Result != EAbort
                 ? $"Windows couldn't move {name} to the Recycle Bin (error 0x{outcome.Result:X8})"

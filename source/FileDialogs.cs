@@ -73,6 +73,7 @@ internal static class FileDialogs
         internal static string[] ChartPacks => new[] { "Nocturne But Better chart packs (*.nbbchart)", "*.nbbchart" };
         internal static string[] BattlePacks => new[] { "Nocturne But Better battles (*.nbbbattle)", "*.nbbbattle" };
         internal static string[] OsuBeatmaps => new[] { "osu! beatmaps (*.osz)", "*.osz" };
+        internal static string[] HubKeys => new[] { "Hub key backups (*.txt)", "*.txt" };
         internal static string[] AllFiles => new[] { "All files", "*.*" };
 
         /// <summary>Several presets in one list, in order; the first is selected when the dialog opens.</summary>
@@ -107,6 +108,8 @@ internal static class FileDialogs
         internal static readonly Purpose SongFolders = new("songfolders", DownloadsFolder, Array.Empty<string>());
         /// <summary>For an osu! beatmap set (.osz) to make a battle from; it's only ever read.</summary>
         internal static readonly Purpose OsuBeatmaps = new("osz", DownloadsFolder, Filters.Join(Filters.OsuBeatmaps, Filters.AllFiles));
+        /// <summary>The hub key's backup file ("Nocturne hub key.txt"); it starts in Documents.</summary>
+        internal static readonly Purpose HubKey = new("hubkey", DocumentsFolder, Filters.Join(Filters.HubKeys, Filters.AllFiles));
 
         internal Purpose(string key, Func<string> defaultFolder, string[] filter)
         {
@@ -123,6 +126,7 @@ internal static class FileDialogs
         private static string PicturesFolder() => Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
         private static string VideosFolder() => Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
         private static string MusicFolder() => Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
+        private static string DocumentsFolder() => Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
         private static string DownloadsFolder() => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
     }
 

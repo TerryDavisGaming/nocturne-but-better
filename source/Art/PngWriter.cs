@@ -16,7 +16,6 @@ internal static class PngWriter
     private static readonly byte[] Signature = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
     // Data chunks of at most this many bytes, as most encoders write them.
     private const int ChunkBytes = 1 << 20;
-    private static readonly uint[] CrcTable = MakeCrcTable();
 
     internal static byte[] Encode(byte[] rgba, int width, int height, CancellationToken cancel = default)
     {
@@ -103,28 +102,10 @@ internal static class PngWriter
         Encoding.ASCII.GetBytes(type, 0, 4, head, 4);
         output.Write(head, 0, 8);
         output.Write(data, offset, count);
-        uint crc = Crc(0xFFFFFFFFu, head, 4, 4);
-        crc = Crc(crc, data, offset, count) ^ 0xFFFFFFFFu;
+        uint crc = Crc32.Update(Crc32.Start, head.AsSpan(4, 4));
+        crc = Crc32.Finish(Crc32.Update(crc, data.AsSpan(offset, count)));
         var tail = new byte[4];
         BinaryPrimitives.WriteUInt32BigEndian(tail, crc);
         output.Write(tail, 0, 4);
-    }
-
-    private static uint Crc(uint crc, byte[] data, int offset, int count)
-    {
-        for (int i = offset; i < offset + count; i++) crc = CrcTable[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
-        return crc;
-    }
-
-    private static uint[] MakeCrcTable()
-    {
-        var table = new uint[256];
-        for (uint n = 0; n < 256; n++)
-        {
-            uint c = n;
-            for (int k = 0; k < 8; k++) c = (c & 1) != 0 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
-            table[n] = c;
-        }
-        return table;
     }
 }

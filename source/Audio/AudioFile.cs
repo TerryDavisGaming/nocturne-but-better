@@ -12,7 +12,8 @@ namespace NocturneFlatScroll;
 /// </summary>
 internal static class AudioFile
 {
-    private enum Kind { Unknown, Wav, Ogg, Flac, Mp3, Adts, Mp4, Asf, Matroska, WebM, Aiff }
+    /// <summary>What a song file is, by its first bytes: which decoder <see cref="Decode"/> gives it to.</summary>
+    internal enum Kind { Unknown, Wav, Ogg, Flac, Mp3, Adts, Mp4, Asf, Matroska, WebM, Aiff }
 
     internal static (short[] Stereo, int Rate) Decode(byte[] bytes, string name)
     {
@@ -34,7 +35,11 @@ internal static class AudioFile
     /// <summary>Whether <see cref="Decode"/> reads these bytes as an MP3 (the first bytes decide, as there).</summary>
     internal static bool IsMp3(byte[] bytes) => Detect(bytes) == Kind.Mp3;
 
-    private static Kind Detect(byte[] b)
+    /// <summary>
+    /// The kind <see cref="Decode"/> takes these bytes for (the whole file, as Decode gets it). The
+    /// hub's media check asks it, so a download's songs are judged by the decoder they would reach.
+    /// </summary>
+    internal static Kind Detect(byte[] b)
     {
         bool At(int p, string s)
         {

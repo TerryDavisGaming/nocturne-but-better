@@ -7,6 +7,12 @@ internal static class ModInfo
     public const string Id = "local.nocturne.flat-scroll";
     public const string Name = "Nocturne But Better";
     public const string Version = "2.6.2";
+
+    /// <summary>
+    /// The online hub behind Get Custom Battles. Built in, so a release build can't be pointed
+    /// anywhere else; only a QA build may use another address (HubConfig). Empty means no hub.
+    /// </summary>
+    public const string HubUrl = "https://hub.nocturnbutbetter.com";
 }
 
 /// <summary>Routes messages to whichever loader started the mod.</summary>
@@ -51,6 +57,7 @@ public static class SettingsState
     private const string NoteFlaresKey = "NocturneFlatScroll.NoteFlares.v1";
     private const string InfiniteConsumablesKey = "NocturneFlatScroll.InfiniteArcadeConsumables.v1";
     private const string ArcadeGearAllItemsKey = "NocturneFlatScroll.ArcadeGearAllItems.v1";
+    private const string OnlineHubKey = "NocturneFlatScroll.Hub.v1";
     public const int MinReceptorHeight = -10;
     public const int MaxReceptorHeight = 30;
     private static ScrollMode? _mode;
@@ -62,6 +69,7 @@ public static class SettingsState
     private static bool? _noteFlares;
     private static bool? _infiniteConsumables;
     private static bool? _arcadeGearAllItems;
+    private static bool? _onlineHub;
     public static ScrollMode Mode => _mode ??= LoadMode();
 
     /// <summary>How notes and receptors are drawn; Default keeps the game's own bars.</summary>
@@ -157,6 +165,20 @@ public static class SettingsState
         PlayerPrefs.SetInt(ArcadeGearAllItemsKey, value ? 1 : 0);
         PlayerPrefs.Save();
         ModLog.Info("All items (arcade gear): " + (value ? "On" : "Off"));
+    }
+
+    /// <summary>
+    /// Whether the online hub (Get Custom Battles) is on. On unless turned off; off hides its
+    /// button, and the mod never contacts the hub.
+    /// </summary>
+    public static bool OnlineHub => _onlineHub ??= PlayerPrefs.GetInt(OnlineHubKey, 1) == 1;
+
+    public static void SetOnlineHub(bool value)
+    {
+        _onlineHub = value;
+        PlayerPrefs.SetInt(OnlineHubKey, value ? 1 : 0);
+        PlayerPrefs.Save();
+        ModLog.Info("Online hub: " + (value ? "On" : "Off"));
     }
 
     /// <summary>
