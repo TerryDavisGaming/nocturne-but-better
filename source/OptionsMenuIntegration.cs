@@ -175,6 +175,8 @@ internal static class OptionsMenuIntegration
     private static void MenuReadyPostfix(GameplayOptionsMenu __instance)
     {
         if (!__instance || refreshing) return;
+        // Before the check below: Awake fills the game's Note Colors row even when it hides the page.
+        AkumaNoteColors.SyncMenu(__instance);
         // MenuPanel.Awake can hide its object before this postfix runs. The subsequent
         // Activate/DidShow hook creates the rows once native child lifecycle methods can run.
         if (!__instance.gameObject.activeInHierarchy) return;

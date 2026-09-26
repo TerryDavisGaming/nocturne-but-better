@@ -140,7 +140,11 @@ internal sealed class NoteColorPreview
         if (index != rowIndex + 1) _root.transform.SetSiblingIndex(index < rowIndex ? rowIndex : rowIndex + 1);
 
         var skin = SettingsState.NoteSkin;
-        string key = NoteStyleManager.CurrentStyleId + "|" + ColumnStyleManager.CurrentStyleId + "|" + skin;
+        string style = NoteStyleManager.CurrentStyleId;
+        // Akuma's lanes follow the pad bindings and the device in use, so a rebind or a switch
+        // between keyboard and pad redraws it too.
+        if (style == AkumaNoteColors.Id) AkumaNoteColors.ReadLanes();
+        string key = style + "|" + ColumnStyleManager.CurrentStyleId + "|" + skin + "|" + AkumaNoteColors.Version;
         if (key == _shown) return;
 
         var lanes = ColumnStyleManager.CurrentColumnColors.defaultColors;
@@ -149,10 +153,10 @@ internal sealed class NoteColorPreview
         for (int i = 0; i < _notes.Length; i++)
         {
             int column = i < 4 ? i : 2, count = i < 4 ? 4 : 5;
-            _notes[i].Show(skin, column, count, NoteStyleManager.GetColorsForColumn(column, count));
+            _notes[i].Show(skin, column, count, Colors(column, count));
         }
         // The hold body takes the second color and its pattern the first, as in battle.
-        var hold = NoteStyleManager.GetColorsForColumn(0, 4);
+        var hold = Colors(0, 4);
         float width = skin == NoteSkin.Default ? 1f : NoteSkins.HoldWidthFactor;
         SetWidth(_holdBody, HoldWidth * width);
         SetWidth(_holdPattern, HoldPatternWidth * width);
@@ -165,6 +169,10 @@ internal sealed class NoteColorPreview
     {
         if (_root) Object.Destroy(_root);
     }
+
+    // A lane's colors as a battle shows them, with Akuma's lane colors put in as its prefix does.
+    private static CombatNoteColorSet Colors(int column, int count) =>
+        AkumaNoteColors.Apply(NoteStyleManager.GetColorsForColumn(column, count), column, count);
 
     private static void SetWidth(Image image, float width)
     {
