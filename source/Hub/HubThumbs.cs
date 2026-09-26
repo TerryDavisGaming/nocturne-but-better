@@ -70,8 +70,14 @@ internal sealed class HubThumbs
         {
             var bytes = source();
             if (bytes == null) return null;
-            var texture = CustomBattles.CardImages.Decode(bytes, "hub thumbnail", 0, out _, out _);
+            var texture = CustomBattles.CardImages.Decode(bytes, "hub thumbnail", 0, out _, out string? why);
             if (texture != null) texture.wrapMode = TextureWrapMode.Clamp;
+            else if (!reported)
+            {
+                // Once a session: a picture that passed the marker check but not the decoder says why.
+                reported = true;
+                ModLog.Info($"Hub: a thumbnail {why ?? "couldn't be decoded"}, so its row shows a title tile.");
+            }
             return texture;
         }
         catch (Exception ex)
