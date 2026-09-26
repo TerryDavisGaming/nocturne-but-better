@@ -386,8 +386,13 @@ internal static class ChartOffset
 
     /// <summary>How far the notes scroll in before the first one when it comes too soon, at most.</summary>
     internal const double MaxLeadIn = 3;
-    /// <summary>A moment more than the notes need, so the first one appears at the far end of the lane.</summary>
-    internal const double LeadInMargin = 0.25;
+    /// <summary>
+    /// A moment more than the notes need, so the first one appears at the far end of the lane. It's
+    /// long enough for a long frame as the notes start (the battle's first frames can be slow, and
+    /// until the song starts the clock moves by the whole frame): up to this much, the first note
+    /// still comes in from the far end.
+    /// </summary>
+    internal const double LeadInMargin = 0.75;
     /// <summary>When the note speed can't be read: about when the game's own charts start.</summary>
     internal const double DefaultApproach = 2;
 
