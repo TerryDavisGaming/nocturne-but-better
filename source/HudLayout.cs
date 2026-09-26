@@ -319,8 +319,10 @@ namespace NocturneFlatScroll
             if (!States.TryGetValue(view.GetInstanceID(), out LayoutState? state) || state == null)
                 return;
             Restore(state);
-            // Each battle reports its badge, even when its enemy's model has the last one's address.
+            // Each battle reports its badge, even when its enemy's model has the last one's address,
+            // and a second after the badge shows in that battle, even if it never hides first.
             state.ArmorReported = false;
+            state.ArmorShownAt = -1f;
         }
 
         private static bool Initialize(LayoutState state)
