@@ -288,6 +288,21 @@ internal static class HubErrors
 
     internal static HubException Network(Exception ex, HubContext context) => new("network", CantReach, 0, ex);
 
+    /// <summary>
+    /// For the log: the reason under a failed connection ("AuthenticationException: The remote
+    /// certificate is invalid ...", "SocketException: No such host is known. (host:443)"), so a
+    /// certificate, a proxy, a name that doesn't resolve and a refused connection can be told apart.
+    /// Those words hold the host, the port and the reason, never a header, a body or the key. Null
+    /// for anything else.
+    /// </summary>
+    internal static string? Cause(HubException ex)
+    {
+        if (!ex.Network || ex.InnerException == null) return null;
+        var cause = ex.InnerException;
+        while (cause.InnerException != null) cause = cause.InnerException;
+        return HubText.CleanLine($"{cause.GetType().Name}: {cause.Message}", 300);
+    }
+
     internal static HubException Timeout(HubContext context) =>
         new("timeout", "The hub didn't answer in time. Check your internet connection and try again.");
 

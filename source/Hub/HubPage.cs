@@ -346,23 +346,33 @@ internal static partial class HubPage
         ModLog.Info("Hub: the hub can't be used now: " + LogWords(ex));
     }
 
-    /// <summary>F5: the hub is asked again, and the tab's list read again.</summary>
+    /// <summary>
+    /// F5 (and Try again): the page's own files when they couldn't be read; the Downloaded folders
+    /// (on Installed and Browse, with or without the hub); then the hub, and the tab's list.
+    /// </summary>
     private static void Refresh()
     {
-        if (store == null) return;
+        if (store == null)
+        {
+            if (link == Link.Down) StartOpening();
+            return;
+        }
+        if (link is Link.Opening or Link.Connecting) return;
+        // Files deleted in Explorer drop out, and the battles on this PC are read again (YOU HAVE IT).
+        if (tab == Tab.Installed) RescanInstalled();
+        else if (tab == Tab.Browse) RescanLocal();
         if (link is Link.Down)
         {
             Connect();
             return;
         }
-        if (link is Link.Opening or Link.Connecting) return;
         switch (tab)
         {
             case Tab.Browse:
-                if (link == Link.Online) RestartBrowse(liveSearch);
-                break;
-            case Tab.Installed:
-                RescanInstalled();
+                if (link != Link.Online) break;
+                // A later page that failed is asked for again (the rows so far stay); otherwise the list starts over.
+                if (browse != null && browse.Started && browseProblem != null) RetryBrowsePage();
+                else RestartBrowse(liveSearch);
                 break;
             case Tab.Mine:
                 LoadMine(force: true);
@@ -549,12 +559,15 @@ internal static partial class HubPage
         };
     }
 
-    // For the log: never a key, a header or a body; the hub's code and status, or the error.
+    // For the log: never a key, a header or a body; the hub's code and status, or the error. A
+    // connection that failed also names its first cause (a certificate, a proxy, a name that
+    // doesn't resolve, a refused connection), whose words hold only the host, the port and the reason.
     private static string LogWords(Exception ex)
     {
         ex = Unwrap(ex);
         if (ex is HubException hub)
-            return $"{hub.Code}{(hub.Status > 0 ? $" ({hub.Status})" : "")}" + (hub.Problems.Count > 0 ? ": " + string.Join("; ", hub.Problems) : "");
+            return $"{hub.Code}{(hub.Status > 0 ? $" ({hub.Status})" : "")}" + (hub.Problems.Count > 0 ? ": " + string.Join("; ", hub.Problems) : "")
+                + (HubErrors.Cause(hub) is { } cause ? $" ({cause})" : "");
         return ex is OperationCanceledException ? "stopped" : ex.GetType().Name + ": " + ex.Message;
     }
 

@@ -88,16 +88,32 @@ internal static partial class HubPage
         var s = store;
         var r = recycler;
         if (s == null || r == null) return;
-        Work("Reading the Downloaded folders...", Task.Run(() =>
-        {
-            HubInstall.CleanLeftovers(s.Reconcile(), s, r);
-            return s.LocalBattleIds(BattleFiles.List(s.Paths.Battles));
-        }), ids =>
+        Work("Reading the Downloaded folders...", Task.Run(() => Rescan(s, r)), ids =>
         {
             localBattleIds = ids;
             RefreshInstalled();
             LookupInstalled();
         });
+    }
+
+    /// <summary>F5 on Browse: the same, while the list keeps working (INSTALLED and YOU HAVE IT follow).</summary>
+    private static void RescanLocal()
+    {
+        var s = store;
+        var r = recycler;
+        if (s == null || r == null) return;
+        jobs.Run(Task.Run(() => Rescan(s, r)), ids =>
+        {
+            localBattleIds = ids;
+            RefreshInstalled();
+        }, ex => LogFailure("reading the Downloaded folders", ex));
+    }
+
+    // A worker's job: the list made to match the Downloaded folders, and the battle ids on this PC the hub didn't install.
+    private static HashSet<string> Rescan(HubStore s, IHubRecycler r)
+    {
+        HubInstall.CleanLeftovers(s.Reconcile(), s, r);
+        return s.LocalBattleIds(BattleFiles.List(s.Paths.Battles));
     }
 
     private static HubInstalledItem? SelectedInstalled => installedRows.Count > 0 ? installedRows[Math.Clamp(installedIndex, 0, installedRows.Count - 1)] : null;

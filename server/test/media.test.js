@@ -4,9 +4,9 @@ import { assert, assertEquals, assertMatch } from "./assert.js";
 import { audioProblem, pictureProblem, thumbProblem, videoProblem } from "../src/media.js";
 import { inflatePrefix } from "../src/inflate.js";
 import { FakeR2 } from "./fakes.js";
-import { checkPackage } from "../src/facts.js";
+import { checkPackage, duplicateKey, field } from "../src/facts.js";
 import { ZipProblem } from "../src/zipcheck.js";
-import { deflateRaw, goodBattle, media, thumbB64 } from "./make-fixtures.js";
+import { battleJson, deflateRaw, goodBattle, goodPack, manifestJson, media, thumbB64 } from "./make-fixtures.js";
 
 const reader = (bytes) => async (offset, length) => bytes.subarray(offset, offset + length);
 const audio = (b) => audioProblem(reader(b), b.length);
@@ -105,6 +105,44 @@ Deno.test("packages: renamed and disguised media are refused, stored or deflated
   assertEquals(await packageVerdict({ "audio/extra.wav": { data: media.wav({ tag: 0xfffe, sub: 1 }) } }), null);
   assertEquals(await packageVerdict({ "audio/song.mp3": { data: media.mp3({ id3: 200000 }) } }), null);
   assertEquals(await packageVerdict({ "art/idle.webm": { data: media.webm({ voidBytes: 100000 }) } }), null);
+});
+
+Deno.test("packages: a key given twice in battle.json or manifest.json, in any capitals, is refused", async () => {
+  // The check reads the exact "audio"; the mod's loader reads the last of the two, here a video that was never checked as a song.
+  const audioTwice = battleJson().replace('"audio": "audio/song.ogg"', '"audio": "audio/song.ogg", "Audio": "art/idle.webm"');
+  assertMatch(await packageVerdict({ "battle.json": { data: audioTwice, method: 8 }, "art/idle.webm": { data: media.webm() } }), /key "Audio" twice/);
+  const cardTwice = battleJson().replace('"card": "images/card.png"', '"CARD": "images/other.png", "card": "images/card.png"');
+  assertMatch(await packageVerdict({ "battle.json": { data: cardTwice, method: 8 }, "images/other.png": { data: media.png() } }), /key "card" twice/);
+  const exact = battleJson().replace('"lanes": 4', '"lanes": 4, "lanes": 4');
+  assertMatch(await packageVerdict({ "battle.json": { data: exact, method: 8 } }), /key "lanes" twice/);
+  const nested = battleJson({ extra: { enemy: { mode: "custom" } } }).replace('"mode": "custom"', '"mode": "custom", "MODE": "normal"');
+  assertMatch(await packageVerdict({ "battle.json": { data: nested, method: 8 } }), /key "MODE" twice/);
+  // The same key in two objects, or a key's name as a value, is fine.
+  const fine = battleJson({ extra: { enemy: { audio: "x", name: "audio" }, notes: [{ audio: 1 }, { Audio: 2 }] } });
+  assertEquals(await packageVerdict({ "battle.json": { data: fine, method: 8 } }), null);
+
+  const pack = await goodPack({ json: manifestJson().replace('"lanes": 4', '"lanes": 4, "Lanes": 5') });
+  const r2 = new FakeR2();
+  await r2.put("p", pack);
+  let refused = null;
+  try {
+    await checkPackage(r2, "p", pack.length, "charts", { maxEntries: 1000, maxUnpacked: 200 * 1024 * 1024, maxSongs: 40 });
+  } catch (e) {
+    if (!(e instanceof ZipProblem)) throw e;
+    refused = e.problems.join(" | ");
+  }
+  assertMatch(refused ?? "", /manifest\.json has the key "Lanes" twice/);
+
+  assertEquals(duplicateKey('{"a":{"b":1},"c":[{"b":2},{"B":3}],"d":"b"}'), null);
+  assertEquals(duplicateKey('{"a":1,"x":{"b":1,"B":2}}'), "B");
+  assertEquals(duplicateKey('{"a\\"b":1,"A\\"B":2}'), 'A"B');
+  assertEquals(duplicateKey(String.raw`{"\u0061udio":1,"audio":2}`), "audio");
+  assertEquals(duplicateKey(String.raw`{"x":"\\","X":1}`), "X");
+  assertEquals(duplicateKey('{"s":"}{,\\"","S":1}'), "S");
+  // Looked up like the mod's reader: the exact key first, then a-z in any case, and no other letter counts as a-z.
+  assertEquals(field({ KIND: "battle" }, "kind"), "battle");
+  assertEquals(field({ [String.fromCharCode(0x212a) + "ind"]: "battle" }, "kind"), undefined);
+  assertEquals(field({ ["aud" + String.fromCharCode(0x131) + "o"]: "x" }, "audio"), undefined);
 });
 
 Deno.test("packages: at most 16 song and video files, and a small read budget for pictures", async () => {

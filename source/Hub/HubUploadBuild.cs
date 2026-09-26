@@ -271,22 +271,32 @@ internal static class HubUploadBuild
             }
         }
 
-        Write(build, paths, BattlePackage.Extension, planned.Select(p => (top + "/" + p.Relative, p.Data, p.Full)), limits, ct);
-        if (!build.Ok) return build;
+        // Stopped or failed from here on, the package's work folder goes with it (the page never gets the build).
         try
         {
-            var built = BattlePackage.Load(build.PackagePath);
-            build.Difficulties = HubDifficulties.Of(built);
-            build.Bpm = HubDifficulties.BpmRange(built.Chart);
-            var song = planned.First(p => p.Relative.Equals(built.AudioPath, StringComparison.OrdinalIgnoreCase));
-            build.LengthSeconds = SongSeconds(File.ReadAllBytes(song.Full), song.Relative);
-            if (built.Id != build.BattleId || built.Lanes != build.Lanes) build.Problems.Add("The package doesn't load the same as the battle (this is a bug in the mod; see the log).");
+            Write(build, paths, BattlePackage.Extension, planned.Select(p => (top + "/" + p.Relative, p.Data, p.Full)), limits, ct);
+            if (!build.Ok) return build;
+            try
+            {
+                var built = BattlePackage.Load(build.PackagePath);
+                build.Difficulties = HubDifficulties.Of(built);
+                build.Bpm = HubDifficulties.BpmRange(built.Chart);
+                var song = planned.First(p => p.Relative.Equals(built.AudioPath, StringComparison.OrdinalIgnoreCase));
+                build.LengthSeconds = SongSeconds(File.ReadAllBytes(song.Full), song.Relative);
+                if (built.Id != build.BattleId || built.Lanes != build.Lanes) build.Problems.Add("The package doesn't load the same as the battle (this is a bug in the mod; see the log).");
+            }
+            catch (Exception ex) when (BattleDraft.IsFileProblem(ex) || ex is InvalidOperationException)
+            {
+                build.Problems.Add("The package doesn't load (this is a bug in the mod; see the log): " + ex.Message);
+            }
+            ct.ThrowIfCancellationRequested();
+            return build;
         }
-        catch (Exception ex) when (BattleDraft.IsFileProblem(ex) || ex is InvalidOperationException)
+        catch
         {
-            build.Problems.Add("The package doesn't load (this is a bug in the mod; see the log): " + ex.Message);
+            Discard(build, paths);
+            throw;
         }
-        return build;
     }
 
     /// <summary>The one folder a battle's files go in, inside the package: its title, made safe, or "battle".</summary>
@@ -327,7 +337,8 @@ internal static class HubUploadBuild
     private static void AudioTags(string relative, byte[] data, string userName, HubBuild build)
     {
         var tags = HubScrub.AudioTags(data).Where(t => t.Text.Trim().Length > 0).ToList();
-        if (tags.Any(t => HubScrub.Names(t.Text, userName)))
+        // The tags, then the rest of the file outside its sound (XMP and other chunks and frames keep editors' paths).
+        if (tags.Any(t => HubScrub.Names(t.Text, userName)) || HubScrub.SongHasUserPath(data, userName))
         {
             build.Problems.Add($"{relative} has your Windows user name or a path to your user folder in its tags. Remove the tags in your audio editor, then upload again.");
             return;
@@ -459,25 +470,35 @@ internal static class HubUploadBuild
             .Select(f => SourceFile(paths, f)).Where(f => f != null).Select(f => f!).ToList();
         build.SourceFingerprint = SourceFingerprint(build.SourceFiles);
 
-        Write(build, paths, ".nbbchart", entries, limits, ct);
-        if (!build.Ok) return build;
+        // Stopped or failed from here on, the package's work folder goes with it (the page never gets the build).
         try
         {
-            var facts = HubZipCheck.Check(build.PackagePath, "charts", limits, ct);
-            var pack = HubPackInfo.Read(build.PackagePath, facts);
-            if (pack.Problems.Count > 0) build.Problems.AddRange(pack.Problems);
-            foreach (var song in pack.Songs.Where(s => s.Difficulties.Count > 20))
-                build.Problems.Add($"The pack has {song.Difficulties.Count} difficulties for {song.Song}; the hub takes up to 20 a song.");
-            build.Songs = pack.Songs;
-            build.Difficulties = pack.Songs.SelectMany(s => s.Difficulties).ToList();
-            var bpms = choices.Select(c => HubDifficulties.BpmRange(c.Chart)).Where(b => b != null).ToList();
-            if (bpms.Count > 0) build.Bpm = new[] { bpms.Min(b => b![0]), bpms.Max(b => b![1]) };
+            Write(build, paths, ".nbbchart", entries, limits, ct);
+            if (!build.Ok) return build;
+            try
+            {
+                var facts = HubZipCheck.Check(build.PackagePath, "charts", limits, ct);
+                var pack = HubPackInfo.Read(build.PackagePath, facts);
+                if (pack.Problems.Count > 0) build.Problems.AddRange(pack.Problems);
+                foreach (var song in pack.Songs.Where(s => s.Difficulties.Count > 20))
+                    build.Problems.Add($"The pack has {song.Difficulties.Count} difficulties for {song.Song}; the hub takes up to 20 a song.");
+                build.Songs = pack.Songs;
+                build.Difficulties = pack.Songs.SelectMany(s => s.Difficulties).ToList();
+                var bpms = choices.Select(c => HubDifficulties.BpmRange(c.Chart)).Where(b => b != null).ToList();
+                if (bpms.Count > 0) build.Bpm = new[] { bpms.Min(b => b![0]), bpms.Max(b => b![1]) };
+            }
+            catch (Exception ex) when (ex is HubZipProblem || BattleDraft.IsFileProblem(ex))
+            {
+                build.Problems.Add("The pack doesn't read back (this is a bug in the mod; see the log): " + ex.Message);
+            }
+            ct.ThrowIfCancellationRequested();
+            return build;
         }
-        catch (Exception ex) when (ex is HubZipProblem || BattleDraft.IsFileProblem(ex))
+        catch
         {
-            build.Problems.Add("The pack doesn't read back (this is a bug in the mod; see the log): " + ex.Message);
+            Discard(build, paths);
+            throw;
         }
-        return build;
     }
 
     /// <summary>A song name as a file name inside a pack (as the chart export makes it).</summary>

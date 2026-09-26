@@ -386,11 +386,15 @@ internal sealed class EditorPageKit
         Say(hint, 3600f);
     }
 
-    /// <summary>Called every frame by the page while a field is open (and keys are live).</summary>
+    /// <summary>
+    /// Called every frame by the page while a field is open (and keys are live). On a page that
+    /// reads the pad, B leaves the field like Esc and A keeps it like Enter, so a pad is never stuck
+    /// in one (PadInput reports nothing on the other pages).
+    /// </summary>
     internal void UpdateTyping(InputKeyboard k)
     {
         var field = Typing!;
-        if (Pressed(k, Key.Escape)) { EndTyping(); return; }
+        if (Pressed(k, Key.Escape) || PadInput.Pressed(PadButton.East)) { EndTyping(); return; }
         if (KeysWhileTyping != null && KeysWhileTyping(k)) return;
         bool enter = Pressed(k, Key.Enter) || Pressed(k, Key.NumpadEnter);
         if (enter && field.MultiLine && Shift(k))
@@ -413,7 +417,7 @@ internal sealed class EditorPageKit
             Typed = typed;
             SayTypingHint();
         }
-        if (enter) CommitTyping();
+        if (enter || PadInput.Pressed(PadButton.South)) CommitTyping();
     }
 
     /// <summary>

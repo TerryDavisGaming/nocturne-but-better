@@ -77,6 +77,11 @@ internal sealed class HubInstalledItem
     public List<string>? Songs { get; set; }
     public HubUploaderRef? Uploader { get; set; }
     public long InstalledAt { get; set; }
+    /// <summary>
+    /// The SHA-256 of the hub's own copy that the last update replaced: its "&lt;file&gt;.old" can be
+    /// left for a while, and is deleted for good (where there's no Recycle Bin) only while it's still exactly that.
+    /// </summary>
+    public string? OldSha256 { get; set; }
 }
 
 /// <summary>A file a local upload was built from, with the size and time it had then.</summary>
@@ -110,6 +115,8 @@ internal sealed class HubSettings
     public string LastSort { get; set; } = "new";
     public string LastKind { get; set; } = "all";
     public int LastLanes { get; set; }
+    /// <summary>The hub key's backup was offered after an upload, or made (DESIGN-HUB 1.6 step 6).</summary>
+    public bool KeyBackupOffered { get; set; }
 }
 
 internal sealed class HubIndexFile<T>
@@ -258,21 +265,36 @@ internal sealed class HubStore
 
     // ---- saving ---------------------------------------------------------------------------------
 
+    // One writer at a time (WriteAtomic's temp file has one name), and each takes its snapshot inside
+    // the lock, so the last save always holds the newest list. The page's workers can save at once
+    // (a download's install, a delete, a rescan, a lookup), and so can an old page's job after a
+    // quick reopen (another store on the same files): the lock is shared.
+    private static readonly object SaveGate = new();
+
     private void SaveInstalled()
     {
-        HubIndexFile<HubInstalledItem> file;
-        lock (gate) file = new HubIndexFile<HubInstalledItem> { Items = installed.ToList() };
-        BattleDraft.WriteAtomic(Paths.InstalledFile, JsonSerializer.Serialize(file, WriteOptions));
+        lock (SaveGate)
+        {
+            HubIndexFile<HubInstalledItem> file;
+            lock (gate) file = new HubIndexFile<HubInstalledItem> { Items = installed.ToList() };
+            BattleDraft.WriteAtomic(Paths.InstalledFile, JsonSerializer.Serialize(file, WriteOptions));
+        }
     }
 
     private void SaveUploads()
     {
-        HubIndexFile<HubUploadRecord> file;
-        lock (gate) file = new HubIndexFile<HubUploadRecord> { Items = uploads.ToList() };
-        BattleDraft.WriteAtomic(Paths.UploadsFile, JsonSerializer.Serialize(file, WriteOptions));
+        lock (SaveGate)
+        {
+            HubIndexFile<HubUploadRecord> file;
+            lock (gate) file = new HubIndexFile<HubUploadRecord> { Items = uploads.ToList() };
+            BattleDraft.WriteAtomic(Paths.UploadsFile, JsonSerializer.Serialize(file, WriteOptions));
+        }
     }
 
-    internal void SaveSettings() => BattleDraft.WriteAtomic(Paths.SettingsFile, JsonSerializer.Serialize(Settings, WriteOptions));
+    internal void SaveSettings()
+    {
+        lock (SaveGate) BattleDraft.WriteAtomic(Paths.SettingsFile, JsonSerializer.Serialize(Settings, WriteOptions));
+    }
 
     // ---- installed ------------------------------------------------------------------------------
 

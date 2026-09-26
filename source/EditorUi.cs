@@ -697,14 +697,15 @@ internal sealed class ThumbList
     internal (int Clicked, bool Double) Draw(int count, int index, Func<int, ThumbRow> row, InputMouse? mouse, InputMouse? wheel)
     {
         int maxFirst = Math.Max(0, count - Rows);
-        if (index != lastIndex || count != lastCount)
+        // Rows added at the end (the next page) leave the view where the wheel put it.
+        if (index != lastIndex || count < lastCount)
         {
             // Keep the picked row in view, moving as little as possible.
             if (index >= 0 && index < first) first = index;
             else if (index >= first + Rows) first = index - Rows + 1;
             lastIndex = index;
-            lastCount = count;
         }
+        lastCount = count;
         var pointer = wheel ?? mouse;
         Vector2 pos = pointer != null ? pointer.position.ReadValue() : new Vector2(-1, -1);
         if (wheel != null && RectTransformUtility.RectangleContainsScreenPoint(Rect, pos, null))
@@ -744,6 +745,13 @@ internal sealed class ThumbList
 
     /// <summary>Whether the rows in view reach within <paramref name="margin"/> rows of the list's end (the page loads more then).</summary>
     internal bool NearEnd(int count, int margin) => first + Rows + margin >= count;
+
+    /// <summary>For another list in the same rows (a tab, a new search): the view starts at the top, then shows the picked row.</summary>
+    internal void ResetScroll()
+    {
+        first = 0;
+        lastIndex = lastCount = -1;
+    }
 
     private void Fill(RowView v, ThumbRow r)
     {

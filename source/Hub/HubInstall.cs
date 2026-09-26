@@ -253,6 +253,9 @@ internal static class HubInstall
                 verified.Battle = package;
                 if (package.Id != facts.BattleId) why.Add("the loader reads another battle id");
                 if (package.Lanes != detail.Lanes) why.Add("the loader reads other lanes");
+                // The song and the card the game shows must be the files the check judged as a song and a picture.
+                if (!string.Equals(package.AudioPath, facts.Audio, StringComparison.OrdinalIgnoreCase)) why.Add("the loader plays another file as the song than the one checked");
+                if (!string.Equals(package.CardPath, facts.Card, StringComparison.OrdinalIgnoreCase)) why.Add("the loader shows another file as the card than the one checked");
                 if (!HubDifficulties.Same(HubDifficulties.Of(package), detail.Difficulties)) why.Add("its difficulties aren't the ones in its listing");
             }
             catch (Exception ex) when (BattleDraft.IsFileProblem(ex)) { why.Add("the battle doesn't load: " + ex.Message); }
@@ -297,8 +300,11 @@ internal static class HubInstall
     /// <summary>
     /// Moves a checked download into place and records it (worker). A new entry becomes
     /// "Downloaded\&lt;title&gt; [&lt;id&gt;]"; an update replaces the installed file under its own name,
-    /// and the old one goes to the Recycle Bin (or is deleted where there's none: it's the hub's own
-    /// older copy). A battle whose id another battle on this PC already has isn't installed.
+    /// and the old one goes to the Recycle Bin (or is deleted where there's none, but only while its
+    /// SHA-256 is still the hub's copy that was installed). An installed file that changed since
+    /// (or one the hub didn't install) goes to the Recycle Bin whole before the new one takes its
+    /// name, and where there's none the update isn't installed: it's never deleted for good. A
+    /// battle whose id another battle on this PC already has isn't installed.
     /// </summary>
     internal static HubInstalledItem Place(HubVerified verified, HubStore store, IHubRecycler recycler, Func<List<BattleFiles.BattleEntry>>? listBattles = null)
     {
@@ -321,17 +327,44 @@ internal static class HubInstall
                 throw new HubException("you_have_it", $"This battle is already on your PC ({Path.GetFileName(other.Path.TrimEnd('\\', '/'))}), so it isn't installed a second time.");
         }
 
+        string? replaced = null;
         if (File.Exists(final))
         {
-            string backup = final + ".old";
-            HubDownload.TryDelete(backup);
-            File.Replace(verified.TempPath, final, backup, ignoreMetadataErrors: true);
-            try { recycler.Recycle(backup, folder); }
-            catch (BattleFiles.NotRecyclableException) { HubDownload.TryDelete(backup); }
-            catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
+            // The hub's own copy, untouched: a known version whose file still has the SHA-256 it was installed with.
+            bool untouched = old is { Version: > 0 } && HubStore.Sha256Of(final) == old.Sha256;
+            if (!untouched)
             {
-                // Left for the next time the page opens (Reconcile finds it).
-                ModLog.Info("Hub: the old copy of an update stays for now: " + ex.Message);
+                // Changed since the download, or not the hub's copy: it goes to the Recycle Bin whole, never deleted for good.
+                try { recycler.Recycle(final, folder); }
+                catch (BattleFiles.NotRecyclableException)
+                {
+                    throw new HubException("changed", $"{Path.GetFileName(final)} isn't the copy the hub installed (it changed since, or the hub can't tell), " +
+                        "and Windows has no Recycle Bin for it, so the update wasn't installed. Move it out of the Downloaded folder, then update again.");
+                }
+                File.Move(verified.TempPath, final);
+            }
+            else
+            {
+                string backup = final + ".old";
+                HubDownload.TryDelete(backup);
+                File.Replace(verified.TempPath, final, backup, ignoreMetadataErrors: true);
+                replaced = old!.Sha256;
+                try
+                {
+                    recycler.Recycle(backup, folder);
+                    replaced = null;
+                }
+                catch (BattleFiles.NotRecyclableException)
+                {
+                    // The hub's own older copy (checked above), and the player asked for the update.
+                    HubDownload.TryDelete(backup);
+                    if (!File.Exists(backup)) replaced = null;
+                }
+                catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
+                {
+                    // Left for the next time the page opens (Reconcile finds it, and OldSha256 says it's the hub's copy).
+                    ModLog.Info("Hub: the old copy of an update stays for now: " + ex.Message);
+                }
             }
         }
         else File.Move(verified.TempPath, final);
@@ -342,7 +375,7 @@ internal static class HubInstall
             Package = detail.Id, Version = detail.Version, Kind = detail.Kind, Path = paths.Relative(final), Sha256 = detail.File.Sha256,
             Fingerprint = facts.Fingerprint, Size = detail.File.Size, Contents = facts.Contents, BattleId = facts.BattleId, Title = facts.Title,
             Lanes = facts.Lanes, Songs = detail.IsBattle ? null : facts.Songs, Uploader = detail.Uploader,
-            InstalledAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            InstalledAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(), OldSha256 = replaced,
         };
         store.Record(item);
         SaveThumb(store, detail);
@@ -408,7 +441,12 @@ internal static class HubInstall
         store.Forget(item.Package);
     }
 
-    /// <summary>The ".old" copies an update left behind (from <see cref="HubStore.Reconcile"/>) to the Recycle Bin, or deleted where there's none.</summary>
+    /// <summary>
+    /// The ".old" copies an update left behind (from <see cref="HubStore.Reconcile"/>) to the Recycle
+    /// Bin. Where there's none, only one that is still the hub's copy an update replaced (next to its
+    /// entry's file, with the SHA-256 in <see cref="HubInstalledItem.OldSha256"/>) is deleted for
+    /// good; any other ".old" file is left alone.
+    /// </summary>
     internal static void CleanLeftovers(IEnumerable<string> leftovers, HubStore store, IHubRecycler recycler)
     {
         foreach (var file in leftovers)
@@ -416,7 +454,16 @@ internal static class HubInstall
             string? folder = new[] { store.Paths.BattlesDownloaded, store.Paths.ChartsDownloaded }.FirstOrDefault(f => BattleFiles.IsInside(file, f));
             if (folder == null || !file.EndsWith(".old", StringComparison.OrdinalIgnoreCase)) continue;
             try { recycler.Recycle(file, folder); }
-            catch (BattleFiles.NotRecyclableException) { HubDownload.TryDelete(file); }
+            catch (BattleFiles.NotRecyclableException)
+            {
+                var item = store.Installed.FirstOrDefault(i => i.OldSha256 != null && store.Paths.Full(i.Path) is { } full
+                    && string.Equals(full + ".old", Path.GetFullPath(file), StringComparison.OrdinalIgnoreCase));
+                try
+                {
+                    if (item != null && HubStore.Sha256Of(file) == item.OldSha256) HubDownload.TryDelete(file);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
             catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException) { }
         }
     }

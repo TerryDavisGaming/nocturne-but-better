@@ -65,22 +65,76 @@ async function readRootJson(files, key, entry, cdOffset) {
   }
   if (bytes.length !== entry.usize) throw new ZipProblem(`${name} doesn't unpack to its declared size.`);
   if (crc32(bytes) !== entry.crc) throw new ZipProblem(`${name} doesn't match its checksum (CRC-32).`);
-  let parsed;
+  let text, parsed;
   try {
-    parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    parsed = JSON.parse(text);
   } catch {
     throw new ZipProblem(`${name} must be plain JSON as the mod's upload writes it (no comments, no trailing commas).`);
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new ZipProblem(`${name} must hold a JSON object.`);
+  // The mod's reader ignores the keys' case and takes the last of two; field() takes the exact one first. A key
+  // twice would let the check and the game read different files (a song that was never checked), so it's refused.
+  const twice = duplicateKey(text);
+  if (twice !== null) throw new ZipProblem(`${name} has the key "${cleanLine(twice, 40) || ""}" twice (keys count as the same whatever their capitals).`);
   return parsed;
 }
 
-/** Looks a key up ignoring case, like the mod's reader. */
+/**
+ * The first key that an object in this JSON text (at any depth) has twice, ignoring case, or null. The text
+ * already parsed, so it's well formed. JSON.parse keeps only the last of two equal keys, so the text is walked.
+ * Keys count as the same when they match lower-cased, or upper-cased letter by letter: at least every pair the
+ * mod's reader (.NET's OrdinalIgnoreCase) takes as one key.
+ */
+export function duplicateKey(text) {
+  const open = []; // per open object its seen keys, per open array null
+  let wantKey = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 0x22) {
+      let j = i + 1;
+      while (text.charCodeAt(j) !== 0x22) j += text.charCodeAt(j) === 0x5c ? 2 : 1;
+      const keys = open.length > 0 ? open[open.length - 1] : null;
+      if (wantKey && keys) {
+        const key = JSON.parse(text.slice(i, j + 1));
+        const lower = "l" + key.toLowerCase();
+        let upper = "u";
+        for (const ch of key.split("")) {
+          const u = ch.toUpperCase();
+          upper += u.length === 1 ? u : ch;
+        }
+        if (keys.has(lower) || keys.has(upper)) return key;
+        keys.add(lower);
+        keys.add(upper);
+        wantKey = false;
+      }
+      i = j;
+    } else if (c === 0x7b) {
+      open.push(new Set());
+      wantKey = true;
+    } else if (c === 0x5b) {
+      open.push(null);
+      wantKey = false;
+    } else if (c === 0x7d || c === 0x5d) {
+      open.pop();
+      wantKey = false;
+    } else if (c === 0x2c) {
+      wantKey = open.length > 0 && open[open.length - 1] !== null;
+    }
+  }
+  return null;
+}
+
+// A-Z lower-cased, nothing else: the mod's reader matches its key names that way (.NET's OrdinalIgnoreCase maps no
+// other letter to a-z, so "kind" with a Kelvin sign for its k, or "audio" with a dotless i, isn't that key to it).
+const asciiLower = (s) => s.replace(/[A-Z]+/g, (m) => m.toLowerCase());
+
+/** Looks a key up ignoring the case of a-z, like the mod's reader (an exact match first). */
 export function field(obj, name) {
   if (obj === null || typeof obj !== "object" || Array.isArray(obj)) return undefined;
   if (Object.hasOwn(obj, name)) return obj[name];
-  const lower = name.toLowerCase();
-  for (const k of Object.keys(obj)) if (k.toLowerCase() === lower) return obj[k];
+  const lower = asciiLower(name);
+  for (const k of Object.keys(obj)) if (asciiLower(k) === lower) return obj[k];
   return undefined;
 }
 

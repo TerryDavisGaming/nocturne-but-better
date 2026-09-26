@@ -43,6 +43,8 @@ internal static partial class HubPage
         internal string Title = "";
         internal readonly HubTransfer Transfer = new();
         internal CancellationTokenSource Cts = null!;
+        /// <summary>The hub key the upload uses, once the worker has it (made there at the first upload).</summary>
+        internal volatile HubIdentity? Key;
     }
 
     private static UploadDraft? draft;
@@ -111,6 +113,17 @@ internal static partial class HubPage
         // Why an upload can't start now can hold the hub's own words: the note is plain text.
         v.Note = !UploadAllowed(out string why) ? why
             : FirstUpload ? "Your first upload registers this PC's hub key with the name you choose." : "";
+    }
+
+    // The panel's buttons, for the mouse: the first two rows' steps (the .osz row is only its words).
+    private static List<PanelAction> UploadActions()
+    {
+        string enter = PadNames ? "A" : "Enter";
+        return new List<PanelAction>
+        {
+            new() { Text = "Choose a battle...", Key = uploadIndex == 0 ? enter : "", Do = () => PickBattle(null) },
+            new() { Text = "Choose difficulties...", Key = uploadIndex == 1 ? enter : "", Do = () => PickPack(null) },
+        };
     }
 
     private static void UploadPrimary()
@@ -495,8 +508,11 @@ internal static partial class HubPage
         Kit.AddText(details.Panel, 40, ref y, 1000, 26, () => "Your name is asked only at your first upload. It shows with a tag, like Name #7K2M.", 17, () => FirstUpload);
         float buttons = Math.Min(y, -600);
         Kit.AddButton(details.Panel, details.Controls, 40, buttons, 300, 52, "Check it", BuildUpload);
+        var check = details.Controls[^1];
         Kit.AddButton(details.Panel, details.Controls, 352, buttons, 200, 52, "Back", CancelUpload);
         details.Back = CancelUpload;
+        // A pad starts on Check it: the text fields need a keyboard (A on one starts typing, B leaves it).
+        details.StartFocus = () => PadNames ? Math.Max(0, details.Controls.Where(c => c.Visible).ToList().IndexOf(check)) : 0;
 
         var summary = NewForm(FormKind.Summary, () => built == null ? "Check" : built.Ok ? "Ready to upload" : "It can't be uploaded yet");
         y = -96;
@@ -507,7 +523,8 @@ internal static partial class HubPage
 
         var rules = NewForm(FormKind.Rules, () => "Before you upload");
         y = -96;
-        FormPlain(rules, 40, ref y, FormW - 80, 500, RulesText, 21);
+        // As tall as the summary's text, so Back is where "Continue to the rules" was.
+        FormPlain(rules, 40, ref y, FormW - 80, 560, RulesText, 21);
         Kit.AddButton(rules.Panel, rules.Controls, 40, y, 240, 52, "Back", () => ShowForm(FormKind.Summary));
         // On a second row, so the click that opened the rules (or a double click) can't press it.
         Kit.AddButton(rules.Panel, rules.Controls, 40, y - 64, 760, 52, "I made this and I have the right to share it: Upload", SendUpload);
@@ -697,7 +714,9 @@ internal static partial class HubPage
         jobs.Run(Task.Run(async () =>
         {
             // The key is made now if there isn't one yet; it's registered with the name at the first upload.
+            // The page gets it even when the upload then fails, since it may be registered by then.
             var key = who ?? HubIdentity.LoadOrCreate(p.Identity, name);
+            send.Key = key;
             var result = await HubUploadSend.SendAsync(a, s, key, b, details, i, send.Transfer, ct).ConfigureAwait(false);
             return (key, result);
         }, ct), done => Uploaded(send, done.key, done.result), ex => UploadFailed(send, ex));
@@ -707,6 +726,7 @@ internal static partial class HubPage
     {
         if (sending == send) sending = null;
         identity = key;
+        identityProblem = null;
         // Sent: its work folder went with it.
         built = null;
         builtThumb = null;
@@ -722,11 +742,14 @@ internal static partial class HubPage
         LoadMine(force: true);
         // The new entry is on the hub's list within a minute (lists are cached that long).
         string title = send.Title;
-        if (!result.FirstUpload)
+        // The key's backup is offered after its first upload, and once after an upload when it never was
+        // (a first upload that failed after the key was registered, then went up on a later try).
+        if (!result.FirstUpload && (store == null || store.Settings.KeyBackupOffered))
         {
             Say(d?.Of != null ? $"{title} v{c.Version} is on the hub now." : $"{title} is on the hub now.", 9f);
             return;
         }
+        KeyBackupOffered();
         ShowPicker(new Picker
         {
             Plain = true,
@@ -742,11 +765,26 @@ internal static partial class HubPage
         });
     }
 
+    // Remembered in Hub\settings.json: the key's backup was offered (or made), so it isn't offered again.
+    private static void KeyBackupOffered()
+    {
+        if (store == null || store.Settings.KeyBackupOffered) return;
+        store.Settings.KeyBackupOffered = true;
+        SaveSettings();
+    }
+
     private static void UploadFailed(Sending send, Exception ex)
     {
         if (sending == send) sending = null;
         ex = Unwrap(ex);
         if (!IsOpen) return;
+        // A key made for this upload is this PC's key now (and may be registered): My uploads and the
+        // next try use it, and a registered one isn't asked for a name again.
+        if (identity == null && send.Key is { } made)
+        {
+            identity = made;
+            identityProblem = null;
+        }
         LogFailure("uploading", ex);
         if (ex is OperationCanceledException)
         {

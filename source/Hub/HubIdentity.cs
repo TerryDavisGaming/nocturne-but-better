@@ -193,12 +193,22 @@ internal sealed class HubIdentity
     /// Makes a new key for this identity and tells the hub (only the new key's SHA-256 travels).
     /// The new key is saved before the hub is asked, as identity-rotating.json, so it isn't lost if
     /// the answer is; after the answer it becomes identity.json. <see cref="RecoverAsync"/> sorts
-    /// out a rotation that stopped between the two.
+    /// out a rotation that stopped between the two. An earlier rotation that wasn't sorted out yet
+    /// is sorted out first and never written over, since its key may be the only one the hub still
+    /// takes: when it went through, its key is returned (the change the player asked for is done);
+    /// when the hub can't say which key works, nothing changes and this throws.
     /// </summary>
     internal static async Task<HubIdentity> RotateAsync(HubApi api, string path, HubIdentity current, CancellationToken ct)
     {
-        var next = new HubIdentity(NewKey(), current.Name, current.UploaderId, DateTime.UtcNow);
         string pending = RotatingPath(path);
+        if (File.Exists(pending))
+        {
+            var settled = await RecoverAsync(api, path, ct).ConfigureAwait(false);
+            if (File.Exists(pending))
+                throw new HubException("key_change_pending", "The last key change couldn't be finished: the hub takes neither key. Use a saved key in My uploads.");
+            if (settled != null && settled.Key != current.Key) return settled;
+        }
+        var next = new HubIdentity(NewKey(), current.Name, current.UploaderId, DateTime.UtcNow);
         next.Save(pending);
         await api.RotateAsync(next.Hash, current.Key, ct).ConfigureAwait(false);
         next.Save(path);
@@ -209,13 +219,22 @@ internal sealed class HubIdentity
     /// <summary>
     /// After a rotation that stopped before its answer was saved: asks the hub which of the two keys
     /// works (GET /v1/me with each) and keeps that one. Returns the identity in use, or null when
-    /// there was nothing to sort out. When the hub can't be reached, nothing changes (try again).
+    /// there was nothing to sort out. When the hub can't be reached (it throws), or takes neither
+    /// key, nothing changes and identity-rotating.json stays for the next try.
     /// </summary>
     internal static async Task<HubIdentity?> RecoverAsync(HubApi api, string path, CancellationToken ct)
     {
         string pending = RotatingPath(path);
         if (!File.Exists(pending)) return null;
-        var rotated = Load(pending);
+        HubIdentity? rotated;
+        try { rotated = Load(pending); }
+        catch (InvalidDataException)
+        {
+            // A key that can't be read can't be used either: it's kept aside, and the current key stays.
+            try { File.Move(pending, CustomFreeName(Path.Combine(Path.GetDirectoryName(path)!, $"identity-rotating.broken-{DateTime.UtcNow:yyyyMMdd-HHmmss}.json"))); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            return Load(path);
+        }
         var current = Load(path);
         if (rotated == null) return current;
         if (await Works(api, rotated, ct).ConfigureAwait(false))

@@ -137,7 +137,7 @@ internal static partial class HubPage
         if (identity.UploaderId == null) return "Nothing is uploaded with this PC's hub key yet. It's registered at your first upload.";
         if (link == Link.Down) return linkProblem;
         if (link is Link.Opening or Link.Connecting || mineLoading || (mine == null && mineProblem == null)) return "Loading your uploads...";
-        if (mineProblem != null) return mineProblem + $"\n\n{(PadNames ? "" : "F5 tries again.")}";
+        if (mineProblem != null) return mineProblem + $"\n\n{(PadNames ? "A" : "F5")} tries again.";
         return "You have nothing on the hub right now. The Upload tab shares something you made.";
     }
 
@@ -209,6 +209,7 @@ internal static partial class HubPage
                 actions.Add(new PanelAction { Text = "Upload a new version...", Key = enter, Do = () => NewVersion(card) });
             if (card.Status is "live" or "hidden")
                 actions.Add(new PanelAction { Text = "Delete from the hub...", Key = PadNames ? "" : "Del", Do = () => AskDeleteFromHub(card) });
+            if (LongDescription(card.Description)) actions.Add(ReadDescription(card.Title, card.Description));
         }
         if (identity != null) actions.Add(new PanelAction { Text = "Back up key...", Do = BackUpKey });
         actions.Add(new PanelAction { Text = "Use a saved key...", Do = UseSavedKey });
@@ -329,6 +330,7 @@ internal static partial class HubPage
                 return Path.GetFileName(path);
             }), name =>
             {
+                KeyBackupOffered();
                 ModLog.Info("Hub: the hub key was backed up to a file.");
                 Say($"Your hub key is saved in {name}. Keep it private: it works like a password for your uploads. Don't keep it in a synced folder such as OneDrive.", 12f);
             });
@@ -422,6 +424,7 @@ internal static partial class HubPage
             Work("Making a new key...", Task.Run(() => HubIdentity.RotateAsync(a, p.Identity, who, ct), ct), next =>
             {
                 identity = next;
+                identityProblem = null;
                 ModLog.Info("Hub: the hub key was changed.");
                 BackToMain();
                 Say("Your new key is in use, and the old one no longer works. Back it up now (Back up key).", 10f);
@@ -429,6 +432,8 @@ internal static partial class HubPage
             {
                 BackToMain();
                 Say(Words(ex), 8f);
+                // The hub may have changed the key although its answer was lost: it's asked which key works now.
+                if (ex is not OperationCanceledException) SettleKeyChange();
             });
             return;
         }
@@ -451,5 +456,29 @@ internal static partial class HubPage
             BackToMain();
             Say(Words(ex), 8f);
         });
+    }
+
+    /// <summary>
+    /// After a key change that failed: one that stopped before its answer came is sorted out now
+    /// (the hub is asked which key works), and the page takes that key, so a second try starts
+    /// from the key the hub has. Nothing is asked when no key change is waiting.
+    /// </summary>
+    private static void SettleKeyChange()
+    {
+        if (api == null || paths == null) return;
+        var a = api;
+        var p = paths;
+        var ct = Ct;
+        jobs.Run(Task.Run(() => HubIdentity.RecoverAsync(a, p.Identity, ct), ct), settled =>
+        {
+            if (settled == null || settled.Key == identity?.Key) return;
+            identity = settled;
+            identityProblem = null;
+            mine = null;
+            me = null;
+            ModLog.Info("Hub: a key change that was cut short was finished.");
+            Say("Your new key is in use after all, and the old one no longer works. Back it up now (Back up key).", 10f);
+            LoadMine(force: true);
+        }, ex => LogFailure("finishing the key change", ex));
     }
 }

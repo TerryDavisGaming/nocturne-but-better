@@ -704,11 +704,40 @@ internal static class HubZipCheck
                 doc.Dispose();
                 throw new HubZipProblem($"{name} must hold a JSON object.");
             }
+            // The mod's reader ignores the keys' case and takes the last of two, this check the exact
+            // one first: a key twice would let the two read different files, so it's refused.
+            if (DuplicateKey(doc.RootElement) is { } twice)
+            {
+                doc.Dispose();
+                throw new HubZipProblem($"{name} has the key \"{HubText.CleanLine(twice, 40)}\" twice (keys count as the same whatever their capitals).");
+            }
             return doc;
         }
         catch (Exception ex) when (ex is JsonException or DecoderFallbackException or ArgumentException)
         {
             throw new HubZipProblem($"{name} must be plain JSON as the mod's upload writes it (no comments, no trailing commas).");
+        }
+    }
+
+    /// <summary>A key that an object in <paramref name="e"/> (at any depth) has twice, ignoring case as the mod's reader does, or null.</summary>
+    internal static string? DuplicateKey(JsonElement e)
+    {
+        switch (e.ValueKind)
+        {
+            case JsonValueKind.Object:
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var p in e.EnumerateObject())
+                {
+                    if (!seen.Add(p.Name)) return p.Name;
+                    if (DuplicateKey(p.Value) is { } inner) return inner;
+                }
+                return null;
+            case JsonValueKind.Array:
+                foreach (var item in e.EnumerateArray())
+                    if (DuplicateKey(item) is { } inner) return inner;
+                return null;
+            default:
+                return null;
         }
     }
 

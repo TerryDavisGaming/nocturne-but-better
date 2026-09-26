@@ -22,7 +22,7 @@ internal static partial class HubPage
 
     private static RectTransform? mainPanel, formsPanel, bottomBar, topBar, filterBar, detailPanel;
     private static ThumbList? list;
-    private static TMP_Text? listMessage, subLine, hintsText;
+    private static TMP_Text? listMessage, listFoot, subLine, hintsText;
     private static ProgressBar? bottomProgress;
     private static RawImage? panelPicture;
     private static Image? panelTile;
@@ -171,9 +171,20 @@ internal static partial class HubPage
         m.pivot = new Vector2(0, 1);
         m.offsetMin = new Vector2(Edge + 60, -ListTop - 360);
         m.offsetMax = new Vector2(-(PanelW + 2 * Edge) - 60, -ListTop - 160);
+        // One line under the rows (between them and the bottom bar): a later page that failed, or the hub out of reach.
+        listFoot = MakePlainText("Foot", mainPanel!, 18, TextAlignmentOptions.Left);
+        listFoot.color = Hex(0xF2B02E);
+        listFoot.enableWordWrapping = false;
+        listFoot.overflowMode = TextOverflowModes.Ellipsis;
+        var f = listFoot.rectTransform;
+        f.anchorMin = new Vector2(0, 1);
+        f.anchorMax = new Vector2(1, 1);
+        f.pivot = new Vector2(0, 1);
+        f.offsetMin = new Vector2(Edge + 8, -ListTop - ThumbList.Height - 28);
+        f.offsetMax = new Vector2(-(PanelW + 2 * Edge), -ListTop - ThumbList.Height - 2);
         var retry = Ui.MakeButton(mainPanel!, "", () => { if (!Blocked) Refresh(); });
         retry.Text = () => $"Try again <size=65%><color=#9D92B4>{(PadNames ? "A" : "F5")}</color></size>";
-        retry.Visible = () => screen == Screen.Main && link == Link.Down && tab is Tab.Browse or Tab.Mine && ListCount() == 0;
+        retry.Visible = () => screen == Screen.Main && ListCount() == 0 && RetryOffered();
         var r = retry.Rect;
         r.anchorMin = r.anchorMax = new Vector2(0, 1);
         r.pivot = new Vector2(0, 1);
@@ -296,6 +307,8 @@ internal static partial class HubPage
         tab = next;
         zone = Zone.List;
         panelFocus = 0;
+        // The tabs share the list's rows: each starts at the top, then shows its picked row.
+        list?.ResetScroll();
         switch (tab)
         {
             case Tab.Installed:
@@ -352,15 +365,16 @@ internal static partial class HubPage
         _ => UploadRow(i),
     };
 
-    /// <summary>Enter, A or a double click on the list: the row's main action.</summary>
+    /// <summary>Enter, A or a double click on the list: the row's main action (an empty list that failed: Try again).</summary>
     private static void Primary()
     {
-        if (tab == Tab.Browse && link == Link.Down)
+        int count = store == null ? 0 : ListCount();
+        if (count == 0 ? RetryOffered() : tab == Tab.Browse && link == Link.Down)
         {
             Refresh();
             return;
         }
-        if (ListCount() == 0) return;
+        if (count == 0) return;
         switch (tab)
         {
             case Tab.Browse: BrowsePrimary(); break;
@@ -370,12 +384,22 @@ internal static partial class HubPage
         }
     }
 
+    /// <summary>Whether an empty list offers Try again: the page's files or the hub couldn't be read, or the tab's list failed.</summary>
+    private static bool RetryOffered() => store == null
+        ? link == Link.Down
+        : tab switch
+        {
+            Tab.Browse => link == Link.Down || (browseProblem != null && browseRetryAt == 0),
+            Tab.Mine => link == Link.Down || mineProblem != null,
+            _ => false,
+        };
+
     private static List<PanelAction> Actions() => tab switch
     {
         Tab.Browse => BrowseActions(),
         Tab.Installed => InstalledActions(),
         Tab.Mine => MineActions(),
-        _ => new List<PanelAction>(),
+        _ => UploadActions(),
     };
 
     // ---- the main screen's frame ----------------------------------------------------------------------
@@ -431,7 +455,12 @@ internal static partial class HubPage
             Refresh();
             return;
         }
-        if (store == null) return;
+        if (store == null)
+        {
+            // The page's own files couldn't be read: Enter or A tries again, like the button.
+            if (Pressed(keyboard, Key.Enter) || Pressed(keyboard, Key.NumpadEnter) || PadInput.Pressed(PadButton.South)) Primary();
+            return;
+        }
         if (TabKeys(keyboard)) return;
         switch (zone)
         {
@@ -541,6 +570,12 @@ internal static partial class HubPage
         else if (tab == Tab.Installed) AfterInstalledDrawn();
         string message = count > 0 ? "" : ListMessage();
         if (listMessage!.text != message) listMessage.text = message;
+        string foot = browsing && count > 0 ? BrowseFoot() : "";
+        if (listFoot!.text != foot)
+        {
+            listFoot.text = foot;
+            listFoot.color = browseLoading && browseProblem == null && link != Link.Down ? DimText : Hex(0xF2B02E);
+        }
         DrawPanel();
         Control? focused = null;
         if (Kit.Typing == null)
@@ -583,7 +618,7 @@ internal static partial class HubPage
                 if (link == Link.Opening || link == Link.Connecting) return "Connecting to the hub...";
                 if (link == Link.Down) return linkProblem + "\n\nInstalled and deleting still work.";
                 if (link == Link.TooOld) return HubErrorsText.TooOld + "\n\nInstalled and deleting still work.";
-                if (browseProblem != null) return browseProblem + $"\n\n{(PadNames ? "A" : "F5")} tries again.";
+                if (browseProblem != null) return BrowseProblemText(empty: true);
                 if (browse == null || browseLoading || !browse.Started) return "Loading...";
                 return browse.Query.Searching || byUploader != null || kindFilter != null || lanesFilter != 0
                     ? "Nothing on the hub matches. Try another search or filter."
@@ -730,7 +765,7 @@ internal static partial class HubPage
             keys.Add(pad ? K("B", "back") : K("Esc", "back"));
             return string.Join("    ", keys);
         }
-        if (Kit.Typing != null) return K("Enter", "keeps it") + "    " + K("Esc", "goes back");
+        if (Kit.Typing != null) return pad ? K("A", "keeps it") + "    " + K("B", "goes back") : K("Enter", "keeps it") + "    " + K("Esc", "goes back");
         if (pad)
         {
             keys.Add(K("A", "choose"));
@@ -771,7 +806,7 @@ internal static partial class HubPage
 
     // ---- forms: the notice, a report, the upload's steps ------------------------------------------------
 
-    private enum FormKind { Notice, Report, Details, Summary, Rules, Sending }
+    private enum FormKind { Notice, Report, Details, Summary, Rules, Sending, Description }
 
     private sealed class Form
     {
@@ -872,7 +907,38 @@ internal static partial class HubPage
         BuildNoticeForm();
         BuildReportForm();
         BuildUploadForms();
+        BuildDescriptionForm();
     }
+
+    // ---- a whole description (the panel shows its first lines) ---------------------------------------
+
+    private static string readTitle = "", readText = "";
+
+    private static void BuildDescriptionForm()
+    {
+        var form = NewForm(FormKind.Description, () => "Description");
+        float y = -96;
+        // The entry's title and description are the hub's text: shown plain.
+        FormPlain(form, 40, ref y, FormW - 80, 40, () => readTitle, 26);
+        FormPlain(form, 40, ref y, FormW - 80, 560, () => readText, 20);
+        Kit.AddButton(form.Panel, form.Controls, 40, y, 200, 52, "Back", BackToMain);
+        form.Back = BackToMain;
+    }
+
+    /// <summary>Whether a description may be longer than the panel shows (it fits about 6 lines of 60 to 70 letters), so it gets a button.</summary>
+    private static bool LongDescription(string text) =>
+        text.Split('\n').Sum(line => Math.Max(1, (int)Math.Ceiling(line.Length / 60.0))) > 5;
+
+    private static PanelAction ReadDescription(string title, string text) => new()
+    {
+        Text = "Read the description",
+        Do = () =>
+        {
+            readTitle = title;
+            readText = text;
+            ShowForm(FormKind.Description);
+        },
+    };
 
     // ---- the one-time notice (DESIGN-HUB 5.2) -----------------------------------------------------------
 

@@ -5,10 +5,11 @@ namespace NocturneFlatScroll;
 
 /// <summary>
 /// The privacy part of building an upload (DESIGN-HUB 3.6 step 1): picture metadata is dropped
-/// from the copies that go into the package (JPEG APP1/APP13 and comments, PNG eXIf/tEXt/iTXt/zTXt,
-/// GIF comments and XMP), without ever re-encoding the picture, and the text files and the songs'
-/// tags are searched for Windows user paths and the Windows user name. The player's own files are
-/// never changed.
+/// from the copies that go into the package (every JPEG APPn but JFIF, ICC and Adobe, comments, and
+/// anything after the picture's end; PNG eXIf/tEXt/iTXt/zTXt and anything after IEND; GIF comments,
+/// XMP and anything after the trailer), without ever re-encoding the picture, and the text files,
+/// the songs' tags and the rest of the songs outside their sound are searched for Windows user
+/// paths and the Windows user name. The player's own files are never changed.
 /// This file has no Unity or game dependencies.
 /// </summary>
 internal static class HubScrub
@@ -29,7 +30,13 @@ internal static class HubScrub
         };
     }
 
-    /// <summary>A JPEG without APP1 (EXIF, XMP), APP13 (IPTC) and comment segments; the rest, from the scan on, as it is.</summary>
+    /// <summary>
+    /// A JPEG with only what draws it: its frame, tables and scans byte for byte, JFIF (APP0), an ICC
+    /// colour profile (APP2 "ICC_PROFILE") and Adobe's colour marker (APP14). Every other APPn (EXIF,
+    /// XMP, IPTC, MPF's list of extra pictures, maker notes) and comments are dropped, between scans
+    /// too, and so is everything after the picture's end (EOI): a phone's motion-photo video, extra
+    /// pictures, vendor trailers. A JPEG cut short before its EOI is kept as far as it goes.
+    /// </summary>
     internal static byte[]? Jpeg(byte[] b, out bool changed)
     {
         changed = false;
@@ -39,7 +46,7 @@ internal static class HubScrub
         int at = 2;
         while (true)
         {
-            if (at + 4 > b.Length || b[at] != 0xFF) return null;
+            if (at + 2 > b.Length || b[at] != 0xFF) return null;
             int marker = b[at + 1];
             if (marker == 0xFF)
             {
@@ -48,7 +55,9 @@ internal static class HubScrub
             }
             if (marker == 0xD9)
             {
-                output.Write(b, at, b.Length - at);
+                // The picture's end: anything after it isn't part of the picture.
+                output.Write(b, at, 2);
+                if (at + 2 < b.Length) changed = true;
                 return output.ToArray();
             }
             if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7))
@@ -57,19 +66,46 @@ internal static class HubScrub
                 at += 2;
                 continue;
             }
+            if (at + 4 > b.Length) return null;
             int length = b[at + 2] << 8 | b[at + 3];
             if (length < 2 || at + 2 + length > b.Length) return null;
-            if (marker == 0xDA)
-            {
-                // The scan and everything after it: picture data, kept byte for byte.
-                output.Write(b, at, b.Length - at);
-                return output.ToArray();
-            }
-            if (marker is 0xE1 or 0xED or 0xFE) changed = true;
+            if (marker == 0xFE || (marker >= 0xE0 && marker <= 0xEF && !KeptApp(b, at, marker, length))) changed = true;
             else output.Write(b, at, 2 + length);
             at += 2 + length;
+            if (marker != 0xDA) continue;
+            // The scan's picture data, byte for byte, up to the next marker (a stuffed 00, a restart marker
+            // and fill bytes are part of it); then segments again (tables, the next scan, or the end).
+            int scan = at;
+            while (true)
+            {
+                int ff = Array.IndexOf(b, (byte)0xFF, at);
+                if (ff < 0 || ff + 1 >= b.Length)
+                {
+                    // Cut short without its end: kept as it is.
+                    output.Write(b, scan, b.Length - scan);
+                    return output.ToArray();
+                }
+                int next = b[ff + 1];
+                if (next == 0x00 || (next >= 0xD0 && next <= 0xD7)) at = ff + 2;
+                else if (next == 0xFF) at = ff + 1;
+                else
+                {
+                    output.Write(b, scan, ff - scan);
+                    at = ff;
+                    break;
+                }
+            }
         }
     }
+
+    // The APPn segments a JPEG keeps: JFIF, an ICC colour profile, Adobe's colour marker.
+    private static bool KeptApp(byte[] b, int at, int marker, int length) => marker switch
+    {
+        0xE0 => true,
+        0xE2 => length >= 2 + 12 && Ascii(b, at + 4, "ICC_PROFILE\0"),
+        0xEE => length >= 2 + 5 && Ascii(b, at + 4, "Adobe"),
+        _ => false,
+    };
 
     private static readonly HashSet<string> PngDropped = new(StringComparer.Ordinal) { "eXIf", "tEXt", "iTXt", "zTXt" };
 
@@ -191,6 +227,68 @@ internal static class HubScrub
         string name = userName.Trim();
         if (name.Length < 3) return false;
         return Regex.IsMatch(text, @"(?<![\p{L}\p{N}])" + Regex.Escape(name) + @"(?![\p{L}\p{N}])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    /// <summary>
+    /// Whether a song file holds a Windows user path (or "\Users\&lt;user name&gt;") anywhere but its
+    /// sound, where the tags above don't look: every WAV chunk but "data" (XMP in "_PMX", "bext",
+    /// "iXML", "id3 ", LIST), the whole ID3v2 tag at the start (an XMP PRIV frame, GEOB, APIC and the
+    /// rest) and the tags at the end (ID3v1, APE, Lyrics3), or an Ogg file's three header packets.
+    /// Editors such as Premiere and Audition write the project's and the source's paths there. Each
+    /// part is searched as Latin-1 (which covers UTF-8's ASCII) and as UTF-16 either way round. The
+    /// user name alone isn't searched here: a short one would turn up in random bytes.
+    /// </summary>
+    internal static bool SongHasUserPath(byte[] b, string userName)
+    {
+        var named = UserPathPattern(userName);
+        try
+        {
+            if (b.Length >= 12 && Ascii(b, 0, "RIFF") && Ascii(b, 8, "WAVE"))
+            {
+                int pos = 12;
+                for (int i = 0; i < 1000 && pos + 8 <= b.Length; i++)
+                {
+                    string id = Encoding.ASCII.GetString(b, pos, 4);
+                    long size = BitConverter.ToUInt32(b, pos + 4);
+                    int body = pos + 8;
+                    int end = (int)Math.Min(b.Length, body + size);
+                    if (id != "data" && HasPath(b, body, end - body, named)) return true;
+                    pos = (int)Math.Min(b.Length, (long)end + (size & 1));
+                }
+                return false;
+            }
+            if (Ascii(b, 0, "OggS"))
+            {
+                for (int i = 0; i < 3; i++)
+                    if (OggPacket(b, i, 16 * 1024 * 1024) is { } packet && HasPath(packet, 0, packet.Length, named)) return true;
+                return false;
+            }
+            if (b.Length >= 10 && Ascii(b, 0, "ID3"))
+            {
+                long size = b[6] << 21 | b[7] << 14 | b[8] << 7 | b[9];
+                int tag = (int)Math.Min(b.Length, 10 + size + ((b[5] & 0x10) != 0 ? 10 : 0));
+                if (HasPath(b, 0, tag, named)) return true;
+            }
+            int tail = Math.Min(b.Length, 256 * 1024);
+            return HasPath(b, b.Length - tail, tail, named);
+        }
+        catch (Exception ex) when (ex is IndexOutOfRangeException or ArgumentException or OverflowException) { return false; }
+    }
+
+    // A part of a file searched for a user path, a megabyte at a time (overlapping, so a path across two isn't missed).
+    private static bool HasPath(byte[] b, int start, int length, Regex? named)
+    {
+        const int Window = 1 << 20, Overlap = 1024;
+        bool Found(string text) => UsersPath.IsMatch(text) || (named != null && named.IsMatch(text));
+        int end = start + length;
+        for (int at = start; at < end; at += Window - Overlap)
+        {
+            int n = Math.Min(Window, end - at);
+            if (Found(Encoding.Latin1.GetString(b, at, n)) || Found(Encoding.Unicode.GetString(b, at, n & ~1))
+                || (n > 2 && Found(Encoding.Unicode.GetString(b, at + 1, (n - 1) & ~1)))) return true;
+            if (at + n >= end) break;
+        }
+        return false;
     }
 
     /// <summary>

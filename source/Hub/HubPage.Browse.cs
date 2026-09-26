@@ -8,18 +8,24 @@ using Key = UnityEngine.InputSystem.Key;
 namespace NocturneFlatScroll;
 
 // Browse (DESIGN-HUB 1.3, 1.4): the hub's entries, 24 a page as the list scrolls, with a search
-// (the list follows it half a second after the last key), type, lanes and sort, and "more by this
-// uploader". Each row has its thumbnail or a title tile, the title and artist, who charted and
-// uploaded it, its difficulties as coloured chips, what it brings, its size and downloads, and
-// its state (INSTALLED, UPDATE, 45% ...). The panel adds the description, the difficulty table and
-// what's inside. One download at a time; it's checked in full before anything is installed.
-// Report sends a reason and a note.
+// (the list follows it a second after the last key once the last word has 3 letters, or on Enter:
+// the hub takes 10 searches a minute from an address, and each page of one counts), type, lanes
+// and sort, and "more by this uploader". Each row has its thumbnail or a title tile, the title and
+// artist, who charted and uploaded it, its difficulties as coloured chips, what it brings, its size
+// and downloads, and its state (INSTALLED, UPDATE, 45% ...). The panel adds the description, the
+// difficulty table and what's inside. One download at a time; it's checked in full before anything
+// is installed. Report sends a reason and a note.
 internal static partial class HubPage
 {
     private static HubBrowseList? browse;
     private static int browseGen, browseIndex;
     private static bool browseLoading, liveSearching;
     private static string? browseProblem;
+    // When the page that failed is asked for again by itself (after "slow down", or a later page), or 0.
+    private static float browseRetryAt;
+    // A filter changed while a search shows: the list follows a moment later, so cycling one spends one search.
+    private static float pendingRestartAt;
+    private const float LiveSearchDelay = 1f, FilterSearchDelay = 0.6f, LaterPageRetry = 15f;
     // The search kept (Enter), and the one the list shows (while typing, what's typed so far).
     private static string search = "", liveSearch = "";
     private static string? kindFilter;
@@ -52,6 +58,7 @@ internal static partial class HubPage
         browseIndex = 0;
         browseLoading = liveSearching = false;
         browseProblem = null;
+        browseRetryAt = pendingRestartAt = 0;
         search = liveSearch = "";
         kindFilter = null;
         lanesFilter = 0;
@@ -97,7 +104,7 @@ internal static partial class HubPage
         Set = SetSearch,
         Max = HubText.SearchMaxRaw,
         Empty = () => "title, artist, charter or song",
-        Hint = "Type to search; the list follows. Enter keeps it, Esc goes back.",
+        Hint = "Type to search; the list follows once the last word has 3 letters. Enter searches now and keeps it, Esc goes back.",
     };
 
     private static void SetSearch(string text)
@@ -121,7 +128,9 @@ internal static partial class HubPage
     private static float typedAt;
     private static bool typedChecked;
 
-    // While the search is typed, the list follows half a second after the last key; Esc goes back to the kept search.
+    // While the search is typed, the list follows a second after the last key, once the last word has
+    // 3 letters (a shorter last word only matches whole words, and every search counts against the
+    // hub's limit); Enter searches at once, and Esc goes back to the kept search.
     private static void AfterSearchTyping()
     {
         if (Kit.Typing == SearchField)
@@ -133,16 +142,27 @@ internal static partial class HubPage
                 typedAt = Time.unscaledTime;
                 typedChecked = false;
             }
-            else if (!typedChecked && Time.unscaledTime - typedAt >= 0.5f)
+            else if (!typedChecked && Time.unscaledTime - typedAt >= LiveSearchDelay)
             {
                 typedChecked = true;
-                if (link == Link.Online && Normal(typedSeen) != Normal(liveSearch)) RestartBrowse(typedSeen);
+                if (link == Link.Online && Normal(typedSeen) != Normal(liveSearch) && FollowsTyping(typedSeen)) RestartBrowse(typedSeen);
             }
             return;
         }
         if (!typingSearch) return;
         typingSearch = false;
         if (link == Link.Online && Normal(liveSearch) != Normal(search)) RestartBrowse(search);
+    }
+
+    // Whether the list follows what's typed so far: a cleared search (the plain list isn't a search),
+    // or a last word of 3 or more letters (the hub matches it as the start of a word then).
+    private static bool FollowsTyping(string typed)
+    {
+        string normal = Normal(typed);
+        if (normal.Length == 0) return true;
+        string last = normal.Substring(normal.LastIndexOf(' ') + 1);
+        // Counted in code points, as the hub counts them.
+        return last.Count(c => !char.IsLowSurrogate(c)) >= 3;
     }
 
     private static string KindWords() => kindFilter switch { "battle" => "Battles", "charts" => "Difficulties", _ => "All" };
@@ -200,7 +220,10 @@ internal static partial class HubPage
     private static void FiltersChanged()
     {
         SaveSettings();
-        if (link == Link.Online) RestartBrowse(liveSearch);
+        if (link != Link.Online) return;
+        // While a search shows, the list follows a moment after the last change: each search counts against the hub's limit.
+        if (liveSearching) pendingRestartAt = Time.unscaledTime + FilterSearchDelay;
+        else RestartBrowse(liveSearch);
     }
 
     private static void MoreBy(HubCard card)
@@ -240,13 +263,16 @@ internal static partial class HubPage
         browseIndex = 0;
         browseLoading = false;
         browseProblem = null;
+        browseRetryAt = 0;
+        pendingRestartAt = 0;
+        if (tab == Tab.Browse) list?.ResetScroll();
         LoadMoreBrowse();
     }
 
     private static void LoadMoreBrowse()
     {
         var list = browse;
-        // A page that failed isn't asked for again until F5.
+        // A page that failed is asked for again only by F5 (or by itself after a wait, see browseRetryAt).
         if (list == null || browseLoading || browseProblem != null || !list.HasMore || link != Link.Online || api == null) return;
         browseLoading = true;
         int gen = browseGen;
@@ -260,19 +286,72 @@ internal static partial class HubPage
         {
             if (gen != browseGen) return;
             browseLoading = false;
-            if (Unwrap(ex) is HubException hub && hub.HubDown) LinkFailed(hub);
-            else browseProblem = Words(ex);
             LogFailure("loading the list", ex);
+            if (Unwrap(ex) is HubException hub && hub.HubDown)
+            {
+                LinkFailed(hub);
+                return;
+            }
+            // "Slow down" is asked again once the hub's wait is over; a later page after a while (the rows so far stay).
+            if (Unwrap(ex) is HubException { Code: "slow_down" } slow)
+            {
+                browseProblem = "Slow down a little.";
+                double wait = (slow.RetryAfter ?? TimeSpan.FromSeconds(30)).TotalSeconds;
+                browseRetryAt = Time.unscaledTime + (float)Math.Clamp(wait, 1, 120);
+            }
+            else
+            {
+                browseProblem = Words(ex);
+                browseRetryAt = list.Started ? Time.unscaledTime + LaterPageRetry : 0;
+            }
         });
     }
 
-    // After the rows are drawn: the next page once the rows in view reach near the end, and the picked entry's details.
+    /// <summary>The page that failed, asked for again (the rows so far stay).</summary>
+    private static void RetryBrowsePage()
+    {
+        browseProblem = null;
+        browseRetryAt = 0;
+        LoadMoreBrowse();
+    }
+
+    // After the rows are drawn: a filter change that waited, a failed page's retry, the next page once
+    // the rows in view reach near the end, and the picked entry's details.
     private static void AfterBrowseDrawn()
     {
+        float now = Time.unscaledTime;
+        if (pendingRestartAt > 0 && now >= pendingRestartAt && link == Link.Online)
+        {
+            RestartBrowse(liveSearch);
+            return;
+        }
+        if (browseRetryAt > 0 && now >= browseRetryAt && link == Link.Online) RetryBrowsePage();
         var items = browse?.Items;
         if (items == null) return;
         if (items.Count == 0 || browseIndex >= items.Count - 3 || list!.NearEnd(items.Count, 3)) LoadMoreBrowse();
         if (items.Count > 0) WantDetail(items[Math.Clamp(browseIndex, 0, items.Count - 1)].Id);
+    }
+
+    // Seconds until a failed page is asked for again.
+    private static int RetrySeconds() => Math.Max(1, (int)Math.Ceiling(browseRetryAt - Time.unscaledTime));
+
+    /// <summary>What went wrong with the list, and what happens next (the message over an empty list, or the line under the rows).</summary>
+    private static string BrowseProblemText(bool empty)
+    {
+        if (browseProblem == null) return "";
+        if (browseRetryAt > 0) return $"{browseProblem} The list tries again in {RetrySeconds()} s.";
+        string retry = PadNames ? (empty ? "A tries again." : "") : "F5 tries again.";
+        return empty ? $"{browseProblem}\n\n{retry}" : $"{browseProblem} {retry}".TrimEnd();
+    }
+
+    /// <summary>The line under Browse's rows: a later page that failed or is loading, or the hub being out of reach.</summary>
+    private static string BrowseFoot()
+    {
+        if (browse == null || browse.Items.Count == 0) return "";
+        if (link == Link.Down) return $"{linkProblem} {(PadNames ? "A" : "F5")} tries again.";
+        if (browseProblem != null) return "Couldn't load more: " + BrowseProblemText(empty: false);
+        if (browseLoading) return "Loading more...";
+        return "";
     }
 
     /// <summary>
@@ -550,6 +629,8 @@ internal static partial class HubPage
         actions.Add(new PanelAction { Text = "Report...", Key = PadNames ? "" : "R", Do = () => ReportCard(card) });
         if (store!.InstalledFor(card.Id) is { } item && download?.Id != card.Id)
             actions.Add(new PanelAction { Text = "Delete", Key = PadNames ? "" : "Del", Do = () => AskDelete(item) });
+        if (details.TryGetValue(card.Id, out var detail) && detail.Version >= card.Version && LongDescription(detail.Description))
+            actions.Add(ReadDescription(card.Title, detail.Description));
         return actions;
     }
 
