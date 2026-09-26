@@ -13,8 +13,25 @@ namespace NocturneFlatScroll
         private const float PlayerMeterY = -150f;
         private const float EnemyMeterY = 150f;
         private const float MeterHeight = 600f;
+        // A native bar is 94 units wide, and its icon (the heart, or the energy bar's
+        // stagger icon) reaches 62 units above its top.
+        private const float NativeBarWidth = 94f;
+        private const float NativeIconHeight = 62f;
+        // Moved enemy meters shrink rather than reach lower than the player's full-size ones.
+        private const float EnemyMeterFloor = PlayerMeterY - 0.5f * MeterHeight;
         private const float BuffScale = 32f / 15f;
+        // Sixteen statuses, 17 units apart in their layout group.
+        private const int StatusCount = 16;
+        private const float NativeStatusStep = 17f;
+        private const float StatusFloor = -0.5f * ReferenceHeight + 20f;
         private const float ArmorScale = 0.18f;
+        // The armor badge sits beside the top of the enemy's health bar, with the
+        // enemy's statuses below it. Its art is 300 units square.
+        private const float ArmorY = 465f;
+        private const float EnemyBuffsBelowArmor = 60f;
+        private const float ArmorHalfSize = 150f * ArmorScale + 6f;
+        private const float InfoPanelGap = 12f;
+        private const float InfoPanelHysteresis = 20f;
 
         private static readonly Dictionary<int, LayoutState> States = new Dictionary<int, LayoutState>();
 
@@ -42,6 +59,24 @@ namespace NocturneFlatScroll
             internal Vector3 ArmorAnimationScale = Vector3.one;
             internal Vector3 LastArmorScale;
             internal bool ArmorScaleWritten;
+            internal bool ArmorBelowPanel;
+            internal bool MetersBelowPanel;
+            internal GameObject? ArmorObject;
+            internal TMP_Text? ArmorText;
+            internal EnemyCombatBars? EnemyBars;
+            internal float ArmorShownAt = -1f;
+            internal bool ArmorChecked;
+            internal bool ArmorReported;
+            internal IntPtr ArmorBattle;
+            // Fetched once: each fetch through the interop makes a new wrapper.
+            internal CombatEnemyInfoPanel? InfoPanel;
+            internal GameObject? InfoPanelObject;
+            internal readonly List<(RectTransform Rect, GameObject Box)> InfoEntries =
+                new List<(RectTransform Rect, GameObject Box)>();
+            internal Canvas? InfoCanvas;
+            internal Camera? InfoCamera;
+            internal bool ShowInfo;
+            internal float NextInfoCheck;
             internal bool Ready;
             internal bool Modified;
             internal readonly List<NativeTransform> Originals = new List<NativeTransform>();
@@ -193,18 +228,62 @@ namespace NocturneFlatScroll
                   facing, units * barScale);
             Place(state.PlayerEnergy, camera, -energyX, PlayerMeterY, depth, halfWidth,
                   facing, units * barScale);
-            Place(state.EnemyHealth, camera, healthX, EnemyMeterY, depth, halfWidth,
-                  facing, units * barScale);
-            Place(state.EnemyEnergy, camera, energyX, EnemyMeterY, depth, halfWidth,
-                  facing, units * barScale);
 
-            // Keep the original vertical layout groups and all counters. Sixteen
-            // active statuses fit beside the meters at the reference resolution.
+            // The game's enemy info panel (the "Armor" box and the others in the upper
+            // right corner) draws over this HUD. When it covers the top of the enemy's
+            // meters (wide lanes, large notes, or a squarer window), they move down to
+            // just below its lowest box, and shrink if they would reach lower than the
+            // player's meters.
+            Rect panel;
+            bool hasPanel = EnemyInfoBounds(state, halfWidth, out panel);
+            float meterHalf = 0.5f * NativeBarWidth * barScale;
+            float meterTop = EnemyMeterY + (0.5f * NativeBarLength + NativeIconHeight) * barScale;
+            float meterBottom = EnemyMeterY - 0.5f * NativeBarLength * barScale;
+            // Once below, the meters and the badge need a clear margin to move back up,
+            // so the lanes' hit shake can't make them jump at the panel's edge.
+            float margin = state.MetersBelowPanel ? InfoPanelHysteresis : 0f;
+            state.MetersBelowPanel = hasPanel &&
+                healthX + meterHalf + margin > panel.xMin && energyX - meterHalf - margin < panel.xMax &&
+                meterTop + margin > panel.yMin && meterBottom - margin < panel.yMax;
+            float enemyScale = barScale;
+            float enemyMeterY = EnemyMeterY;
+            if (state.MetersBelowPanel)
+            {
+                float top = Mathf.Min(meterTop, panel.yMin - InfoPanelGap);
+                enemyScale = Mathf.Clamp((top - EnemyMeterFloor) / (NativeBarLength + NativeIconHeight),
+                                         0.5f * barScale, barScale);
+                enemyMeterY = top - (0.5f * NativeBarLength + NativeIconHeight) * enemyScale;
+            }
+            float enemyHealthX = energyX + 120f * enemyScale;
+            float enemyStatusX = enemyHealthX + 105f * fit;
+            Place(state.EnemyHealth, camera, enemyHealthX, enemyMeterY, depth, halfWidth,
+                  facing, units * enemyScale);
+            Place(state.EnemyEnergy, camera, energyX, enemyMeterY, depth, halfWidth,
+                  facing, units * enemyScale);
+
+            // When the panel covers the armor badge's spot, the badge and the enemy's
+            // statuses start just below its lowest box. Moved meters always take them
+            // along, so the badge stays beside the top of the health bar.
+            float armorY = ArmorY;
+            float armorHalf = ArmorHalfSize * fit;
+            float reach = armorHalf + (state.ArmorBelowPanel ? InfoPanelHysteresis : 0f);
+            state.ArmorBelowPanel = state.MetersBelowPanel || (hasPanel &&
+                enemyStatusX + reach > panel.xMin && enemyStatusX - reach < panel.xMax &&
+                armorY + armorHalf > panel.yMin && armorY - armorHalf < panel.yMax);
+            if (state.ArmorBelowPanel)
+                armorY = Mathf.Min(ArmorY, panel.yMin - InfoPanelGap - armorHalf);
+
+            // Keep the original vertical layout groups and all counters. All sixteen
+            // statuses fit beside the meters; when a tall panel pushes the enemy's
+            // column down, its statuses shrink so all sixteen still fit on screen.
             float statusScale = BuffScale * fit;
+            float enemyBuffsY = armorY - EnemyBuffsBelowArmor;
+            float enemyStatusScale = Mathf.Clamp((enemyBuffsY - StatusFloor) / (StatusCount * NativeStatusStep),
+                                                 0.5f * statusScale, statusScale);
             Place(state.PlayerBuffs, camera, -statusX, 165f, depth, halfWidth,
                   facing, units * statusScale);
-            Place(state.EnemyBuffs, camera, statusX, 405f, depth, halfWidth,
-                  facing, units * statusScale);
+            Place(state.EnemyBuffs, camera, enemyStatusX, enemyBuffsY, depth, halfWidth,
+                  facing, units * enemyStatusScale);
 
             if (state.Armor)
             {
@@ -214,11 +293,12 @@ namespace NocturneFlatScroll
                 if (!state.ArmorScaleWritten || animated != state.LastArmorScale)
                     state.ArmorAnimationScale = animated;
                 state.Armor.SetPositionAndRotation(
-                    Position(camera, statusX, 465f, depth, halfWidth), facing);
+                    Position(camera, enemyStatusX, armorY, depth, halfWidth), facing);
                 Vector3 size = LocalScale(state.Armor, units * ArmorScale * fit);
                 state.LastArmorScale = Vector3.Scale(size, state.ArmorAnimationScale);
                 state.Armor.localScale = state.LastArmorScale;
                 state.ArmorScaleWritten = true;
+                ReportArmor(state, enemyStatusX, armorY);
             }
 
             ApplyMeterClipping(state);
@@ -270,6 +350,25 @@ namespace NocturneFlatScroll
                 state.NativeVinesScale = state.Vines.localScale;
             }
 
+            Transform enemyBars = canvas.Find("CombatEnemyBars");
+            state.EnemyBars = enemyBars ? enemyBars.GetComponent<EnemyCombatBars>() : null;
+            state.ArmorObject = state.Armor ? state.Armor.gameObject : null;
+            Transform? armorAmount = state.Armor ? state.Armor.Find("AmourAmount") : null;
+            state.ArmorText = armorAmount != null && armorAmount ? armorAmount.GetComponent<TMP_Text>() : null;
+            // The info panel is on the battle's CombatUI canvas, a sibling of this view.
+            Transform battle = state.View.transform.parent ? state.View.transform.parent : state.View.transform;
+            CombatEnemyInfoPanel infoPanel = battle.GetComponentInChildren<CombatEnemyInfoPanel>(true);
+            if (infoPanel)
+            {
+                state.InfoPanel = infoPanel;
+                state.InfoPanelObject = infoPanel.gameObject;
+                foreach (CombatEnemyInfoEntryView entry in infoPanel.GetComponentsInChildren<CombatEnemyInfoEntryView>(true))
+                {
+                    RectTransform entryRect = entry.GetComponent<RectTransform>();
+                    if (entryRect) state.InfoEntries.Add((entryRect, entry.gameObject));
+                }
+            }
+
             // Native icons and vertical labels retain their exact transforms.
             state.Ready = true;
             return true;
@@ -296,6 +395,102 @@ namespace NocturneFlatScroll
                                                 Mathf.Abs(right.x - 0.5f)) * 2f * halfWidth);
             }
             return edge > 0f ? edge + 12f : FieldHalfWidth;
+        }
+
+        /// <summary>The enemy info panel's boxes, in the same 1080-high units as the meters.</summary>
+        private static bool EnemyInfoBounds(LayoutState state, float halfWidth, out Rect bounds)
+        {
+            bounds = new Rect();
+            CombatEnemyInfoPanel? panel = state.InfoPanel;
+            if (panel == null || !panel)
+                return false;
+            // The setting is a PlayerPrefs read, and the canvas and its camera stay put,
+            // so they are checked once a second, like the meters' clipping.
+            if (Time.unscaledTime >= state.NextInfoCheck)
+            {
+                state.NextInfoCheck = Time.unscaledTime + 1f;
+                state.ShowInfo = NocturneSettings.ShowEnemyInfo;
+                Canvas? canvas = state.InfoCanvas;
+                if (canvas == null || !canvas)
+                {
+                    Canvas? parent = panel.GetComponentInParent<Canvas>();
+                    canvas = parent != null && parent ? parent.rootCanvas : null;
+                    state.InfoCanvas = canvas;
+                }
+                state.InfoCamera = canvas != null && canvas && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                    ? canvas.worldCamera : null;
+            }
+            // The game shows the panel when this enemy has boxes and its show enemy info
+            // setting is on. Follow that, not the panel's fade: it also fades out for
+            // cutscenes, and the badge shouldn't jump up and back down around them.
+            GameObject? panelObject = state.InfoPanelObject;
+            if (!state.ShowInfo || !panel.hasContent || panelObject == null || !panelObject.activeInHierarchy)
+                return false;
+            Camera? uiCamera = state.InfoCamera;
+            bool hasCamera = uiCamera != null && uiCamera;
+
+            bool found = false;
+            foreach ((RectTransform entry, GameObject box) in state.InfoEntries)
+            {
+                // The game turns off the boxes this enemy has nothing for.
+                if (!entry || !box.activeInHierarchy) continue;
+                Rect rect = entry.rect;
+                if (rect.width <= 0f || rect.height <= 0f) continue;
+                for (int corner = 0; corner < 4; corner++)
+                {
+                    Vector3 world = entry.TransformPoint(new Vector3(corner < 2 ? rect.xMin : rect.xMax,
+                                                                     corner % 2 == 0 ? rect.yMin : rect.yMax, 0f));
+                    // Both cameras fill the screen, so their viewport coordinates agree.
+                    Vector3 viewport = hasCamera
+                        ? uiCamera!.WorldToViewportPoint(world)
+                        : new Vector3(world.x / Screen.width, world.y / Screen.height, 0f);
+                    Vector2 point = new Vector2((viewport.x - 0.5f) * 2f * halfWidth,
+                                                (viewport.y - 0.5f) * ReferenceHeight);
+                    if (!found)
+                    {
+                        bounds = new Rect(point, Vector2.zero);
+                        found = true;
+                    }
+                    else
+                    {
+                        bounds = Rect.MinMaxRect(Mathf.Min(bounds.xMin, point.x), Mathf.Min(bounds.yMin, point.y),
+                                                 Mathf.Max(bounds.xMax, point.x), Mathf.Max(bounds.yMax, point.y));
+                    }
+                }
+            }
+            return found;
+        }
+
+        private static void ReportArmor(LayoutState state, float x, float y)
+        {
+            // Once a battle, a second after the badge first shows (Amour_None scales it
+            // to zero), when the info panel has its boxes and the spot has settled.
+            GameObject? armor = state.ArmorObject;
+            if (state.ArmorAnimationScale.x <= 0.001f || armor == null || !armor.activeInHierarchy)
+            {
+                state.ArmorShownAt = -1f;
+                return;
+            }
+            if (state.ArmorShownAt < 0f)
+            {
+                state.ArmorShownAt = Time.unscaledTime;
+                state.ArmorChecked = false;
+            }
+            if (state.ArmorChecked || Time.unscaledTime - state.ArmorShownAt < 1f)
+                return;
+            state.ArmorChecked = true;
+            EnemyCombatBars? bars = state.EnemyBars;
+            CombatCharacterModel? enemy = bars != null && bars ? bars.characterModel : null;
+            IntPtr battle = enemy != null ? enemy.Pointer : IntPtr.Zero;
+            if (state.ArmorReported && battle == state.ArmorBattle)
+                return;
+            state.ArmorReported = true;
+            state.ArmorBattle = battle;
+            TMP_Text? text = state.ArmorText;
+            string amount = text != null && text ? text.text : "?";
+            ModLog.Info($"Armor badge ({amount}) placed beside the 2D enemy meters at x {x:0}, y {y:0} of a 1080-high view" +
+                        (state.MetersBelowPanel ? ", below the enemy info panel with the meters." :
+                         state.ArmorBelowPanel ? ", below the enemy info panel." : "."));
         }
 
         private static void AlignCanvas(LayoutState state, Camera camera, float depth,
