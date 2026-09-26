@@ -83,7 +83,6 @@ internal static partial class ArcadeGear
         used.Clear();
         visitStart.Clear();
         Label = default;
-        selectedNow = selectedLastFrame = null;
         HideControl();
     }
 

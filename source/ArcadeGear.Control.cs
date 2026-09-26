@@ -37,9 +37,6 @@ internal static partial class ArcadeGear
     private static bool wasRunning, noHeader;
     // The "all items" setting when the label was last worked out (the pause menu's options can change it).
     private static bool? lastAllItems;
-    // The arcade's selected card this frame and the last: a click on the control lands on no game
-    // button, and the game clears the selection for that before the page opens.
-    private static GameObject? selectedNow, selectedLastFrame;
 
     // The main-menu arcade's panel: exactly ArcadeMenuV2 (the debug song testing panel is one too), in a loaded scene.
     private static ArcadeMenuV2? FindMenu()
@@ -90,11 +87,6 @@ internal static partial class ArcadeGear
             over = Cursor.visible && mouse != null && Over(control!, mouse.position.ReadValue());
             var color = over && !PageOpen ? HoverColor : Color.clear;
             if (controlBox != null && controlBox && controlBox.color != color) controlBox.color = color;
-        }
-        if (!running && active && !PageOpen)
-        {
-            selectedLastFrame = selectedNow;
-            selectedNow = Selected();
         }
         bool ready = !running && active && menu.IsFocused && !PageOpen && !EditorOverlay.IsOpen && !TestPlay.Active &&
                      Time.unscaledTime >= closedAt + ReopenDelay;
@@ -192,13 +184,6 @@ internal static partial class ArcadeGear
         var canvas = rect.GetComponentInParent<Canvas>();
         var top = canvas != null && canvas ? canvas.rootCanvas : null;
         return top != null && top && top.renderMode != RenderMode.ScreenSpaceOverlay ? top.worldCamera : null;
-    }
-
-    private static GameObject? Selected()
-    {
-        var events = UnityEngine.EventSystems.EventSystem.current;
-        var selected = events != null && events ? events.currentSelectedGameObject : null;
-        return selected != null && selected ? selected : null;
     }
 
     // ---- for the QA drivers: reads only --------------------------------------------------------------

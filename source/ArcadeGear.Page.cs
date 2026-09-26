@@ -12,8 +12,10 @@ namespace NocturneFlatScroll;
 /// way back to the story gear. It works with the mouse, the keyboard (Enter or Z chooses, Esc or X
 /// goes back) and a pad (A chooses, B goes back). The arcade can't be reached under it:
 /// EditorOverlay locks the arcade's navigation and Back, the page's canvas takes every pointer
-/// event, and the arcade's difficulty tabs, which read their keys themselves, are off until it
-/// closes. The arcade never closes meanwhile, so it's on the same chapter, tab and card afterwards.
+/// event, the arcade's difficulty tabs, which read their keys themselves, are off until it
+/// closes, and the game's switches between the mouse and the keys go to the page, not the arcade
+/// (see HoldArcade). The arcade never closes meanwhile, and it's put back on the same chapter, at
+/// the same scroll, with its selection, when the page closes.
 /// </summary>
 internal static partial class ArcadeGear
 {
@@ -40,7 +42,6 @@ internal static partial class ArcadeGear
     // Why gear can't be listed now, or null.
     private static string? pageProblem;
     private static TMP_Text? note;
-    private static GameObject? selectedBefore;
     private static TabbedButtonBar? pausedTabs;
 
     /// <summary>Whether the page is open.</summary>
@@ -60,7 +61,7 @@ internal static partial class ArcadeGear
             BuildBack();
             BuildNote();
             EditorOverlay.Enter(OverlayOwner);
-            selectedBefore = selectedNow ?? selectedLastFrame;
+            HoldArcade();
             PauseTabs();
             ReadRows();
             slotIndex = 0;
@@ -94,8 +95,7 @@ internal static partial class ArcadeGear
         // Gives the cursor back; the arcade's input comes back once the key that closed the page is let go.
         EditorOverlay.Leave(OverlayOwner);
         ResumeTabs();
-        Reselect();
-        selectedBefore = null;
+        ReleaseArcade();
         closedAt = Time.unscaledTime;
         if (!ArcadeUtility.IsRunning)
         {
@@ -129,19 +129,124 @@ internal static partial class ArcadeGear
         catch (Exception ex) { Note("Arcade gear: the arcade's difficulty tabs couldn't be switched back on: " + ex.Message); }
     }
 
-    // A click on the page can leave the arcade with no card selected; the one it had is selected again.
-    private static void Reselect()
+    // ---- the arcade under the page ------------------------------------------------------------------
+    //
+    // When the game switches between the mouse and the keys or a pad (MouseModeManager), NocturneGui
+    // tells ButtonGroup.CurrentGroup (or, with none, the top panel): the arcade then clears its card
+    // (the mouse), or selects again the button it remembers, jumps to that button's chapter and
+    // scrolls there (a key or a pad button). Under the page every key and click is the page's, so
+    // while it is open the current group is one of the page's own, with no buttons, which does
+    // nothing when told. (The editor overlay also keeps the cursor free every frame, which the game
+    // answers in keyboard mode by switching to it again, every frame.) On close the arcade is the
+    // current group again and is put back as it was.
+
+    private static GameObject? holderObject;
+    private static ButtonGroup? holder, groupBefore;
+    private static int chapterBefore = -1;
+    private static Vector2 scrollBefore;
+    private static bool scrollNoted;
+
+    private static void HoldArcade()
     {
+        chapterBefore = -1;
+        scrollNoted = false;
         try
         {
-            var before = selectedBefore;
-            var events = EventSystem.current;
-            if (before == null || !before || !before.activeInHierarchy || events == null || !events) return;
-            if (menu == null || !menu || !menu.Active || !menu.IsFocused) return;
-            var now = events.currentSelectedGameObject;
-            if (now == null || !now) events.SetSelectedGameObject(before);
+            chapterBefore = menu!.selectedCategoryIndex;
+            var scroll = menu.scrollRect;
+            var content = scroll != null && scroll ? scroll.content : null;
+            if (content != null && content)
+            {
+                // A list still gliding would change the chapter under the page.
+                scroll!.StopMovement();
+                scrollBefore = content.anchoredPosition;
+                scrollNoted = true;
+            }
         }
-        catch (Exception ex) { Note("Arcade gear: the arcade's card couldn't be selected again: " + ex.Message); }
+        catch (Exception ex) { Note("Arcade gear: the arcade's chapter and scroll couldn't be noted: " + ex.Message); }
+        try
+        {
+            groupBefore = ButtonGroup.CurrentGroup;
+            holderObject = new GameObject("NbbArcadeGearInput") { hideFlags = HideFlags.HideAndDontSave };
+            holder = holderObject.AddComponent<ButtonGroup>();
+            ButtonGroup.CurrentGroup = holder;
+        }
+        catch (Exception ex)
+        {
+            Note("Arcade gear: the arcade can't be kept from the game's mouse and keyboard switches while the page is open: " + ex.Message);
+            DropHolder();
+        }
+    }
+
+    // The arcade is the current group again (if nothing else took over meanwhile).
+    private static void DropHolder()
+    {
+        var mine = holder;
+        var before = groupBefore;
+        holder = groupBefore = null;
+        try
+        {
+            var current = ButtonGroup.CurrentGroup;
+            if (mine != null && current != null && current.Pointer == mine.Pointer)
+                ButtonGroup.CurrentGroup = before != null && before && before.Active ? before : null;
+        }
+        catch (Exception ex) { Note("Arcade gear: the arcade couldn't be made the current button group again: " + ex.Message); }
+        if (holderObject != null && holderObject) UnityEngine.Object.Destroy(holderObject);
+        holderObject = null;
+    }
+
+    // Puts the arcade back as the page found it, if it still takes input.
+    private static void ReleaseArcade()
+    {
+        DropHolder();
+        if (menu == null || !menu || !menu.Active || !menu.IsFocused || ArcadeUtility.IsRunning) return;
+        try
+        {
+            var modes = MouseModeManager.Instance;
+            if (modes != null && modes)
+            {
+                // The cursor as the game has it in the mode it's in now, so it doesn't switch again (and
+                // tell the arcade) on the next frame: EditorOverlay put back the cursor of the moment the
+                // page opened.
+                bool mouse = modes.IsMouseMode;
+                Cursor.visible = mouse;
+                Cursor.lockState = mouse ? CursorLockMode.None : CursorLockMode.Locked;
+                // With keys or a pad the arcade needs a selection, and the mouse on the page took it
+                // away: the arcade's own switch to the keys selects again the button it remembers.
+                if (!mouse && !HasSelection()) menu.OnMouseModeChanged(false);
+            }
+            PutBackView();
+        }
+        catch (Exception ex) { Note("Arcade gear: the arcade couldn't be put back as it was: " + ex.Message); }
+    }
+
+    private static bool HasSelection()
+    {
+        var events = EventSystem.current;
+        var selected = events != null && events ? events.currentSelectedGameObject : null;
+        return selected != null && selected && selected.activeInHierarchy;
+    }
+
+    // The chapter and scroll the page opened on (selecting a button again jumps to its chapter).
+    private static void PutBackView()
+    {
+        var scroll = menu!.scrollRect;
+        var content = scroll != null && scroll ? scroll.content : null;
+        if (scrollNoted && content != null && content)
+        {
+            var now = content.anchoredPosition;
+            if (now.x != scrollBefore.x || now.y != scrollBefore.y)
+            {
+                scroll!.StopMovement();
+                content.anchoredPosition = scrollBefore;
+            }
+        }
+        if (chapterBefore >= 0 && menu.selectedCategoryIndex != chapterBefore)
+        {
+            menu.selectedCategoryIndex = chapterBefore;
+            menu.ClearSelectedChapterButton();
+            menu.SetActiveChapterButton(chapterBefore);
+        }
     }
 
     // The box on the right says when the arcade gear keeps scores out; the game shows the selected
