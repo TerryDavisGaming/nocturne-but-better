@@ -1,4 +1,4 @@
-nocturne but better 2.6.1 (formerly nocturne flat scroll)
+nocturne but better 2.6.2 (formerly nocturne flat scroll)
 windows x64 | steam nocturne 1.0.1 | tested steam build 25487568
 works with bepinex 6 (bundled) or melonloader 0.7.3 and newer (not bundled)
 
@@ -83,6 +83,14 @@ start) plays the chart in a real battle and brings you back to the
 editor. it works for custom battles and the game's songs when the editor
 was opened from the title screen, and nothing is saved.
 
+fixed in 2.6.2
+- the installer stopped with "cannot find drive" when steam still listed a
+  library on a drive that's gone. it now skips what it can't reach.
+- on slower pcs, a stutter as a custom song started made its first notes
+  lurch ahead. they now keep their normal speed.
+- a new battle's 120 bpm stayed in front of the tempo set with "tempo
+  change here".
+
 fixed in 2.6.1
 - after quitting a fight from the pause menu, later fights had no music
   and their notes stuttered back and forth.
@@ -166,7 +174,7 @@ if something does not work
   this package must be checked again after a game update.
 
 share
-send the original nocturne-flat-scroll-2.6.1-windows.zip to the other person
+send the original nocturne-flat-scroll-2.6.2-windows.zip to the other person
 or device. they need their own installed copy of nocturne. the package
 contains no game assets, game-generated assemblies, saves, or account data.
 it does not support macos, linux, or steam deck through these installers.

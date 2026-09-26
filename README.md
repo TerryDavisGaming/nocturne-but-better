@@ -6,7 +6,7 @@ it works on the base steam game, with melonloader, or with bepinex. YOU DON'T NE
 
 it started out as nocturne flat scroll. the download and its files still use that name, so upgrades from older versions keep working.
 
-[download for windows](https://github.com/TerryDavisGaming/nocturne-but-better/releases/download/v2.6.1/Nocturne-Flat-Scroll-2.6.1-Windows.zip) · [latest release](https://github.com/TerryDavisGaming/nocturne-but-better/releases/latest)
+[download for windows](https://github.com/TerryDavisGaming/nocturne-but-better/releases/download/v2.6.2/Nocturne-Flat-Scroll-2.6.2-Windows.zip) · [latest release](https://github.com/TerryDavisGaming/nocturne-but-better/releases/latest)
 
 use the release zip to install. github's source download does not include the plugin or loader payload.
 
@@ -285,6 +285,8 @@ close the game and run `uninstall.cmd`. this disables the mod for both loaders a
 
 ## what was tested
 
+version 2.6.2 changed the installer and the start of custom songs. the installer passed 81 checks in test copies of the game files, 32 of them new ones for finding the game: fake steam folders listing a library on a missing drive (the error players saw), an offline network share, folders that are gone, folder names with [brackets] and letters like ü, steam's old library file format, and locked or unreadable steam files. in each case it found the one test game, and the same checks fail on 2.6.1's installer. it also installed and uninstalled without being told the game folder, and upgraded the published 2.6.1 and 2.6.0. the real installer upgraded the test pc's own game from 2.6.1. two custom battles on mp3 songs were played twice each on bepinex, one with 169 speed changes and its first note at 0:00, the other with an `#OFFSET`: the notes started 2.02 s and 0.61 s before the song, and the start logs showed steady frames (the longest 35 ms) with the song and the notes within 30 ms of each other. the stutter tests (250 ms and 700 ms frames forced at the start) were run on 2.6.1, where the notes lurched to 1.3 to 2.3 times their speed for a moment, the game's own firefly song too. 2.6.2's change was checked against a model of the game's clock with the same stutters, not in the game. the creator's new "tempo change here" wasn't tried in the game.
+
 version 2.6.1 was tested in-game on nocturne 1.0.1 with bepinex 6.0.0-be.788 and with melonloader 0.7.3, the same way as 2.6.0 below. each fix got a test that goes through the player's own path, and each test was also run on the old code first to show it catches the bug. on both loaders unless it says otherwise:
 
 - quitting from the pause menu: five fights in a row, each paused the way esc does and left with the pause menu's exit button, one of them through the pause menu's gameplay page. every later fight had its music and moving notes, and options > gameplay logged no errors. on 2.6.0 the same test stopped at the second fight, which had no music.
@@ -312,7 +314,7 @@ custom battles, on both loaders unless it says otherwise:
 - the creator's dialogue page passed 93 of 93 checks: every tab, adding, copying, replying and undoing lines, the speaker picker with karma at the top and typing to jump, faces and sides, a new speaker with a picture, save and reopen, and the chart editor's dialogue lane. its preview put the portraits where the game does.
 - on melonloader, no run logged a "native->managed trampoline" error.
 
-installer checks covered both loaders, switching between them, upgrades from the published 2.1.2, 2.2.0, 2.4.1, 2.5.0 and 2.6.0, and removal, all in test copies of the game files.
+installer checks covered both loaders, switching between them, upgrades from the published 2.1.2, 2.2.0, 2.4.1, 2.5.0, 2.6.0 and 2.6.1, and removal, all in test copies of the game files.
 
 2.5.0's custom difficulties and chart editor were tested on both loaders. the custom charts page opened from the main menu and from the difficulty screen's custom entry. the editor was driven with real key presses and mouse clicks, and its firefly music matched a reference render to the sample. a chart saved in it played in the firefly battle instead of the game's chart, with its score kept apart. a pack was imported, exported and imported again, the real windows file pickers opened in front of the game, "write game charts" wrote 177 charts for 103 songs, and an `.sm` with no song was refused with a message saying how to name one. a chapter button turned gold with its sparkles once every card in the chapter showed theirs.
 

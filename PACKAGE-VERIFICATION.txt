@@ -1,17 +1,27 @@
-nocturne but better 2.6.1 - package verification
+nocturne but better 2.6.2 - package verification
 checked september 25, 2026 on windows 11, using windows powershell 5.1.
 
 installer
-47 checks ran against throwaway copies of the game files. the
+81 checks ran against throwaway copies of the game files. the
 real game folder was not used, and its files were unchanged afterwards.
 - every package script parses in windows powershell 5.1.
 - install previews (-whatif) leave the game folder unchanged for both
   loaders, and so does the uninstall preview.
 - a game without melonloader gets the bundled bepinex and the plugin. a
   repeat install changes nothing.
-- upgrading from the published 2.1.2, 2.2.0, 2.4.1, 2.5.0, or 2.6.0 plugin
-  installs 2.6.1 and keeps the old dll as a backup. upgrading the 2.2.0,
-  2.4.1, 2.5.0, or 2.6.0 melonloader mod does the same.
+- upgrading from the published 2.1.2, 2.2.0, 2.4.1, 2.5.0, 2.6.0, or 2.6.1
+  plugin installs 2.6.2 and keeps the old dll as a backup. upgrading the
+  2.2.0, 2.4.1, 2.5.0, 2.6.0, or 2.6.1 melonloader mod does the same.
+- finding the game without being told where: fake steam folders (never
+  the real registry) list a library on a missing drive, an offline network
+  share, folders that are gone, names with [brackets], spaces and letters
+  like ü, steam's old library format, and locked or unreadable steam files.
+  each finds exactly the one test game, and an install and uninstall work
+  that way. these checks fail on 2.6.1's installer, which stopped with
+  "cannot find drive" or missed the library. the fullscreen fix script
+  gets the same lookup checks.
+- install.cmd and uninstall.cmd work from a folder with [brackets], an
+  apostrophe, unicode, & and %.
 - with melonloader 0.7.3 installed and turned on, the mod goes into mods and
   the bepinex copy is disabled. a melonloader-only game gets no bepinex
   files. a repeat install changes nothing.
@@ -29,13 +39,12 @@ real game folder was not used, and its files were unchanged afterwards.
   unknown game asset, a conflicting loader binary, and a disabled doorstop
   configuration. an existing compatible doorstop configuration is kept.
 
-for 2.6.1 the real installer was not run on the test pc's own game; the
-installer script only changed its version and pinned dll hashes since
-2.6.0. the optional fullscreen script is unchanged since 2.4.1. neither
+for 2.6.2 the installer's steam lookup was rewritten, and the real
+installer upgraded the test pc's own game from 2.6.1 to 2.6.2. the optional fullscreen script got the same lookup fixes. neither
 script touches the custom charts or custom battles folders.
 
 shareable dlls
-- both are built from the 2.6.1 source with debug symbols disabled and no
+- both are built from the 2.6.2 source with debug symbols disabled and no
   git commit hash, so they contain no development-machine paths.
 - this package's source folder, built with -c Release, gave the same
   bytes as the shipped dlls. the bytes depend on the files' line endings,
@@ -50,6 +59,19 @@ the melonloader one in a separate copy of the game folder. every run took
 a snapshot of the player's plugin, settings and saves first, put that
 snapshot back afterwards, and checked that the .sav files hadn't changed.
 on melonloader, no run logged a "native->managed trampoline" error.
+for 2.6.2 (steady frames on real battles; stutters in a model):
+- two 4-lane custom battles on mp3 songs, each played twice on bepinex,
+  one with 169 speed changes and its first note at 0:00, the other with
+  an #offset: the notes started 2.02 s and 0.61 s before the song, and
+  the start logs showed steady frames (the longest 35 ms) and the song
+  and notes within 30 ms of each other.
+- the stutter tests (250 and 700 ms frames forced at the start) ran on
+  2.6.1: the notes lurched to 1.3 to 2.3 times their speed for a moment,
+  on the game's own firefly song too. 2.6.2's change was checked against
+  a model of the game's clock with the same stutters, not in the game.
+- not tried in the game: the creator's new "tempo change here" on a new
+  battle, and 2.6.2 on melonloader (its code changes are the same for
+  both loaders, and no new game hooks were added).
 for 2.6.1 (each fix with a test through the player's own path, also run on
 the old code first to show it catches the bug; both loaders unless noted):
 - pause-menu quit: 5 fights in a row, paused the way esc does and left
