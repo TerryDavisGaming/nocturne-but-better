@@ -5,7 +5,9 @@ namespace NocturneFlatScroll;
 /// RemoveConsumable effect calls RemoveItem). With "Infinite consumables (arcade)" on, that
 /// removal is skipped for the player's own inventory while the arcade runs. The game's other
 /// limits stay: one use per battle and the cooldown. A set-gear battle uses up its own
-/// consumables as usual; they are the battle's, not the player's.
+/// consumables as usual; they are the battle's, not the player's. The arcade gear's copy of the
+/// player's inventory follows the setting too; with it off, a use counts down the copy and is
+/// noted for the rest of the visit (ArcadeGear.NoteUsed), so every later battle has one fewer.
 /// </summary>
 internal static partial class BattleGear
 {
@@ -16,15 +18,26 @@ internal static partial class BattleGear
 
     private static void UseConsumablePostfix() => usingConsumable = false;
 
-    private static bool RemoveItemPrefix(PlayingInventoryManager __instance, ItemData item)
+    private static bool RemoveItemPrefix(PlayingInventoryManager __instance, ItemData item, int amount)
     {
         if (!usingConsumable) return true;
         try
         {
             if (__instance == null || item == null) return true;
-            // The set-gear battle's own inventory counts down as usual.
             var current = swap;
-            if (current != null && __instance.Pointer == current.Manager.Pointer) return true;
+            if (current != null && __instance.Pointer == current.Manager.Pointer)
+            {
+                // The set-gear battle's own inventory counts down as usual.
+                if (!current.Loadout) return true;
+                if (SettingsState.InfiniteArcadeConsumables)
+                {
+                    ModLog.Info($"Infinite consumables: kept {ItemName(item)}.");
+                    return false;
+                }
+                // The copy counts down, and the visit remembers it (items the save owns only).
+                ArcadeGear.NoteUsed(item.ItemId, amount);
+                return true;
+            }
             if (setBattle != null)
             {
                 // A set-gear battle never uses up the player's own items, even when its gear couldn't be set.

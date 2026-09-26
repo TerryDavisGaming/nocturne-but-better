@@ -24,6 +24,9 @@ internal static class ArcadeSession
     /// <summary>True while the main-menu arcade is open.</summary>
     internal static bool Active { get; private set; }
 
+    /// <summary>The save slot the session plays, as its scores are written (a save without a slot is slot 1).</summary>
+    internal static int SlotIndex { get; private set; } = 1;
+
     private static string? saveFolder;
     private static Dictionary<string, Fingerprint>? fingerprints;
     private static bool gameOverContinueOff, tempSaveBefore;
@@ -193,8 +196,13 @@ internal static class ArcadeSession
         saveFolder = SaveFolder(saveFile);
         fingerprints = TakeFingerprints(saveFolder);
         tempSaveBefore = PendingTempSave(clear: false);
+        int slotIndex = saveFile.currentSaveData!.saveData?.meta?.slotIndex ?? 0;
+        SlotIndex = slotIndex > 0 ? slotIndex : 1;
         Active = true;
         ModLog.Info($"Arcade: session started on the latest save; {fingerprints.Count} story save files noted in {saveFolder}.");
+        // Without it the arcade uses the story gear, as it always did.
+        try { ArcadeGear.SessionStarted(SlotIndex); }
+        catch (Exception ex) { ReportOnce("reading the arcade gear", ex); }
         return true;
     }
 
@@ -243,6 +251,8 @@ internal static class ArcadeSession
         ModLog.Info($"Arcade: session ending ({reason}).");
         // A set-gear battle's inventory is never left in after the arcade.
         BattleGear.Backstop("the arcade session ended");
+        try { ArcadeGear.SessionEnded(); }
+        catch (Exception ex) { ReportOnce("closing the arcade gear", ex); }
         try
         {
             // The arcade menu turns this on and nothing turns it off when it's opened from the title.
@@ -438,7 +448,7 @@ internal static class ArcadeSession
 
     // ---- story file fingerprints -----------------------------------------------------------
 
-    private static SaveFileManager? SaveFile()
+    internal static SaveFileManager? SaveFile()
     {
         try { return GameDataManager.SaveFile?.TryCast<SaveFileManager>(); }
         catch (Exception ex)

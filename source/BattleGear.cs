@@ -1,6 +1,5 @@
 using System.Reflection;
 using HarmonyLib;
-using Il2CppInterop.Runtime;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -15,19 +14,23 @@ namespace NocturneFlatScroll;
 /// objects are never written to, and the game's saves always write its own save object, so a
 /// save during the battle still holds the player's own gear.
 /// The player's manager goes back when the battle is left, and the player's stats are worked out
-/// again from their own gear. Backstops put it back too, if that is ever missed.
+/// again from their own gear. Backstops put it back too, if that is ever missed. The main-menu
+/// arcade's own gear (ArcadeGear) is put in the same way (BattleGear.Loadout.cs).
 /// </summary>
 internal static partial class BattleGear
 {
-    private const string ExtraHealthId = "Item_ExtraHealth";
+    /// <summary>The health upgrades' item: they count as items in the inventory.</summary>
+    internal const string ExtraHealthId = "Item_ExtraHealth";
 
     private static readonly GearSlot[] Slots =
         { GearSlot.MainHand, GearSlot.Body, GearSlot.Head, GearSlot.OffHand, GearSlot.Amulet, GearSlot.Consumable };
 
-    /// <summary>A set-gear battle's inventory, and what it replaced.</summary>
+    /// <summary>A battle's inventory (set gear, or the arcade gear), and what it replaced.</summary>
     private sealed class Swap
     {
         internal string Title = "";
+        // The arcade gear rather than a battle's set gear.
+        internal bool Loadout;
         internal PlayingGameDataManager Game = null!;
         internal PlayerDataManager Player = null!;
         internal IInventoryManager Own = null!;              // the player's manager, put back afterwards
@@ -137,10 +140,18 @@ internal static partial class BattleGear
             // The player's own gear and level.
             Dump("battle start");
             var battle = combatOptions != null ? CustomBattles.Find(combatOptions.Song) : null;
-            if (battle == null) return;
             customBattle = battle;
             // Before the gear, so the swap's stat update has the battle's level too.
-            bool leveled = SetLevel(battle);
+            bool leveled = battle != null && SetLevel(battle);
+            // A battle's set gear wins; otherwise, in the main-menu arcade, the arcade gear is "your gear".
+            if (ArcadeGearRules.KindFor(battle != null && battle.Package.Gear.IsSet, ArcadeGear.Applies) == BattleGearKind.Arcade)
+            {
+                SetArcadeGear(battle?.Title ?? SongTitle(combatOptions?.Song));
+                if (leveled && swap == null) Recompute();
+                Dump(swap != null ? "battle start, after the arcade gear" : leveled ? "battle start, after the level" : "battle start, the arcade gear failed");
+                return;
+            }
+            if (battle == null) return;
             if (!battle.Package.Gear.IsSet)
             {
                 // A level-only battle isn't a set-gear battle: the player's own gear, and the usual consumable rules.
@@ -202,28 +213,14 @@ internal static partial class BattleGear
     private static void SetGear(CustomBattles.Battle battle)
     {
         var gear = battle.Package.Gear;
-        // Swapping twice would lose the player's own inventory behind the first swap.
-        if (swap != null) throw new InvalidOperationException("the last battle's gear is still in");
-        // Without the item list, gear can't be told from other items.
-        if (GearCatalog.All.Count == 0) throw new InvalidOperationException("the game's items aren't loaded");
-        var game = GameDataManager.Instance?.TryCast<PlayingGameDataManager>()
-            ?? throw new InvalidOperationException("the game's data isn't loaded");
-        var player = game.playerDataManager ?? throw new InvalidOperationException("the game has no player data");
-        var own = game.inventoryManager ?? throw new InvalidOperationException("the game has no inventory");
-        var ownManager = own.TryCast<PlayingInventoryManager>()
-            ?? throw new InvalidOperationException("the inventory isn't the game's own kind");
-        var ownSave = ownManager.dataProvider?.TryCast<GameDataScriptableObject>()
-            ?? throw new InvalidOperationException("the player's save isn't loaded");
-        if (CustomBattles.IsRuntimeName(ownSave.name))
-            throw new InvalidOperationException("the game reads a battle's inventory, not the player's");
-        var ownData = ownSave.Save?.player ?? throw new InvalidOperationException("the player's save isn't loaded");
-        var database = ownManager.Database ?? DataUtility.ItemDatabase;
+        var own = FindOwn();
+        var ownData = own.Data;
 
         // A fresh save: its constructor makes the player's inventory and equipment.
         var save = new SavedGameDataV105();
         var data = save.player ?? throw new InvalidOperationException("a new save has no player data");
         int ownHealth = CopyNonGear(ownData, data);
-        CopyCurrency(ownManager, data, battle);
+        CopyCurrency(own.Manager, data, battle.Title);
 
         var equipment = data.equipmentData ?? throw new InvalidOperationException("a new save has no equipment");
         var parts = new List<string>();
@@ -253,29 +250,7 @@ internal static partial class BattleGear
         if (health > 0) data.inventory[ExtraHealthId] = health;
         parts.Add($"health upgrades {health}{(gear.extraHealth == null ? " (your own)" : "")}");
 
-        var holder = ScriptableObject.CreateInstance(Il2CppType.Of<GameDataScriptableObject>())?.TryCast<GameDataScriptableObject>()
-            ?? throw new InvalidOperationException("the game couldn't make a save holder");
-        holder.name = CustomBattles.RuntimePrefix + "gear";
-        holder.hideFlags = HideFlags.HideAndDontSave;
-        holder.SetData(save, new SavedScoresData());
-        PlayingInventoryManager manager;
-        try { manager = new PlayingInventoryManager(database, new ISaveGameDataProvider(holder.Pointer)); }
-        catch
-        {
-            Object.Destroy(holder);
-            throw;
-        }
-
-        // Noted before anything is written, so a failure part-way puts the player's manager back.
-        swap = new Swap { Title = battle.Title, Game = game, Player = player, Own = own, Manager = manager, Holder = holder };
-        var battleInventory = new IInventoryManager(manager.Pointer);
-        game.inventoryManager = battleInventory;
-        player.inventory = battleInventory;
-        var now = GameDataManager.Inventory;
-        if (now == null || now.Pointer != manager.Pointer)
-            throw new InvalidOperationException("the game still reads the player's inventory after the swap");
-        // The battle works this out again when it starts; done here too so the stats are right from now on.
-        player.UpdateStatModel();
+        PutIn(own, save, battle.Title, loadout: false, "gear");
         ModLog.Info($"Battle gear: {battle.Title}: set gear for this battle: {string.Join(", ", parts)}.");
     }
 
@@ -300,7 +275,7 @@ internal static partial class BattleGear
     }
 
     // Money isn't gear, and screens during the battle (the pause menu) may show it.
-    private static void CopyCurrency(PlayingInventoryManager own, SavedPlayerData data, CustomBattles.Battle battle)
+    private static void CopyCurrency(PlayingInventoryManager own, SavedPlayerData data, string title)
     {
         try
         {
@@ -310,7 +285,7 @@ internal static partial class BattleGear
                 if (amount > 0) data.currency[type] = amount;
             }
         }
-        catch (Exception ex) { Note($"Battle gear: {battle.Title}: your money couldn't be copied, so the battle shows none: {ex.Message}"); }
+        catch (Exception ex) { Note($"Battle gear: {title}: your money couldn't be copied, so the battle shows none: {ex.Message}"); }
     }
 
     /// <summary>The item battle.json names for a slot, or null for an empty slot. Unknown items are logged once.</summary>
@@ -370,16 +345,17 @@ internal static partial class BattleGear
         var now = GameDataManager.Inventory;
         if (now == null || now.Pointer != current.Own.Pointer)
             ModLog.Error("Battle gear: WARNING: the game doesn't read your own inventory after putting it back.");
+        string who = current.Loadout ? "Arcade gear" : "Battle gear";
         ModLog.Info(backstop
-            ? $"Battle gear: backstop: {reason}; your own gear is back after {current.Title}."
-            : $"Battle gear: your own gear is back after {current.Title} ({reason}).");
+            ? $"{who}: backstop: {reason}; your own gear is back after {current.Title}."
+            : $"{who}: your own gear is back after {current.Title} ({reason}).");
         if (backstop) Dump("after the backstop");
     }
 
     // ---- backstops -------------------------------------------------------------------------------
 
-    // Something of a custom battle is still in: its inventory, its level, or its holds on
-    // achievements and item use.
+    // Something of a custom battle or the arcade gear is still in: its inventory, its level, or
+    // its holds on achievements and item use.
     private static bool Pending => swap != null || setBattle != null || customBattle != null || usingConsumable || levelOverride != null;
 
     /// <summary>Ends what's left of a custom battle when no arcade battle can be running any more.</summary>
@@ -419,7 +395,7 @@ internal static partial class BattleGear
         if (!Pending) return;
         Backstop("a save started");
         if (swap != null)
-            Note($"Battle gear: {__originalMethod?.Name} ran during a set-gear battle; the save holds your own gear, not the battle's.", error: false);
+            Note($"Battle gear: {__originalMethod?.Name} ran during a set-gear or arcade gear battle; the save holds your own gear, not the battle's.", error: false);
     }
 
     private static void LoadPrefix(MethodBase __originalMethod) => Backstop($"a save is loading ({__originalMethod?.Name})");
@@ -442,9 +418,10 @@ internal static partial class BattleGear
     // The game checks achievements on many events, not only at a battle's end (a riposte unlocks
     // one mid-battle); a custom battle counts for none of them, and neither may its gear or level
     // count as the player's (the game has a "level 20" achievement). A test play from the chart
-    // editor counts for none either.
+    // editor counts for none either. The arcade gear is items the player owns and counts as usual.
     private static bool HoldsAchievements =>
-        setBattle != null || swap != null || levelOverride != null || customBattle != null || ChartSwap.CurrentBattle != null || TestPlay.Active;
+        setBattle != null || swap is { Loadout: false } || levelOverride != null || customBattle != null || ChartSwap.CurrentBattle != null ||
+        TestPlay.Active;
 
     private static bool UnlockAchievementPrefix(string achievementId)
     {

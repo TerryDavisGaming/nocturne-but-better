@@ -3,7 +3,8 @@ namespace NocturneFlatScroll;
 /// <summary>
 /// A QA aid for in-game tests: with the environment variable NFS_QA_GEARDUMP=1, every arcade
 /// battle logs the equipment, gear counts, level and stats the game reads, at its start (before
-/// and after a set-gear swap or a set level) and after it ends, so the lead can compare them.
+/// and after a set-gear or arcade gear swap, or a set level) and after it ends, so the lead can
+/// compare them.
 /// </summary>
 internal static partial class BattleGear
 {
@@ -30,7 +31,8 @@ internal static partial class BattleGear
                 return;
             }
             var current = swap;
-            string whose = current != null && manager.Pointer == current.Manager.Pointer ? "the battle's" : "the player's";
+            string whose = current == null || manager.Pointer != current.Manager.Pointer ? "the player's"
+                : current.Loadout ? "the arcade gear's" : "the battle's";
 
             var equipment = data.equipmentData;
             string equipped = equipment == null ? "none" :
@@ -80,8 +82,11 @@ internal static partial class BattleGear
     /// <summary>The level the game's stat updates use now instead of the player's, or null.</summary>
     internal static int? QaLevelOverride => levelOverride;
 
-    /// <summary>Whether achievements are held back now (a custom battle, or a test play).</summary>
+    /// <summary>Whether achievements are held back now (a custom battle, a test play, or arcade gear with an item the save doesn't own).</summary>
     internal static bool QaHoldsAchievements => HoldsAchievements;
+
+    /// <summary>Whether the arcade gear's inventory is in now.</summary>
+    internal static bool QaArcadeGearIn => swap is { Loadout: true };
 
     /// <summary>The level a battle asking for <paramref name="level"/> would play at, or null when the game's levels can't be read. Changes nothing.</summary>
     internal static int? QaClampLevel(int level) =>

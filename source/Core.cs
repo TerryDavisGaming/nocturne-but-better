@@ -423,6 +423,7 @@ internal static class LayoutDriver
         PadInput.Update();
         ChartEditor.Update();
         BattleCreator.Update();
+        ArcadeGear.Update();
         CustomMusic.Update();
         BattleDialogue.Update();
         EnemyArt.LateUpdate();
