@@ -141,7 +141,8 @@ internal sealed class NoteColorPreview
 
         var skin = SettingsState.NoteSkin;
         string style = NoteStyleManager.CurrentStyleId;
-        // Akuma's lanes follow the pad bindings, so a rebind redraws it too.
+        // Akuma's lanes follow the pad bindings and the device in use, so a rebind or a switch
+        // between keyboard and pad redraws it too.
         if (style == AkumaNoteColors.Id) AkumaNoteColors.ReadLanes();
         string key = style + "|" + ColumnStyleManager.CurrentStyleId + "|" + skin + "|" + AkumaNoteColors.Version;
         if (key == _shown) return;

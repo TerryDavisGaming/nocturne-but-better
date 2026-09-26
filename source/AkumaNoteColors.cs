@@ -7,7 +7,8 @@ namespace NocturneFlatScroll;
 /// <summary>
 /// Akuma, a palette of the mod's own in the game's Note Colors row. Each lane takes the color of the
 /// pad button it's bound to, like the frets of a guitar controller: A green, B red, X blue and
-/// Y yellow. The middle (attack) lane of five-lane charts is orange, like a guitar's fifth fret.
+/// Y yellow. A lane on another button, and every lane on a keyboard, has its color in the default
+/// pad layout. The middle (attack) lane of five-lane charts is orange, like a guitar's fifth fret.
 /// </summary>
 /// <remarks>
 /// A game palette (<c>NoteStyle</c>) has one color set for the edge lanes, one for the inner lanes
@@ -41,14 +42,19 @@ internal static class AkumaNoteColors
 
     // The game's default pad buttons for lanes 1 to 4, used when a binding can't be read.
     private static readonly string[] DefaultPaths = { "leftShoulder", "dpad/right", "buttonWest", "rightShoulder" };
+    // The default layout's colors: X gives lane 3 blue, and the lanes on LB, d-pad right and RB
+    // take the rest in the frets' order.
+    private static readonly int[] DefaultFrets = { GreenFret, RedFret, BlueFret, YellowFret };
     private static readonly string[] Paths = new string[4];
     // The fret of each lane of a four-lane chart; a five-lane chart's side lanes are the same
     // actions. Until the bindings are read: the default layout's colors.
-    private static readonly int[] LaneFrets = { GreenFret, RedFret, BlueFret, YellowFret };
+    private static readonly int[] LaneFrets = (int[])DefaultFrets.Clone();
 
     private static NoteStyle? style;
     private static string? readPaths;
+    private static bool readPad;
     private static float nextRead;
+    private static int drawnVersion;
     private static bool reportedError;
 
     /// <summary>Goes up whenever the lane colors change, so the preview knows to redraw.</summary>
@@ -63,7 +69,11 @@ internal static class AkumaNoteColors
         try
         {
             if (EnsureRegistered() == null || NoteStyleManager.CurrentStyleId != Id) return;
-            if (ReadLanes()) OptionsMenuIntegration.RefreshPreviews();
+            ReadLanes();
+            // By version: a note checks the device too, so it may have read the change first.
+            if (Version == drawnVersion) return;
+            drawnVersion = Version;
+            OptionsMenuIntegration.RefreshPreviews();
         }
         catch (Exception ex) { ReportOnce(ex); }
     }
@@ -111,38 +121,30 @@ internal static class AkumaNoteColors
     }
 
     /// <summary>
-    /// Reads the lanes' pad buttons again, at most once a second unless <paramref name="force"/> is
-    /// set. True when the lane colors changed.
+    /// Checks the device in use, and reads the lanes' pad buttons again at most once a second unless
+    /// the device changed. <see cref="Version"/> goes up when the lane colors change.
     /// </summary>
-    internal static bool ReadLanes(bool force = false)
+    internal static void ReadLanes()
     {
+        bool pad = UsingPad();
         float now = Time.unscaledTime;
-        if (!force && readPaths != null && now < nextRead) return false;
+        if (readPaths != null && pad == readPad && now < nextRead) return;
         nextRead = now + 1f;
         for (int lane = 0; lane < Paths.Length; lane++) Paths[lane] = PadPath(lane);
         string joined = string.Join("|", Paths);
-        if (joined == readPaths) return false;
+        if (joined == readPaths && pad == readPad) return;
         readPaths = joined;
+        readPad = pad;
 
-        // A lane on a face button takes that button's color. The others take the colors left over,
-        // left to right in the frets' order, so the default layout (LB, d-pad right, X, RB) and the
-        // keyboard come out green, red, blue, yellow.
-        var used = new bool[Frets.Length];
+        // A lane on a face button takes that button's color, and any other lane keeps its color in
+        // the default layout, so a rebind changes only its own lane. On a keyboard the pad's
+        // bindings aren't what's pressed, so every lane has its default color.
         for (int lane = 0; lane < LaneFrets.Length; lane++)
         {
-            LaneFrets[lane] = FretOf(Paths[lane]);
-            if (LaneFrets[lane] >= 0) used[LaneFrets[lane]] = true;
-        }
-        int next = 0;
-        for (int lane = 0; lane < LaneFrets.Length; lane++)
-        {
-            if (LaneFrets[lane] >= 0) continue;
-            while (next < used.Length && used[next]) next++;
-            // Never short: each lane on a face button uses up at most one color.
-            LaneFrets[lane] = next < used.Length ? next++ : lane;
+            int fret = pad ? FretOf(Paths[lane]) : -1;
+            LaneFrets[lane] = fret >= 0 ? fret : DefaultFrets[lane];
         }
         Version++;
-        return true;
     }
 
     /// <summary>
@@ -220,7 +222,8 @@ internal static class AkumaNoteColors
 
     private static CombatNoteColorSet ColorsFor(int column, int count)
     {
-        if (readPaths == null) ReadLanes(force: true);
+        // Every note checks the device, so a switch between keyboard and pad shows from the next one.
+        ReadLanes();
         if (count == 4) return Frets[LaneFrets[column]];
         // A five-lane chart's side lanes are the four-lane actions; its middle is the attack.
         if (count == 5) return column == 2 ? Orange : Frets[LaneFrets[column < 2 ? column : column - 1]];
@@ -250,6 +253,17 @@ internal static class AkumaNoteColors
         {
             ReportOnce(ex);
             return DefaultPaths[lane];
+        }
+    }
+
+    // The game's control scheme, which follows the device used last: "Gamepad" or the keyboard's.
+    private static bool UsingPad()
+    {
+        try { return NocturneInput.IsUsingGamepad; }
+        catch (Exception ex)
+        {
+            ReportOnce(ex);
+            return false;
         }
     }
 
