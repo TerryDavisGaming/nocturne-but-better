@@ -5,7 +5,7 @@ import { HubError } from "./http.js";
 import { LIMITS, cleanLine } from "./names.js";
 
 export const DEFAULTS = {
-  uploads_open: "1", new_keys_open: "1", min_client: "2.8.0", message: "", hub_name: "nocturne but better hub",
+  uploads_open: "1", new_keys_open: "1", min_client: "2.7.0", message: "", hub_name: "nocturne but better hub",
   takedown_contact: "", max_package_bytes: "104857600", max_entries: "1000", max_unpacked_bytes: "209715200",
   storage_cap_bytes: "9000000000", storage_used: "0", d1_size_bytes: "0", d1_size_at: "0", d1_close_bytes: "400000000",
   uploads_per_key_day: "10", bytes_per_key_day: "524288000", probation_hours: "48", probation_uploads_day: "2",

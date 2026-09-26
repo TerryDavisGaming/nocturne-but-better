@@ -222,7 +222,7 @@ async function seedAll() {
       const start = await call("POST", "/v1/uploads", key, {
         clientUploadId: `seed-${n}-${crypto.randomUUID()}`, kind, packageId: null,
         file: { size: bytes.length, sha256: await sha256Hex(bytes), entriesSha256: await fingerprint(entries) },
-        meta, thumb: n % 3 === 1 ? undefined : thumbB64({ width: 128, height: 128 }), rightsConfirmed: true, client: "2.8.0",
+        meta, thumb: n % 3 === 1 ? undefined : thumbB64({ width: 128, height: 128 }), rightsConfirmed: true, client: "2.7.0",
       });
       if (start.status !== 201) {
         console.error("seed start failed", n, JSON.stringify(start.body));

@@ -94,7 +94,7 @@ Deno.test("upload start: every field is checked", async () => {
   assertEquals(r.status, 400);
   r = await startOnly(hub, key, bytes, { meta: { difficulties: [{ name: "Hard", level: 8, notes: 1 }], requires: ["Bad Feature!"] } });
   assertMatch(r.body.problems.join(), /requires/);
-  r = await startOnly(hub, key, bytes, { client: "2.7.9" });
+  r = await startOnly(hub, key, bytes, { client: "2.6.9" });
   assertEquals(r.status, 403);
   assertEquals(r.body.error, "client_too_old");
   const big = await hub.call("POST", "/v1/uploads", { key, json: { ...startBody(bytes, { sha256: "0".repeat(64), entriesSha256: "0".repeat(64) }), file: { size: 104857601, sha256: "0".repeat(64), entriesSha256: "0".repeat(64) } } });

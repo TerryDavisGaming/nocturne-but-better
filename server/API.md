@@ -24,7 +24,7 @@ every free-text field: nfc; remove c0 and c1 control characters (descriptions ke
 ### `GET /v1/info` (cached 5 minutes)
 
 ```
-{ "api": 1, "hub": "nocturne but better hub", "minClient": "2.8.0", "uploadsOpen": true, "counts": false,
+{ "api": 1, "hub": "nocturne but better hub", "minClient": "2.7.0", "uploadsOpen": true, "counts": false,
   "maxPackageBytes": 104857600, "maxUnpackedBytes": 209715200, "partSize": 8388608, "maxEntries": 1000,
   "maxSongsPerPack": 40, "maxThumbB64": 16384,
   "text": { "title": 100, "artist": 100, "author": 64, "packTitle": 100, "description": 1000, "name": 32, "note": 500 },
@@ -125,7 +125,7 @@ removal reasons (`removedReason`, and lookup's `reason`): `copyright`, `offensiv
                "songs": [ { "song", "difficulties": [...] } ],                            // packs: the manifest's songs
                "lengthSeconds", "bpm": [low, high], "requires": [] },
      "thumb": "<base64 baseline jpeg, at most 16384 characters, at most 256 px>",
-     "rightsConfirmed": true, "client": "2.8.0" }
+     "rightsConfirmed": true, "client": "2.7.0" }
    ```
 
    201 `{ "uploadId", "packageId", "version", "partSize": 8388608, "parts", "expiresAt" }`. the same `clientUploadId` again while open gives 200 and the same body. errors: 400 `bad_request` (+`problems`), 401, 403 `banned`/`not_yours`/`key_too_new`/`client_too_old`, 404 `no_package`, 409 `upload_in_progress`/`not_live`/`too_many_live`, 409 `duplicate` (+`packageId`: another entry already has these files, by `entriesSha256`; say so before any part is sent), 413 `too_big`, 429 `slow_down`/`daily_limit` (+`retryAfter`), 503 `uploads_closed`/`storage_full`/`read_only`. a new version of your own entry may keep the same files (to change its description or picture).

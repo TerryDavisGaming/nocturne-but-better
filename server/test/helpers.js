@@ -109,7 +109,7 @@ export function startBody(bytes, o = {}) {
     meta: o.meta ?? (o.kind === "charts" ? { description: "", songs: (o.songs ?? ["Firefly - 1"]).map((song) => ({ song, difficulties })) } : { description: o.description ?? "a test battle", difficulties, lengthSeconds: 192.4, bpm: [128, 172], requires: [] }),
     thumb: o.thumb,
     rightsConfirmed: o.rightsConfirmed ?? true,
-    client: o.client ?? "2.8.0",
+    client: o.client ?? "2.7.0",
   };
 }
 

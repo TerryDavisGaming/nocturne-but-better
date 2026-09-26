@@ -333,7 +333,7 @@ Deno.test("versioning: everything is under /v1/; other versions and unknown path
   const hub = await makeHub();
   const info = await hub.call("GET", "/v1/info");
   assertEquals(info.body.api, 1);
-  assertEquals(info.body.minClient, "2.8.0");
+  assertEquals(info.body.minClient, "2.7.0");
   assertEquals(info.body.hub, "nocturne but better hub");
   assertEquals(info.body.partSize, 8388608);
   assertEquals(info.body.maxPackageBytes, 104857600);

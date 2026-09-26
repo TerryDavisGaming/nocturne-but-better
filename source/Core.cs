@@ -6,7 +6,7 @@ internal static class ModInfo
 {
     public const string Id = "local.nocturne.flat-scroll";
     public const string Name = "Nocturne But Better";
-    public const string Version = "2.6.2";
+    public const string Version = "2.7.0";
 
     /// <summary>
     /// The online hub behind Get Custom Battles. Built in, so a release build can't be pointed
