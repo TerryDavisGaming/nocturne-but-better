@@ -369,7 +369,11 @@ internal static class ArcadeGearRules
     internal static string RowText(SlotGear g) =>
         $"{GearCatalog.LabelOf(g.Slot)}: " + (g.Id != null && g.Slot == GearSlot.Consumable ? $"{g.Name} x{g.Count}" : g.Name ?? "(empty)");
 
-    /// <summary>A slot row's hint (without the key that changes it); <paramref name="find"/> gives the item for its description.</summary>
+    /// <summary>
+    /// A slot row's hint; <paramref name="find"/> gives the item for its description. It leaves out the
+    /// key that changes the slot (the page's note has it) and what "not owned" means (the row's tag and
+    /// the note say it), so an item's description still fits the hint's two lines.
+    /// </summary>
     internal static string SlotHint(SlotGear g, Func<string, GearItem?> find)
     {
         const string UsedUpText = "None left this visit. It's full again the next time you open the arcade.";
@@ -379,7 +383,7 @@ internal static class ArcadeGearRules
         switch (g.Source)
         {
             case GearSource.NotOwned:
-                return $"You don't have {g.ChoiceName ?? g.Choice} in this save any more, {instead}. Your choice is kept, and comes back if the save gets the item again.";
+                return NotOwnedHint(g.ChoiceName ?? g.Choice ?? "", instead);
             case GearSource.NoSuchItem:
                 return $"The game has no item \"{g.Choice}\", {instead}. Your choice is kept.";
             case GearSource.OtherSlot:
@@ -387,9 +391,16 @@ internal static class ArcadeGearRules
         }
         if (g.UsedUp) return UsedUpText;
         if (g.Id == null) return "Nothing in this slot.";
-        string about = find(g.Id) is GearItem item ? GearCatalog.Hint(item) : $"(id {g.Id})";
-        return g.Unowned ? about + "  Not owned: scores aren't saved and achievements don't count with it." : about;
+        return find(g.Id) is GearItem item ? GearCatalog.Hint(item) : $"(id {g.Id})";
     }
+
+    /// <summary>
+    /// The hint for a choice the save doesn't own while "all items" is off, with what's used
+    /// <paramref name="instead"/>. The save may never have had it ("all items" allowed it), and the
+    /// choice is used again once it does, or with the setting on.
+    /// </summary>
+    internal static string NotOwnedHint(string name, string instead) =>
+        $"This save doesn't own {name}, {instead}. Your pick comes back if the save gets it, or with All items on.";
 
     /// <summary>The log's line for the gear, like "Weapon Ancient Katana (RPA2) [arcade], ... Consumable empty [arcade, Mega Potion used up this visit]".</summary>
     internal static string Describe(IEnumerable<SlotGear> gear) => string.Join(", ", gear.Select(DescribeSlot));

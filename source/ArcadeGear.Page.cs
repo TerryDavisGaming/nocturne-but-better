@@ -72,7 +72,7 @@ internal static partial class ArcadeGear
             slotIndex = 0;
             ShowScreen(Screen.Slots);
             string? message = readProblem != null
-                ? $"{FileName} couldn't be read (the log says why), so the arcade uses your story gear. Changing a slot starts a new file and keeps the old one as {FileName}.bad."
+                ? $"{FileName} couldn't be read (see the log), so the arcade uses your story gear. Changing a slot starts a new file; the old one is kept as {FileName}.bad."
                 : ReadOnly ? $"{FileName} was made by a newer version of the mod, so it can't be changed here, and the arcade uses your story gear."
                 : EarlierGame ? EarlierText()
                 : SettingsState.ArcadeGearAllItems && !AllItemsAvailable
@@ -321,9 +321,9 @@ internal static partial class ArcadeGear
         switch (row.Kind)
         {
             case RowKind.Slot:
+                // The key that changes a slot is in the note, so an item's description fits the hint's two lines.
                 var gear = slots.FirstOrDefault(g => g.Slot == row.Slot);
-                string about = gear != null ? ArcadeGearRules.SlotHint(gear, GearCatalog.Find) : "";
-                return (ReadOnly ? $"{FileName} is from a newer version of the mod, so this can't be changed.  " : $"{ChooseKey} changes a slot.  ") + about;
+                return gear != null ? ArcadeGearRules.SlotHint(gear, GearCatalog.Find) : "";
             case RowKind.Adopt:
                 return "Keeps the gear saved for this save slot and uses it from now on.";
             case RowKind.Clear:
@@ -359,8 +359,8 @@ internal static partial class ArcadeGear
     private static string EarlierText()
     {
         double since = Entry.Since ?? 0;
-        return $"Save slot {saveSlot}'s arcade gear is from an earlier game in this slot ({Clock(since)} played then, {Clock(playTime)} now), so it isn't used. " +
-               "Change a slot to start over, or choose Use the gear I set before.";
+        return $"This save slot's arcade gear is from an earlier game ({Clock(since)} played then, {Clock(playTime)} now), so it isn't used. " +
+               "Change a slot to start over, or pick Use the gear I set before.";
     }
 
     private static string Clock(double seconds)
@@ -429,11 +429,10 @@ internal static partial class ArcadeGear
         var item = row.Item;
         if (item == null) return $"The game has no item \"{row.Value}\", so your story gear is used. Your choice is kept until you pick another.";
         if (item.Slot != pickSlot) return $"{item.Name} doesn't go in the {GearCatalog.LabelOf(pickSlot)} slot, so your story gear is used.";
-        if (row.Unowned && !AllItems)
-            return $"You don't have {item.Name} in this save any more, so your story gear is used. Your choice is kept, and comes back if the save gets the item again.";
+        if (row.Unowned && !AllItems) return ArcadeGearRules.NotOwnedHint(item.Name, "so your story gear is used");
+        // An item the save doesn't own is tagged so; the hint stays the item's own, to fit its two lines.
         string hint = GearCatalog.Hint(item);
         if (row.UsedUp) hint += "  None left this visit. It's full again the next time you open the arcade.";
-        if (row.Unowned) hint += "  Not owned: scores aren't saved and achievements don't count with it.";
         return hint;
     }
 
@@ -479,7 +478,7 @@ internal static partial class ArcadeGear
         Place(b.Rect, new Vector2(1, 0), new Vector2(-16, 20), new Vector2(170, 52), new Vector2(1, 0));
     }
 
-    // Under the slots: the level and health upgrades (the save's own), and the rules.
+    // Under the slots: the key that changes one, the level and health upgrades (the save's own), and the rules.
     private static void BuildNote()
     {
         note = MakeText("Note", ui!.ListPanel!, 20, TextAlignmentOptions.Top);
@@ -506,6 +505,7 @@ internal static partial class ArcadeGear
                      $" health upgrade{(ownHealth == 1 ? "" : "s")}, from your save. ";
         var lines = new List<string>
         {
+            ReadOnly ? $"{FileName} is from a newer version of the mod, so the slots can't be changed." : $"{ChooseKey} changes a slot.",
             own + (AllItems ? "All items is on (Options > Gameplay): every item is listed."
                 : SettingsState.ArcadeGearAllItems ? "Only items this save owns are listed: all items can't work (see the log)."
                 : "Only items this save owns are listed."),

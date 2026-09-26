@@ -17,8 +17,9 @@ internal enum PadButton
 /// <summary>
 /// A game pad for the mod's own pages, read once a frame from the Input System's current pad
 /// (Gamepad.current): button presses, and up or down from the d-pad or the left stick with key
-/// repeat. With no pad, nothing is ever pressed. If the pad can't be read, pad input is off for
-/// the session and the pages keep working with the keyboard and mouse.
+/// repeat. It's read only while a page can use it, never in a battle. With no pad, nothing is ever
+/// pressed. If the pad can't be read, pad input is off for the session and the pages keep working
+/// with the keyboard and mouse.
 /// </summary>
 internal static class PadInput
 {
@@ -43,8 +44,8 @@ internal static class PadInput
     /// <summary>Up (-1) or down (+1) this frame, from the d-pad or the left stick, with repeat; 0 for none.</summary>
     internal static int Move() => move;
 
-    /// <summary>Called once a frame, before the pages read it.</summary>
-    internal static void Update()
+    /// <summary>Called once a frame, before the pages read it; <paramref name="wanted"/>: a page can use the pad now.</summary>
+    internal static void Update(bool wanted)
     {
         south = east = select = false;
         move = 0;
@@ -53,7 +54,12 @@ internal static class PadInput
             injected = null;
             Set(qa);
         }
-        if (off) return;
+        if (off || !wanted)
+        {
+            // A direction held when reading starts again counts as a new press.
+            held = 0;
+            return;
+        }
         try
         {
             var pad = Gamepad.current;

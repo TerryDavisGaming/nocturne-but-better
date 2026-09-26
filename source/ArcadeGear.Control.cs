@@ -30,6 +30,8 @@ internal static partial class ArcadeGear
     private static RectTransform? control;
     private static Image? controlBox;
     private static TMP_Text? controlText;
+    // Whether the mod last switched the control on, so hiding it outside the arcade asks the game nothing.
+    private static bool controlOn;
     private static string shownText = "";
     private static float closedAt = -100f;
     private static bool wasRunning, noHeader;
@@ -79,6 +81,7 @@ internal static partial class ArcadeGear
         }
         bool shown = !running && active && control != null && control && control.parent && control.parent.gameObject.activeInHierarchy;
         if (control != null && control && control.gameObject.activeSelf != shown) control.gameObject.SetActive(shown);
+        controlOn = shown;
         var mouse = InputMouse.current;
         bool over = false;
         if (shown)
@@ -150,16 +153,23 @@ internal static partial class ArcadeGear
         text.raycastTarget = false;
         text.richText = true;
         go.SetActive(false);
+        controlOn = false;
         control = rect;
         controlBox = box;
         controlText = text;
         shownText = "";
     }
 
+    // Called every frame outside the arcade: nothing to do once it's off.
     private static void HideControl()
     {
+        if (!controlOn) return;
+        controlOn = false;
         if (control != null && control && control.gameObject.activeSelf) control.gameObject.SetActive(false);
     }
+
+    /// <summary>Whether the pad is read this frame: only while the page is open or the arcade could open it.</summary>
+    internal static bool WantsPad => PageOpen || (session && ArcadeSession.Active && BattleGear.Installed && !ArcadeUtility.IsRunning);
 
     // The label and, small and dim, the key that opens the page. Measured again only when it changes.
     private static void ShowText(bool pad)

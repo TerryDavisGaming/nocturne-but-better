@@ -104,8 +104,10 @@ internal static partial class BattleGear
     {
         if (swap != null)
         {
-            // The last battle's inventory couldn't be taken out. Another one on top of it would lose the player's own.
-            ModLog.Error($"Arcade gear: {title}: the last battle's gear is still in, so you fight with your story gear this time.");
+            // The last battle's inventory couldn't be taken out. Another one on top of it would lose the
+            // player's own, so this battle is fought with the last battle's gear (StartCombatPrefix keeps
+            // its score out when that gear has items the save doesn't own).
+            ModLog.Error($"Arcade gear: {title}: the last battle's gear is still in, so you fight with that gear this time.");
             return;
         }
         try { SetLoadout(title); }

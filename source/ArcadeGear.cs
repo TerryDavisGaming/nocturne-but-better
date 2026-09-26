@@ -41,8 +41,11 @@ internal static partial class ArcadeGear
     /// <summary>What the Gear control says, worked out when the visit starts, when the page closes and after each battle.</summary>
     internal static GearLabel Label { get; private set; }
 
-    /// <summary>Whether the next battle with the arcade gear keeps its score out of the save (it has an item the save doesn't own).</summary>
-    internal static bool ScoresOff => session && Label.AllItems;
+    /// <summary>
+    /// Whether the next battle with the arcade gear keeps its score out of the save (it has an item
+    /// the save doesn't own). Only when the arcade gear is put in at all, which the battle and the control check too.
+    /// </summary>
+    internal static bool ScoresOff => Label.AllItems && Applies;
 
     /// <summary>The save slot of this visit, as its scores are written.</summary>
     internal static int SaveSlot => saveSlot;

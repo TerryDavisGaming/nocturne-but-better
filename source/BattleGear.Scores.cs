@@ -24,15 +24,19 @@ internal static partial class BattleGear
     private static HeldScores? heldScores;
     private static bool loggedScoresBlocked;
 
-    /// <summary>Whether a battle's scores are kept out of the save now: nothing may write the scores then.</summary>
-    internal static bool ScoresHeld => heldScores != null;
+    /// <summary>
+    /// Whether a battle's scores are kept out of the save now: nothing may write the scores then. That's
+    /// also so for a battle fought on "all items" gear that couldn't be taken out, even when its scores
+    /// couldn't be held.
+    /// </summary>
+    internal static bool ScoresHeld => heldScores != null || (inBattle && swap is { AllItems: true });
 
     /// <summary>Called when SaveFileManager.SaveScores is refused because <see cref="ScoresHeld"/>.</summary>
     internal static void NoteScoresBlocked()
     {
         if (loggedScoresBlocked) return;
         loggedScoresBlocked = true;
-        ModLog.Info($"Arcade gear: blocked SaveFileManager.SaveScores during {heldScores?.Title ?? "the battle"}; its score isn't saved.");
+        ModLog.Info($"Arcade gear: blocked SaveFileManager.SaveScores during {heldScores?.Title ?? swap?.Title ?? "the battle"}; its score isn't saved.");
     }
 
     /// <summary>Swaps the scores in memory for a copy for this battle. Throws with the reason, having changed nothing, when it can't.</summary>
@@ -50,6 +54,18 @@ internal static partial class BattleGear
         loggedScoresBlocked = false;
         data.scoresData = copy;
         ModLog.Info($"Arcade gear: {title}: an item your save doesn't own is in, so this battle's score isn't saved and it counts for no achievements.");
+    }
+
+    // A battle fought on the last battle's "all items" gear, which couldn't be taken out, records into
+    // a copy too. Without one, saving the scores is still refused while it runs (ScoresHeld).
+    private static void HoldLeftoverScores(string title)
+    {
+        try { HoldScores(title); }
+        catch (Exception ex)
+        {
+            ModLog.Error($"Arcade gear: {title}: the last battle's gear, with an item your save doesn't own, is still in, and this battle's " +
+                         $"scores couldn't be kept apart; saving scores is refused until it ends: {ex}");
+        }
     }
 
     /// <summary>Puts the save's own scores back. Kept when that fails, so saving the scores stays refused and a backstop tries again.</summary>

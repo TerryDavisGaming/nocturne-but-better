@@ -144,6 +144,9 @@ internal static partial class BattleGear
             Dump("battle start");
             var battle = combatOptions != null ? CustomBattles.Find(combatOptions.Song) : null;
             customBattle = battle;
+            // The last battle's gear couldn't be taken out, so this battle is fought with it too. When
+            // it has an item the save doesn't own, this battle's score is kept out of the save as well.
+            if (swap is { AllItems: true } && heldScores == null) HoldLeftoverScores(battle?.Title ?? SongTitle(combatOptions?.Song));
             // Before the gear, so the swap's stat update has the battle's level too.
             bool leveled = battle != null && SetLevel(battle);
             // A battle's set gear wins; otherwise, in the main-menu arcade, the arcade gear is "your gear".
@@ -171,7 +174,7 @@ internal static partial class BattleGear
                 // The last battle's inventory couldn't be taken out. Another one on top of it would
                 // lose the player's own, so this battle is played as if its swap failed.
                 ModLog.Error($"Battle gear: {battle.Title}: the last battle's gear is still in, so this battle's gear can't be set " +
-                             "(your consumables are kept).");
+                             "and you fight with that gear (your consumables are kept).");
                 if (leveled) Recompute();
                 Dump("battle start, the swap failed");
                 return;
