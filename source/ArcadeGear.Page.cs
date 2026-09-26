@@ -195,13 +195,14 @@ internal static partial class ArcadeGear
         holderObject = null;
     }
 
-    // Puts the arcade back as the page found it, if it still takes input.
+    // Puts the arcade back as the page found it, if it still takes input. What HoldArcade noted is
+    // used once: a page that failed to open before HoldArcade must not put back an older visit's view.
     private static void ReleaseArcade()
     {
         DropHolder();
-        if (menu == null || !menu || !menu.Active || !menu.IsFocused || ArcadeUtility.IsRunning) return;
         try
         {
+            if (menu == null || !menu || !menu.Active || !menu.IsFocused || ArcadeUtility.IsRunning) return;
             var modes = MouseModeManager.Instance;
             if (modes != null && modes)
             {
@@ -218,6 +219,11 @@ internal static partial class ArcadeGear
             PutBackView();
         }
         catch (Exception ex) { Note("Arcade gear: the arcade couldn't be put back as it was: " + ex.Message); }
+        finally
+        {
+            chapterBefore = -1;
+            scrollNoted = false;
+        }
     }
 
     private static bool HasSelection()
