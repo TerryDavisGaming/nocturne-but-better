@@ -156,7 +156,18 @@ internal sealed class HubBrowseList
     internal async Task<int> LoadMoreAsync(HubApi api, CancellationToken ct)
     {
         if (!HasMore) return 0;
-        var page = await api.ListAsync(Query, Started ? Next : null, ct).ConfigureAwait(false);
+        return Add(await FetchNextAsync(api, ct).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// The next page (the first when none was loaded yet), without adding it: a worker fetches it
+    /// while the page keeps drawing the list, then the page adds it with <see cref="Add"/>.
+    /// </summary>
+    internal Task<HubListPage> FetchNextAsync(HubApi api, CancellationToken ct) => api.ListAsync(Query, Started ? Next : null, ct);
+
+    /// <summary>Adds a page from <see cref="FetchNextAsync"/>: its entries not seen before, and the next page's cursor.</summary>
+    internal int Add(HubListPage page)
+    {
         Started = true;
         Next = page.Next;
         int added = 0;

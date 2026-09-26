@@ -459,9 +459,11 @@ internal static class LayoutDriver
         catch (Exception ex) { ReportOnce(ref _reportedChartError, "Custom chart options failed: ", ex); }
         ChapterBadges.Update();
         // Before the pages that read the pad, and only while one can.
-        PadInput.Update(ArcadeGear.WantsPad);
+        PadInput.Update(ArcadeGear.WantsPad || HubPage.WantsPad);
         ChartEditor.Update();
         BattleCreator.Update();
+        // After the creator, which waits for it while it has the screen.
+        HubPage.Update();
         ArcadeGear.Update();
         CustomMusic.Update();
         BattleDialogue.Update();

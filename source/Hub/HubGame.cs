@@ -79,29 +79,60 @@ internal sealed class HubGame : IHubGame
         internal CustomCharts.CustomChart? Kept;
     }
 
+    /// <summary>What "Use it now" found: the pack's songs, and its difficulties the player already has elsewhere.</summary>
+    internal sealed class UseResult
+    {
+        internal List<UseRow> Rows = new();
+        /// <summary>"Firefly - 1 Hard 9 is also in CustomCharts\my charts.nbbchart".</summary>
+        internal List<string> Duplicates = new();
+    }
+
     /// <summary>
     /// After a pack is installed: its songs, and for each song without a custom pick yet, the pack's
-    /// first difficulty for it picked at once. A song that has a pick keeps it.
+    /// first difficulty for it picked at once. A song that has a pick keeps it. <paramref name="pick"/>
+    /// false only lists them (the Installed tab's "Use it now" on a pack installed before).
     /// </summary>
-    internal static List<UseRow> UseItNow(string packPath)
+    internal static UseResult UseItNow(string packPath, bool pick = true)
     {
         CustomCharts.Reload();
         string full = Path.GetFullPath(packPath);
-        var rows = new List<UseRow>();
-        foreach (var group in CustomCharts.All.Where(c => Path.GetFullPath(c.SourceFile).Equals(full, StringComparison.OrdinalIgnoreCase)).GroupBy(c => c.Song))
+        var result = new UseResult();
+        var mine = CustomCharts.All.Where(c => SameFile(c.SourceFile, full)).ToList();
+        foreach (var group in mine.GroupBy(c => c.Song, StringComparer.OrdinalIgnoreCase))
         {
             var row = new UseRow { Song = group.Key, Charts = group.ToList() };
             var current = CustomCharts.Selected(group.Key);
-            if (current == null)
+            if (current == null && pick)
             {
                 CustomCharts.Select(group.Key, row.Charts[0]);
                 row.Picked = true;
             }
             else row.Kept = current;
-            rows.Add(row);
+            result.Rows.Add(row);
         }
-        OptionsMenuIntegration.RefreshAll();
-        return rows;
+        // The same difficulty elsewhere in CustomCharts (installed anyway; the note says where).
+        string root = Path.GetDirectoryName(CustomCharts.Folder.TrimEnd('\\', '/'))!;
+        var elsewhere = CustomCharts.All.Where(c => !SameFile(c.SourceFile, full)).GroupBy(CustomCharts.Fingerprint).ToDictionary(g => g.Key, g => g.First());
+        foreach (var chart in mine)
+            if (elsewhere.TryGetValue(CustomCharts.Fingerprint(chart), out var other))
+                result.Duplicates.Add($"{chart.Song} {chart.Title} is also in {Path.GetRelativePath(root, other.SourceFile)}");
+        if (pick) OptionsMenuIntegration.RefreshAll();
+        return result;
+    }
+
+    /// <summary>Whether one of an installed pack's difficulties is the pick for its song (the IN USE tag).</summary>
+    internal static bool InUse(string packPath)
+    {
+        string full = Path.GetFullPath(packPath);
+        foreach (var song in CustomCharts.All.Where(c => SameFile(c.SourceFile, full)).Select(c => c.Song).Distinct(StringComparer.OrdinalIgnoreCase))
+            if (CustomCharts.Selected(song) is { } picked && SameFile(picked.SourceFile, full)) return true;
+        return false;
+    }
+
+    private static bool SameFile(string a, string full)
+    {
+        try { return Path.GetFullPath(a).Equals(full, StringComparison.OrdinalIgnoreCase); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return false; }
     }
 
     // ---- the difficulties a pack can hold (DESIGN-HUB 1.6) --------------------------------------------
@@ -192,50 +223,4 @@ internal sealed class HubGame : IHubGame
             if (card.Texture) Object.Destroy(card.Texture);
         }
     }
-}
-
-/// <summary>
-/// The hub's multi-step jobs as the page runs them (DESIGN-HUB 3.2): each worker step through the
-/// page kit's job runner (<see cref="EditorPageKit.Run"/>), and the game's own steps on the main
-/// thread in between, where the runner hands the result back. The page's Update calls the kit's
-/// FinishPending every frame, as the battle creator does. <paramref name="ct"/> is the page's
-/// token: closing the page stops the worker, whose own cleanup removes its temporary files.
-/// </summary>
-internal static class HubFlow
-{
-    /// <summary>
-    /// Download, check, the game's check, install (DESIGN-HUB 3.4). <paramref name="done"/> runs on
-    /// the main thread with the installed item; a pack's custom charts are read again first.
-    /// </summary>
-    internal static void Install(EditorPageKit kit, HubApi api, HubStore store, HubDetail detail, HubZipCheck.Limits limits, HubTransfer transfer,
-        IHubRecycler recycler, CancellationToken ct, Action<HubInstalledItem> done)
-    {
-        kit.Run(Task.Run(() => HubInstall.DownloadAsync(api, store, detail, limits, transfer, ct), ct), $"Downloading {detail.Title}...", verified =>
-        {
-            string? why = HubInstall.GameCheck(verified, HubGame.Instance);
-            if (why != null)
-            {
-                HubInstall.Discard(verified);
-                throw new HubException("damaged", "That download doesn't play in the game: " + why) { Problems = new[] { why } };
-            }
-            kit.Run(Task.Run(() => HubInstall.Place(verified, store, recycler), ct), $"Installing {detail.Title}...", item =>
-            {
-                if (item.Kind == "charts") HubGame.Instance.ChartsChanged();
-                api.CountInstall(item.Package, item.Version);
-                done(item);
-            });
-        });
-    }
-
-    /// <summary>
-    /// Build, thumbnail (main thread, the game's JPEG encoder), send (DESIGN-HUB 3.6). The page
-    /// shows the build's summary and the rules between <paramref name="built"/> and
-    /// <see cref="Send"/>; the thumbnail is made here, when the build comes back.
-    /// </summary>
-    internal static void Build(EditorPageKit kit, Func<HubBuild> build, string what, Action<HubBuild, string?> built) =>
-        kit.Run(Task.Run(build), what, result => built(result, result.Ok ? HubGame.Thumbnail(result) : null));
-
-    internal static void Send(EditorPageKit kit, HubApi api, HubStore store, HubIdentity identity, HubBuild build, HubUploadDetails details, HubInfo info,
-        HubTransfer transfer, CancellationToken ct, Action<HubUploadResult> done) =>
-        kit.Run(Task.Run(() => HubUploadSend.SendAsync(api, store, identity, build, details, info, transfer, ct), ct), $"Uploading {build.Title}...", done);
 }

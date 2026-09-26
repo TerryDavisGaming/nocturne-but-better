@@ -1,6 +1,6 @@
 # nocturne but better
 
-flat upscroll and downscroll for nocturne, with compact vertical health and energy bars beside the chart. in the flat modes you can change the receptor height, the note size, and the lane spacing. it also has circle and arrow note skins, an early/late timing bar like the one in osu!mania, an optional hit sound, a miss sound volume that goes up to 300%, see-through enemy attacks, a switch for note flares, a preview of the game's note colors next to the red of a mine, and a "but better" under the nocturne logo. alt, tab, and the windows key no longer start a battle by accident. you can make CUSTOM DIFFICULTIES for the game's songs in an IN-GAME EDITOR LIKE OSU!MANIA'S, play them instead of the game's charts, and share them as one file. and you can build CUSTOM BATTLES: your own song and charts against a game enemy or your own art, with set gear, a set level, and boss-style dialogue if you want them. they play in the arcade, which now opens from the main menu and has its OWN GEAR that you pick there, and they share as one file too. you can switch back to the game's original look from options > gameplay.
+flat upscroll and downscroll for nocturne, with compact vertical health and energy bars beside the chart. in the flat modes you can change the receptor height, the note size, and the lane spacing. it also has circle and arrow note skins, an early/late timing bar like the one in osu!mania, an optional hit sound, a miss sound volume that goes up to 300%, see-through enemy attacks, a switch for note flares, a preview of the game's note colors next to the red of a mine, and a "but better" under the nocturne logo. alt, tab, and the windows key no longer start a battle by accident. you can make CUSTOM DIFFICULTIES for the game's songs in an IN-GAME EDITOR LIKE OSU!MANIA'S, play them instead of the game's charts, and share them as one file. and you can build CUSTOM BATTLES: your own song and charts against a game enemy or your own art, with set gear, a set level, and boss-style dialogue if you want them. they play in the arcade, which now opens from the main menu and has its OWN GEAR that you pick there, and they share as one file too. GET CUSTOM BATTLES on the title screen finds, downloads and shares them, and custom difficulties, on the mod's online hub. you can switch back to the game's original look from options > gameplay.
 
 it works on the base steam game, with melonloader, or with bepinex. YOU DON'T NEED A MOD LOADER: on a plain steam install, `install.cmd` sets up the bepinex loader that comes in the zip, so there's nothing else to download. if you already use melonloader 0.7.3 or newer, the mod goes into its `mods` folder instead.
 
@@ -62,7 +62,7 @@ the title screen and the nocturne card in the startup intro read "nocturne but b
 
 ## custom difficulties
 
-you can play your own charts, or other people's, on the game's songs, and make new ones in the game. everything for it is on ITS OWN PAGE: press custom charts on the main menu, or open the custom charts tab in options. the page has seven rows:
+you can play your own charts, or other people's, on the game's songs, and make new ones in the game. everything for it is on ITS OWN PAGE: press custom charts on the main menu, or open the custom charts tab in options. the page has eight rows:
 
 - chart editor. opens the editor (see below).
 - battle creator. opens the [battle creator](#the-battle-creator) for [custom battles](#custom-battles).
@@ -71,6 +71,7 @@ you can play your own charts, or other people's, on the game's songs, and make n
 - custom difficulty. off, or one of that song's custom charts, shown as "name by author". when one is picked it plays INSTEAD OF THE GAME'S CHART for that song, WHATEVER DIFFICULTY YOU SELECT. off gives you the game's charts back.
 - export custom charts. left and right choose "save this song" or "save all songs", and clicking opens a save dialog. every chart you picked ends up in ONE `.nbbchart` FILE, so the person you send it to imports everything with one click.
 - custom chart folder. "open" shows the folder in windows explorer. "write game charts" saves the game's own charts into a `_game charts` folder inside it, as `.sm` files for other editors.
+- online hub. on shows [get custom battles](#get-custom-battles) on the title screen. off hides it, and then the mod never contacts the hub.
 
 the game's difficulty screen (options > gameplay > change difficulty, or the pause menu in a fight) gets a CUSTOM ENTRY under zen. it shows the custom chart picked for the song, and left and right switch between that song's charts and off. in a fight it's about the song you're fighting, and the change starts on your next try. anywhere else it's about the song picked on the custom charts page, and selecting the entry takes you to that page.
 
@@ -267,6 +268,58 @@ a battle the creator made has:
 
 a `.creator-work` folder inside the battles folder holds battles while they're being made or unpacked, and the creator cleans it out when it opens. videos from zipped battles are copied to `...\nocturnebutbetter\cache\enemyart` before they play, and that folder is trimmed to 1 gb. custom battle scores are kept in your save's `.score` file. the arcade's gear is in `...\nocturnebutbetter\arcadegear.json`. uninstalling keeps all of it.
 
+## get custom battles
+
+get custom battles, the box above get soundtrack on the title screen, opens the online hub: a place to find, download and share custom battles and custom difficulties for the game's songs, a bit like osu!'s beatmap listing. the hub is a small server run for this mod. it isn't run by or connected to the makers of nocturne.
+
+THE MOD CONTACTS THE HUB ONLY WHILE ITS PAGE IS OPEN, and never at startup. the first time the page opens, a short notice says what that means. online hub, the last row of the custom charts page in options, turns the hub off: the box goes away and the mod never contacts the hub at all. the page opens only from the title screen, never in the story or a battle.
+
+the page has four tabs: browse, installed, my uploads and upload. tab and shift+tab switch them, or lb and rb on a controller. everything works with the mouse. with the keyboard, up and down move in the list, right goes to the buttons beside it, enter does the row's main thing, and esc goes back or closes. a controller does the same with the d-pad or the left stick, a and b.
+
+### browse
+
+the search box looks through titles, artists, charters and the song names of difficulty packs. ctrl+f or / starts typing, and the list follows half a second after you stop. a search takes up to 4 words, and the last one also matches the start of a word once it has 3 letters, so "moo" finds moonlit. next to it are type (all, battles, or difficulties for the game's songs), lanes (any, 4 or 5) and sort (newest, title, best match while searching, and most downloaded when the hub counts downloads). t, l and s change them from the keyboard. "more by this uploader" lists one person's uploads, and clicking the chip it adds clears it. the list loads 24 at a time as you scroll.
+
+each row shows the entry's picture (or a tile with its first letters), the title and artist, who charted it and who uploaded it (their name and a 4-letter tag), its difficulties as coloured chips (green for levels 1 to 3, blue 4 to 6, orange 7 to 9, red 10 and up), what it brings (sets your gear, sets your level, dialogue, video), its size and downloads, and where it stands on your pc: installed, in use, update, yours, you have it, needs a newer mod, or failed. the panel on the right adds the description, a table of the difficulties with their levels and notes, and what's inside.
+
+enter or download gets it, ONE DOWNLOAD AT A TIME, with a bar at the bottom. esc stops it. EVERY DOWNLOAD IS CHECKED IN FULL BEFORE IT'S INSTALLED: its size and sha-256 have to match its listing, the zip and every file in it are checked, and each song, picture and video is judged by what's in it, not by its name. then the mod's own loader and the game's chart reader have to take it. nothing is unpacked and NOTHING DOWNLOADED IS EVER RUN. a download that fails a check installs nothing, and r reports it as broken with what was found.
+
+a battle lands in `custombattles\downloaded` as the `.nbbbattle` file it is, and the arcade's custom tab shows it the next time the arcade opens. a difficulty pack lands in `customcharts\downloaded`, and use it now lists its difficulties: a song that has no custom pick yet plays the pack's first difficulty for it right away, and a song you already picked something for keeps it until you choose one of the pack's in the list. options > custom charts turns them off like any other custom difficulty. a battle you already have (your own, or a copy you added) shows "you have it", and the hub never installs a second copy of it.
+
+### installed
+
+everything the hub installed, with its picture, and it works without the internet. when the hub answers, each entry says whether it's up to date, has an update (the tab counts them, like "installed 12 (3 updates)"), or was removed from the hub. a removed entry stays installed and keeps working. the panel says what an update changes, like "v3 to v4: 31 mb (was 24 mb), adds a video." an update keeps the file's name, so a battle keeps its scores and a pack keeps its picks. del or delete sends the file to the recycle bin. on a drive without one, a download you haven't changed can be deleted for good after a second question, and a changed one is left for you to delete in explorer.
+
+### upload
+
+upload a battle lists your battle folders with each one's card beside the list. upload custom difficulties takes a song, then the difficulties you made for it, and as many songs as you like, all with the same lanes. a difficulty that plays its own song file can't go in a pack: make it a custom battle to share it. the battle creator's "upload to the hub..." button, on its bottom bar, saves the battle and opens this with it, and you're back in the creator when you close the hub. the hub doesn't take `.osz` files: turn a beatmap into a battle in the battle creator first, then upload that battle.
+
+before anything is sent:
+
+1. you write a description if you want one, a title for a pack, and at your first upload the name the hub shows with your uploads.
+2. the mod checks and packs it on your pc. only the files the battle uses go in, pictures lose their hidden details (like where a photo was taken), and a path or name from your windows user folder in a chart, a json file or a song's tags stops the upload with where it is. a summary shows the size, what goes in, what was left out and what was cleaned. the card becomes a small picture for the listing.
+3. THE RULES SHOW BEFORE EVERY UPLOAD: upload only what you made, include songs, pictures and videos only if you may share them, what the hub stores, and where takedown requests go. the upload button is on the row below back, so a double click can't skip them.
+
+the upload shows its progress, and esc stops it. it's LIVE ON THE HUB THE MOMENT IT FINISHES, and its picture shows after the hub's owner checks it or after 24 hours. the hub takes up to 100 mb, songs as `.ogg`, `.wav` or `.mp3`, pictures as `.png`, `.jpg` or `.gif`, and videos as webm (vp8). the turn into frames button in the creator makes frames from other videos. a new hub key can upload 2 things a day for its first 2 days, then 10.
+
+### my uploads and your hub key
+
+there are NO ACCOUNTS. the hub knows your uploads by this pc's hub key, a random key the mod makes at your first upload or report. it's kept in `nocturnebutbetter\hub\identity.json`, encrypted to your windows account, and it's sent only with the requests that need it. the hub keeps a scrambled form of it, never the key. ONLY THAT KEY CAN CHANGE OR DELETE YOUR UPLOADS, so BACK IT UP after your first upload: back up key saves it as a text file. keep that file private, since it works like a password, and not in a synced folder like onedrive. use a saved key brings it back on another pc or after reinstalling windows, and make a new key replaces a key that was shared by mistake (your uploads stay yours, and the old key stops working at once).
+
+my uploads lists what you uploaded with its state on the hub. a removed entry says why. an entry whose files changed since you uploaded it says so. upload a new version sends the same battle again as its next version (a battle has to keep its battle id), and delete from the hub removes it for everyone after two questions. players who downloaded it keep their copy, and your own battle on your pc isn't touched.
+
+### reports
+
+r or report... asks why (copyright, offensive, offensive picture, broken, malicious, spam or other) and takes a note if you want one. it needs no upload first. the hub's owner reads every report, and nothing is hidden by reports alone. a second report of the same entry from the same pc says "you already reported this."
+
+### when the hub can't be used
+
+without the internet, the page says it can't reach the hub, and f5 or try again asks again. on busy days the hub can be down until 00:00 utc: it runs on a free plan whose daily allowance anyone can use up, and the page says how long until it resets. an older mod than the hub takes can't browse or upload until it's updated. in all of these, installed and delete keep working.
+
+### what the hub stores
+
+the files you upload, the details in their listings, the name you choose, and the scrambled form of your hub key. reports keep their reason and note. downloads are counted with a scrambled form of the address that's changed every day. no account, e-mail, steam id, ip address or windows user name is stored. on your pc, the hub's own files are in `...\nocturnebutbetter\hub`: the key, the list of what it installed, your uploads, the page's settings and the installed entries' pictures. uninstalling keeps them.
+
 ## install
 
 1. install nocturne through steam, then close the game.
@@ -295,7 +348,7 @@ the fix stopped flickering on the original test pc under nocturne 1.0.0; other d
 
 ## remove it
 
-close the game and run `uninstall.cmd`. this disables the mod for both loaders and keeps the loaders, other mods, saved preferences, saves, and scores. it doesn't touch the mod's `nocturnebutbetter` folder in `appdata\locallow` either, so your custom charts and custom battles stay, along with the enemy art cache. restore the fullscreen fix separately if you enabled it.
+close the game and run `uninstall.cmd`. this disables the mod for both loaders and keeps the loaders, other mods, saved preferences, saves, and scores. it doesn't touch the mod's `nocturnebutbetter` folder in `appdata\locallow` either, so your custom charts and custom battles stay, along with the enemy art cache and your hub key. restore the fullscreen fix separately if you enabled it.
 
 ## what was tested
 

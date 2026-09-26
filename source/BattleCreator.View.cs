@@ -117,8 +117,10 @@ internal static partial class BattleCreator
         var buttons = new (string Label, Action Do, float Width)[]
         {
             ("Save", () => Save(), 170), ("Export .nbbbattle...", StartExport, 260), ("Open folder", () => { if (draft != null) OpenInExplorer(draft.Folder); }, 190),
-            ("Delete battle", AskDelete, 200),
+            ("Delete battle", AskDelete, 200), ("Upload to the hub...", StartHubUpload, 250),
         };
+        // The hub's button shows when the hub is on (Get Custom Battles, Options > Custom Charts > Online hub).
+        hubShown = HubGame.Enabled;
         float x = 16;
         foreach (var (label, doIt, width) in buttons)
         {
@@ -129,8 +131,10 @@ internal static partial class BattleCreator
                 b.Text = () => "Save <size=65%><color=#9D92B4>Ctrl+S</color></size>";
                 b.Active = () => draft?.Dirty ?? false;
             }
+            Func<bool>? shown = label.StartsWith("Upload") ? () => hubShown : null;
+            if (shown != null) b.Visible = shown;
             Place(b.Rect, new Vector2(0, 0.5f), new Vector2(x, 0), new Vector2(width, 52), new Vector2(0, 0.5f));
-            barControls.Add(new Control { Button = b, Activate = act });
+            barControls.Add(new Control { Button = b, Activate = act, Shown = shown });
             x += width + 12;
         }
         Action goBack = () => { if (!Busy) RequestBack(); };
@@ -355,7 +359,7 @@ internal static partial class BattleCreator
     private static List<Control> VisibleControls()
     {
         var shown = controls.TryGetValue(page, out var list) ? list.Where(c => c.Visible).ToList() : new List<Control>();
-        shown.AddRange(barControls);
+        shown.AddRange(barControls.Where(c => c.Visible));
         return shown;
     }
 

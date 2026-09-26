@@ -93,6 +93,7 @@ internal static partial class BattleCreator
         audioLoad = null;
         ClearOsz();
         handedOver = false;
+        hubHandedOver = false;
         touched.Clear();
         pagePanels.Clear();
         controls.Clear();
@@ -118,6 +119,7 @@ internal static partial class BattleCreator
             }
             FinishCleanup();
             if (handedOver) { UpdateHandedOver(); return; }
+            if (hubHandedOver) { UpdateHubHandedOver(); return; }
             // On every screen, so the preview stops on time behind a prompt too.
             UpdatePreview();
             var keyboard = InputKeyboard.current;
@@ -207,14 +209,21 @@ internal static partial class BattleCreator
     private const int ActionRows = 4;
     private static List<BattleFiles.BattleEntry> entries = new();
     private static int listIndex;
+    // Where Get Custom Battles puts the battles it downloads (CustomBattles\Downloaded).
+    private static string hubFolder = "";
+
+    // A battle the hub downloaded: listed after the others, as "from the hub".
+    private static bool FromHub(BattleFiles.BattleEntry e) => e.IsZip && hubFolder.Length > 0 && BattleFiles.IsInside(e.Path, hubFolder);
 
     private static void Rescan()
     {
         try
         {
-            // Folders first, by title; zips (which are imported to be edited) after them.
+            hubFolder = Path.Combine(Root, "Downloaded");
+            // Folders first, by title; zips (which are imported to be edited) after them, and the hub's downloads last.
             entries = BattleFiles.List(Root, GameCheck)
                 .OrderBy(e => e.IsZip)
+                .ThenBy(FromHub)
                 .ThenBy(e => e.Title, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
         }
@@ -253,7 +262,7 @@ internal static partial class BattleCreator
             // What the battle sets for the player, like "set gear, level 12".
             string overrides = e.Overrides.Length > 0 ? "   " + e.Overrides : "";
             string problems = e.Problems.Count == 0 ? "" : e.Problems.Count == 1 ? "   1 problem" : $"   {e.Problems.Count} problems";
-            if (e.IsZip) lines.Add($"zip: {name}  ({(e.Loads ? "choose it to import and edit" : "the arcade skips it")}){overrides}{problems}");
+            if (e.IsZip) lines.Add($"{(FromHub(e) ? "from the hub" : "zip")}: {name}  ({(e.Loads ? "choose it to import and edit" : "the arcade skips it")}){overrides}{problems}");
             else if (e.Broken) lines.Add($"{name}  (battle.json can't be read)");
             else
             {
@@ -555,6 +564,60 @@ internal static partial class BattleCreator
     {
         // The chart editor closed without saying so: come back anyway.
         if (!ChartEditor.IsOpen && Time.frameCount > handOverFrame + 1) ChartsClosed();
+    }
+
+    // ---- the hub (Get Custom Battles) -----------------------------------------------------------------
+
+    // While the hub's page has the screen to upload the battle, the creator waits hidden (and keeps the menus locked).
+    private static bool hubHandedOver, hubShown;
+
+    /// <summary>
+    /// "Upload to the hub...": saves the battle, then hands over to the hub's page on its Upload tab
+    /// with this battle; the creator shows again when the page closes. Only from the title screen
+    /// (the hub's own rule), never in the story.
+    /// </summary>
+    private static void StartHubUpload()
+    {
+        if (draft == null || !FinishTyping()) return;
+        if (draft.Dirty && !Save()) return;
+        if (!HubPage.CanOpen(out string why, fromCreator: true))
+        {
+            Say(why, 6f);
+            return;
+        }
+        StopPreview();
+        StopArtPreview(false);
+        StopDialoguePreview(false);
+        string folder = draft.Folder;
+        hubHandedOver = true;
+        Ui.SetVisible(false);
+        HubPage.OpenForUpload(folder, HubClosed);
+        if (!HubPage.IsOpen)
+        {
+            hubHandedOver = false;
+            Ui.SetVisible(true);
+            Say("The hub didn't open (see the log).", 5f);
+            return;
+        }
+        ModLog.Info($"Battle creator: handed {folder} to the hub to upload.");
+    }
+
+    // The hub's page closed: the creator shows again, on the battle as it was.
+    private static void HubClosed()
+    {
+        if (!IsOpen || !hubHandedOver) return;
+        hubHandedOver = false;
+        Kit.IgnoreKeysNow();
+        Kit.DelayClicks();
+        Ui.SetVisible(true);
+        RefreshBattleInfo();
+        ModLog.Info("Battle creator: back from the hub.");
+    }
+
+    private static void UpdateHubHandedOver()
+    {
+        // The hub's page went without saying so: come back anyway.
+        if (!HubPage.IsOpen) HubClosed();
     }
 
     // ---- QA ------------------------------------------------------------------------------------------

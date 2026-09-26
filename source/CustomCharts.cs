@@ -345,7 +345,7 @@ internal static class CustomCharts
         return written;
     }
 
-    private static string Fingerprint(CustomChart c) =>
+    internal static string Fingerprint(CustomChart c) =>
         string.Join("|", c.Song.ToLowerInvariant(), c.Melody, c.KeepSongEvents, c.Title, c.Author,
             new string(c.Chart.Blocks[c.BlockIndex].Notes.Where(ch => !char.IsWhiteSpace(ch)).ToArray()));
 

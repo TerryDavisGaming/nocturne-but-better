@@ -178,6 +178,11 @@ internal sealed class EditorPageKit
         /// <summary>A picture beside the list for the highlighted row (null shows none), and a line under it.</summary>
         internal Func<int, Sprite?>? Face;
         internal Func<int, string>? FaceNote;
+        /// <summary>
+        /// The heading, hint, rows and note are shown exactly as they are, with rich text off: for
+        /// text from the network (the hub), which is never escaped into the mod's own rich text.
+        /// </summary>
+        internal bool Plain;
     }
 
     /// <summary>What <see cref="UpdatePicker"/> did this frame.</summary>
@@ -268,7 +273,12 @@ internal sealed class EditorPageKit
         }
         if (face!.sprite != sprite) face.sprite = sprite;
         if (face.enabled != (sprite != null)) face.enabled = sprite != null;
-        faceNote!.text = Escape(note);
+        if (faceNote!.richText == p.Plain)
+        {
+            faceNote.richText = !p.Plain;
+            faceNote.parseCtrlCharacters = !p.Plain;
+        }
+        faceNote.text = p.Plain ? note : Escape(note);
     }
 
     // Typing letters jumps to the first row that starts with them; a pause of a second starts over.
@@ -292,7 +302,8 @@ internal sealed class EditorPageKit
         var p = Picking;
         if (p == null) return PickerStep.None;
         bool live = Live && !Busy;
-        if (live && Pressed(keyboard, Key.Escape))
+        // The pad's B goes back and A chooses, on a page that reads the pad (PadInput presses nothing otherwise).
+        if (live && (Pressed(keyboard, Key.Escape) || PadInput.Pressed(PadButton.East)))
         {
             Picking = null;
             p.Back();
@@ -300,10 +311,11 @@ internal sealed class EditorPageKit
         }
         int before = p.Index;
         if (live) p.Index = MoveInList(keyboard, p.Index, p.Rows.Count);
+        if (live && PadInput.Move() is int step && step != 0 && p.Rows.Count > 0) p.Index = Math.Clamp(p.Index + step, 0, p.Rows.Count - 1);
         if (live && p.Jump) TypeJump(keyboard, p);
         // A message shows where the hint goes; moving to another row brings back that row's hint.
         if (p.Index != before && Ui.MessageShowing) Ui.ClearMessage();
-        bool chosen = Chosen(keyboard, p.Rows.Count, ref p.Index);
+        bool chosen = Chosen(keyboard, p.Rows.Count, ref p.Index) || (p.Rows.Count > 0 && PadInput.Pressed(PadButton.South));
         if (live && chosen)
         {
             Picking = null;
@@ -312,7 +324,8 @@ internal sealed class EditorPageKit
         }
         string hint = Ui.MessageShowing ? Ui.Message : p.Hint(p.Index);
         if (p.Jump && jumpTyped.Trim().Length > 0 && Time.unscaledTime <= jumpAt + 1f) hint = $"Jump: {jumpTyped}   " + hint;
-        Ui.DrawList(Escape(p.Heading), Escape(hint), p.Rows, p.Index);
+        if (p.Plain) Ui.DrawList(p.Heading, hint, p.Rows, p.Index, plain: true);
+        else Ui.DrawList(Escape(p.Heading), Escape(hint), p.Rows, p.Index);
         DrawPickerFace(p);
         return PickerStep.Shown;
     }

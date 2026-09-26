@@ -11,7 +11,9 @@ namespace NocturneFlatScroll;
 /// <summary>
 /// Where the custom charts show up in the game's menus: a Custom Charts button on the main menu
 /// and a Custom Charts tab in Options (the gameplay page showing only the chart rows), plus a
-/// custom difficulty entry and a Custom Charts entry in the Difficulty screen.
+/// custom difficulty entry and a Custom Charts entry in the Difficulty screen. The main menu's Get
+/// Custom Battles box (the online hub, HubPage) is made here too, right after the Custom Charts
+/// button, so the two never wait on each other.
 /// </summary>
 internal static class CustomChartsMenu
 {
@@ -21,6 +23,15 @@ internal static class CustomChartsMenu
     private const string Title = "Custom Charts";
     // The page has the custom difficulties and the Battle creator.
     private const string HelpText = "Import, pick, and share custom difficulties, or make your own battles.";
+    private const string HubButtonName = "Button_FlatGetCustomBattles";
+    private const string HubTitle = "Get Custom Battles";
+    private const string HubHelpText = "Find, download and share custom battles and custom difficulties.";
+    // The hub's box, in the mod's colour instead of the Steam green it's cloned from.
+    private static readonly Color HubBoxColor = new(0.55f, 0.29f, 0.16f, 0.9f);
+    // QA builds only: NFS_QA_HUB_TITLE=row puts Get Custom Battles in the title's list after Custom
+    // Charts instead of the box above Get Soundtrack, for the QA picture that decides between them.
+    private static readonly bool HubAsRow = QaBuild.Env("NFS_QA_HUB_TITLE") == "row";
+    private static readonly bool QaLog = QaBuild.On;
 
     /// <summary>True while the gameplay page is showing the chart rows for the Custom Charts tab.</summary>
     internal static bool ChartsPage { get; private set; }
@@ -97,8 +108,100 @@ internal static class CustomChartsMenu
             }
             button.gameObject.SetActive(options.gameObject.activeSelf);
             InsertBelow(options, button);
+            HubButton(__instance, button);
         }
         catch (Exception ex) { ReportOnce("main menu", ex); }
+    }
+
+    /// <summary>
+    /// Get Custom Battles: a third box above Get Soundtrack (the title's list has no room for a tenth
+    /// row; the bottom-aligned list moves up a row to make room), cloned from Get Soundtrack with its
+    /// Steam look and click taken off. Keyboards and pads reach it below Quit. Hidden when the hub is
+    /// off or the build has no hub, and while Options is (as the Custom Charts button is).
+    /// </summary>
+    private static void HubButton(MainMenu menu, CustomButton customCharts)
+    {
+        try
+        {
+            bool row = HubAsRow || !menu.soundtrackButton;
+            var template = row ? menu.optionsButton : menu.soundtrackButton;
+            var parent = template.transform.parent;
+            var existing = parent.Find(HubButtonName);
+            CustomButton button;
+            if (existing) button = existing.GetComponent<CustomButton>();
+            else
+            {
+                button = CloneButton(template, parent, HubButtonName, HubTitle, HubPage.OpenFromTitle);
+                button.ButtonHelpText = HubHelpText;
+                if (row) button.transform.SetSiblingIndex(customCharts.transform.GetSiblingIndex() + 1);
+                else
+                {
+                    // Just before Get Soundtrack in the list's layout group, so the three boxes stay together.
+                    button.transform.SetSiblingIndex(template.transform.GetSiblingIndex());
+                    PlainBox(button);
+                }
+            }
+            bool show = HubGame.Enabled && menu.optionsButton.gameObject.activeSelf;
+            if (button.gameObject.activeSelf != show) button.gameObject.SetActive(show);
+            if (!show)
+            {
+                RemoveFromNavigation(button);
+                return;
+            }
+            if (row) InsertBelow(customCharts, button);
+            else if (menu.quitButton) InsertBelow(menu.quitButton, button);
+        }
+        catch (Exception ex) { ReportOnce("hub button", ex); }
+    }
+
+    // The Get Soundtrack box carries the Steam logo and a Steam-only switch. The hub's box shows no
+    // icon (any picture of its own is hidden, and the box is plain in the mod's colour), and the
+    // build switch that could hide it is taken off.
+    private static void PlainBox(CustomButton button)
+    {
+        var own = button.GetComponent<Image>();
+        var names = new List<string>();
+        foreach (var image in button.GetComponentsInChildren<Image>(true))
+        {
+            if (!image || (own && image.Pointer == own.Pointer)) continue;
+            string name = image.gameObject.name;
+            names.Add(name);
+            if (name.StartsWith("SelectionHighlight") || name.StartsWith("ActiveTabBackground")) continue;
+            image.enabled = false;
+        }
+        foreach (var raw in button.GetComponentsInChildren<RawImage>(true))
+            if (raw) raw.enabled = false;
+        string sprite = own && own.sprite ? own.sprite.name : "";
+        if (own)
+        {
+            own.sprite = null;
+            own.type = Image.Type.Simple;
+            own.color = HubBoxColor;
+        }
+        var flag = button.GetComponent<BuildFlagObject>();
+        if (flag) Object.Destroy(flag);
+        if (QaLog) ModLog.Info($"QA hub: the title box is cloned from Get Soundtrack (its sprite was '{sprite}'; pictures inside: {string.Join(", ", names)}).");
+    }
+
+    /// <summary>Takes a hidden button out of explicit up/down navigation, joining its neighbours again.</summary>
+    private static void RemoveFromNavigation(Selectable removed)
+    {
+        var nav = removed.navigation;
+        if (nav.mode != Navigation.Mode.Explicit) return;
+        var above = nav.selectOnUp;
+        var below = nav.selectOnDown;
+        if (above && above.navigation.mode == Navigation.Mode.Explicit && above.navigation.selectOnDown == removed)
+        {
+            var aboveNav = above.navigation;
+            aboveNav.selectOnDown = below;
+            above.navigation = aboveNav;
+        }
+        if (below && below.navigation.mode == Navigation.Mode.Explicit && below.navigation.selectOnUp == removed)
+        {
+            var belowNav = below.navigation;
+            belowNav.selectOnUp = above;
+            below.navigation = belowNav;
+        }
     }
 
     private static void OpenFromMainMenu(MainMenu menu)

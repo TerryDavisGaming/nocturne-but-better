@@ -5,7 +5,7 @@ namespace NocturneFlatScroll;
 /// <summary>
 /// The custom chart rows in Options > Gameplay: import a chart file, pick a song and the custom
 /// difficulty it plays, export charts into one pack, open the charts folder, and write the game's
-/// own charts there as starting points.
+/// own charts there as starting points; and the online hub's switch.
 /// </summary>
 internal static class CustomChartOptions
 {
@@ -78,6 +78,12 @@ internal static class CustomChartOptions
                 else if (writeGameCharts) WriteGameCharts();
                 else OpenFolder();
             }),
+        new("StateToggle_FlatChartOnlineHub",
+            "Online hub",
+            "Get Custom Battles on the title screen: find, download and share custom battles. Off hides it, and the mod never contacts the hub.",
+            new[] { "Off", "On" },
+            () => SettingsState.OnlineHub ? 1 : 0,
+            (direction, click) => SettingsState.SetOnlineHub(!SettingsState.OnlineHub)),
     };
 
     // The rows that open a window (Explorer, a file picker, the editor) only do so for a real
