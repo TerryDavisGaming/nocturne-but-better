@@ -110,3 +110,18 @@ Deno.test("search index: stable across VACUUM, and rebuilt the same after a rest
   }
   for (const q of Object.keys(before)) assertEquals(await search(fresh, q), before[q], "after restore: " + q);
 });
+
+Deno.test("plans: the review's new queries use their indexes (trash by key range, the sweep's packages by key, a key's day of uploads)", async () => {
+  const hub = await makeHub();
+  seedPackages(hub, 20);
+  const trash = plan(hub, "SELECT r2_key FROM trash WHERE r2_key >= ?1 AND r2_key < ?2 LIMIT 1", ["pkg/a/1/", "pkg/a/10"]);
+  assert(trash.some((l) => /SEARCH trash USING PRIMARY KEY \(r2_key>\? AND r2_key<\?\)/.test(l)), trash.join("\n"));
+  const sweep = plan(hub, "SELECT j.value AS k FROM json_each(?1) j WHERE EXISTS (SELECT 1 FROM trash t WHERE t.r2_key = j.value) " +
+    "OR EXISTS (SELECT 1 FROM packages p WHERE p.r2_key = j.value)", ['["a"]']);
+  assertNoTableScan(sweep, "sweep");
+  assert(sweep.some((l) => /pk_key/.test(l)), sweep.join("\n"));
+  const day = plan(hub, "SELECT count(*) AS tries FROM uploads WHERE uploader_id = ?1 AND created_at > ?2", ["u1", 0]);
+  assert(day.some((l) => /up_owner/.test(l)), day.join("\n"));
+  const address = plan(hub, "SELECT n FROM address_day WHERE h = ?1 AND what = ?2", ["h", "report"]);
+  assert(address.some((l) => /PRIMARY KEY/.test(l)), address.join("\n"));
+});

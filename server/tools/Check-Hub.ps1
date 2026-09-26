@@ -71,6 +71,12 @@ Check "/v1/info is cached 5 minutes" ($info.Headers["cache-control"] -eq "public
 Check "security headers (nosniff, no-referrer)" ($info.Headers["x-content-type-options"] -eq "nosniff" -and $info.Headers["referrer-policy"] -eq "no-referrer")
 Check "no cors headers" (NoCors $info)
 if ($json -ne $null -and $json.legalUrl) { Check "legalUrl is on this address" ($json.legalUrl -eq "$Url/legal") $json.legalUrl }
+if ($json -ne $null) { Check "the game gets the takedown contact" ([string]$json.takedownContact -ne "") "fill in takedown_contact on /admin" }
+if ($Url.StartsWith("https://")) {
+  $plain = Send "GET" "/v1/info" @{} $null ("http://" + $Url.Substring(8))
+  $location = [string]$plain.Headers["location"]
+  Check "plain http is sent to https (always use https)" ($plain.Status -ge 300 -and $plain.Status -lt 400 -and $location.StartsWith("https://")) "status $($plain.Status): turn on ssl/tls -> edge certificates -> always use https"
+}
 
 $list = Send "GET" "/v1/packages"
 Check "GET /v1/packages answers 200" ($list.Status -eq 200) "status $($list.Status)"

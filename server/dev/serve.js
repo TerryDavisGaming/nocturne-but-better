@@ -85,8 +85,12 @@ async function readFaults() {
   }
 }
 
-const PAGE_1027 = "<!DOCTYPE html><html><head><title>Worker exceeded resource limits | hub.nocturnbutbetter.com | Cloudflare</title></head>" +
+// Cloudflare's own error pages, as the mod may meet them: 1027 (the free plan's daily allowance is spent: "too
+// busy today") and 1102 (one request went over its CPU or memory limit: "the hub had a problem").
+const PAGE_1027 = "<!DOCTYPE html><html><head><title>This website has been temporarily rate limited | hub.nocturnbutbetter.com | Cloudflare</title></head>" +
   "<body><h1>Error 1027</h1><p>This website has been temporarily rate limited</p></body></html>";
+const PAGE_1102 = "<!DOCTYPE html><html><head><title>Worker exceeded resource limits | hub.nocturnbutbetter.com | Cloudflare</title></head>" +
+  "<body><h1>Error 1102</h1><p>Worker exceeded resource limits</p></body></html>";
 
 function setPath(obj, path, value) {
   const parts = path.split(".");
@@ -98,6 +102,7 @@ function setPath(obj, path, value) {
 async function applyFault(rule, run) {
   if (rule.delayMs) await new Promise((r) => setTimeout(r, rule.delayMs));
   if (rule.html1027) return new Response(PAGE_1027, { status: 503, headers: { "Content-Type": "text/html" } });
+  if (rule.html1102) return new Response(PAGE_1102, { status: 503, headers: { "Content-Type": "text/html" } });
   if (rule.status) {
     const body = { error: rule.error ?? "fault", message: rule.message ?? "An injected fault." };
     const headers = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };

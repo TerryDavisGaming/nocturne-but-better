@@ -17,17 +17,22 @@ async function hmacHex(secret, text) {
   return hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(text))).slice(0, 32);
 }
 
+/** The day's salt, made on first use when `canWrite` (the daily cron replaces it). "" when there's none. */
+export async function dailySalt(env, canWrite) {
+  let salt = await getSetting(env.DB, "stats_salt");
+  if (!salt && canWrite) {
+    await env.DB.prepare("UPDATE settings SET v = ?1 WHERE k = 'stats_salt' AND v = ''").bind(randomSalt()).run();
+    salt = await getSetting(env.DB, "stats_salt");
+  }
+  return salt;
+}
+
 /** One data point for a verified install. Skips counting when D1 or Analytics Engine can't be used. */
 export async function recordInstall(env, packageId, addressKey, canWrite) {
   if (!env.DL || typeof env.DL.writeDataPoint !== "function") return false;
   let salt;
   try {
-    salt = await getSetting(env.DB, "stats_salt");
-    if (!salt && canWrite) {
-      salt = randomSalt();
-      await env.DB.prepare("UPDATE settings SET v = ?1 WHERE k = 'stats_salt' AND v = ''").bind(salt).run();
-      salt = await getSetting(env.DB, "stats_salt");
-    }
+    salt = await dailySalt(env, canWrite);
   } catch {
     return false;
   }
@@ -36,9 +41,26 @@ export async function recordInstall(env, packageId, addressKey, canWrite) {
   return true;
 }
 
-/** The daily salt change: the old salt is kept one more day, the one before it is gone for good. */
+/**
+ * Counts one more `what` (a report, a new key) for an address today, and refuses past `cap` (DESIGN-HUB 2.9,
+ * so one address can't fill a whole-hub daily cap by itself). The address is kept only as an HMAC with the
+ * day's salt, in rows the daily cron deletes when it replaces the salt.
+ */
+export async function countForAddress(env, what, addressKey, cap) {
+  const salt = await dailySalt(env, true);
+  const h = await hmacHex(salt, `${what}|${addressKey}`);
+  const n = await env.DB.prepare("SELECT n FROM address_day WHERE h = ?1 AND what = ?2").bind(h, what).first("n");
+  if ((n ?? 0) >= cap) return false;
+  await env.DB.prepare("INSERT INTO address_day (h, what, n) VALUES (?1, ?2, 1) ON CONFLICT(h, what) DO UPDATE SET n = n + 1").bind(h, what).run();
+  return true;
+}
+
+/**
+ * The daily salt change: the old salt is kept one more day, the one before it is gone for good. The
+ * per-address counts go with the old salt.
+ */
 export function rotateSaltStatements(db, current) {
-  return [upsertSetting(db, "stats_salt_prev", current), upsertSetting(db, "stats_salt", randomSalt())];
+  return [upsertSetting(db, "stats_salt_prev", current), upsertSetting(db, "stats_salt", randomSalt()), db.prepare("DELETE FROM address_day")];
 }
 
 /**

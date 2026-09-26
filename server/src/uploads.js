@@ -2,7 +2,7 @@
 // guarded state machine that a retry can pick up), and abort. Uploads go live the moment they complete.
 
 import { HubError, checkWrite, json, noContent, readJson } from "./http.js";
-import { CLIENT_UPLOAD_ID, HEX64, PKG_ID, fileKey, newPackageId, newUploadId, now } from "./ids.js";
+import { CLIENT_UPLOAD_ID, HEX64, PKG_ID, newPackageId, newUploadId, now, objectKey } from "./ids.js";
 import { LIMITS, cleanLine, cleanText, indexText, titleKey } from "./names.js";
 import { loadSettings } from "./settings.js";
 import { requireUploader } from "./auth.js";
@@ -10,13 +10,14 @@ import { classifyDbError, isUniqueError, rateLimit, refuseReadOnly, uploadsVarCl
 import { thumbProblem } from "./media.js";
 import { checkPackage } from "./facts.js";
 import { ZipProblem } from "./zipcheck.js";
-import { dropUploadObject } from "./packages.js";
+import { dropStopped, dropUploadObject } from "./packages.js";
 import { notify, uploadText } from "./notify.js";
 
 export const PART_SIZE = 8 * 1024 * 1024;
 export const IDLE_FIRST_PART = 15 * 60; // no part for 15 minutes after the start
 export const IDLE_NEXT_PART = 60 * 60; // no new part for an hour
 export const COMPLETE_RETRY = 60; // a complete that stopped can be picked up after 60 s
+export const TRIES_PER_UPLOAD = 3; // starts a key may make a day, for each upload it may finish
 const FEATURE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 function uploadsClosed(env, settings) {
@@ -175,19 +176,26 @@ export async function startUpload(env, request) {
   const probation = uploader.created_at > t - settings.num("probation_hours") * 3600;
   const perDay = settings.num(probation ? "probation_uploads_day" : "uploads_per_key_day");
   const bytesPerDay = settings.num(probation ? "probation_bytes_day" : "bytes_per_key_day");
-  const mine = await db.prepare(
-    "SELECT count(*) AS n, coalesce(sum(size), 0) AS bytes, min(created_at) AS first FROM uploads " +
-      "WHERE uploader_id = ?1 AND created_at > ?2 AND state IN ('open','completing','live')",
-  ).bind(uploader.id, day).first();
+  const triesPerDay = perDay * TRIES_PER_UPLOAD;
+  const mine = await keyDay(db, uploader.id, day);
   if (mine.n + 1 > perDay || mine.bytes + req.file.size > bytesPerDay) {
     const retryAfter = Math.max(60, (mine.first ?? t) + 86400 - t);
     throw new HubError(429, "daily_limit", "You've uploaded as much as the hub allows today. Try again tomorrow.", {
       retryAfter, probation, uploadsPerDay: perDay, bytesPerDay,
     });
   }
-  const attempts = await db.prepare("SELECT count(*) AS n FROM uploads WHERE created_at > ?1").bind(day).first("n");
-  if (attempts >= settings.num("attempts_global_day")) throw new HubError(429, "daily_limit", "The hub has taken all the uploads it can today. Try again tomorrow.", { retryAfter: 3600 });
+  // Every start counts here, stopped and refused ones too, so start-then-stop can't go on for ever.
+  if (mine.tries + 1 > triesPerDay) {
+    const retryAfter = Math.max(60, (mine.firstTry ?? t) + 86400 - t);
+    throw new HubError(429, "daily_limit", "You've started as many uploads as the hub allows today. Try again tomorrow.", {
+      retryAfter, probation, uploadsPerDay: perDay, bytesPerDay, attemptsPerDay: triesPerDay,
+    });
+  }
+  // The whole-hub caps are for keys that haven't earned trust yet (DESIGN-HUB 2.9), so a flood from new keys
+  // can't lock established uploaders out.
   if (uploader.trusted_at === null) {
+    const attempts = await db.prepare("SELECT count(*) AS n FROM uploads WHERE created_at > ?1").bind(day).first("n");
+    if (attempts >= settings.num("attempts_global_day")) throw new HubError(429, "daily_limit", "The hub has taken all the uploads it can today. Try again tomorrow.", { retryAfter: 3600 });
     const completed = await db.prepare(
       "SELECT count(*) AS n FROM uploads u JOIN uploaders k ON k.id = u.uploader_id WHERE u.state = 'live' AND u.updated_at > ?1 AND k.trusted_at IS NULL",
     ).bind(day).first("n");
@@ -216,13 +224,20 @@ export async function startUpload(env, request) {
     version = 1;
   }
 
-  const key = fileKey(packageId, version);
+  // The same files already on the hub. The fingerprint declared here must match the file at complete, so this
+  // early answer only saves sending the parts. An entry's own new version may keep its files.
+  const dup = await db.prepare("SELECT id FROM packages WHERE fingerprint = ?1 AND status IN ('live','hidden') AND id != ?2 LIMIT 1")
+    .bind(req.file.entriesSha256, packageId).first();
+  if (dup) throw new HubError(409, "duplicate", "The same files are already on the hub.", { packageId: dup.id });
+
+  const id = newUploadId();
+  const key = objectKey(packageId, version, id);
   const parts = Math.ceil(req.file.size / PART_SIZE);
   let r2UploadId = null;
   if (parts > 1) r2UploadId = (await env.FILES.createMultipartUpload(key)).uploadId;
   const meta = JSON.stringify(req.meta);
   const row = {
-    id: newUploadId(), uploader_id: uploader.id, client_upload_id: req.clientUploadId, package_id: packageId,
+    id, uploader_id: uploader.id, client_upload_id: req.clientUploadId, package_id: packageId,
     version, is_update: req.packageId ? 1 : 0, kind: req.kind, r2_key: key, r2_upload_id: r2UploadId, size: req.file.size,
     sha256: req.file.sha256, entries_sha256: req.file.entriesSha256, part_size: PART_SIZE, parts, meta, state: "open", created_at: t,
     last_part_at: null, updated_at: t,
@@ -239,6 +254,18 @@ export async function startUpload(env, request) {
     throw e;
   }
   return json(uploadBody(row), 201);
+}
+
+/** A key's uploads of the last day: the running or finished ones (count, bytes) and every start (tries). */
+export async function keyDay(db, uploaderId, since) {
+  const r = await db.prepare(
+    "SELECT count(*) AS tries, min(created_at) AS firstTry, " +
+      "coalesce(sum(CASE WHEN state IN ('open','completing','live') THEN 1 ELSE 0 END), 0) AS n, " +
+      "coalesce(sum(CASE WHEN state IN ('open','completing','live') THEN size ELSE 0 END), 0) AS bytes, " +
+      "min(CASE WHEN state IN ('open','completing','live') THEN created_at END) AS first " +
+      "FROM uploads WHERE uploader_id = ?1 AND created_at > ?2",
+  ).bind(uploaderId, since).first();
+  return { tries: r.tries, firstTry: r.firstTry, n: r.n, bytes: r.bytes, first: r.first };
 }
 
 export async function putPart(env, request, uploadId, n) {
@@ -284,13 +311,23 @@ export async function putPart(env, request, uploadId, n) {
     if (u.parts === 1 && /(checksum|sha-?256|digest|did not match)/i.test(String(e && e.message))) {
       throw new HubError(400, "bad_part", "The file doesn't match the SHA-256 the upload started with.");
     }
+    // A multipart upload that was stopped while this part arrived is gone in R2 too.
+    const state = await db.prepare("SELECT state FROM uploads WHERE id = ?1").bind(u.id).first("state");
+    if (state !== "open") throw new HubError(409, "upload_closed", "That upload was stopped while this part arrived.");
     throw Object.assign(new Error("r2"), { code: "r2_part_failed" });
   }
-  await db.batch([
-    db.prepare("INSERT OR REPLACE INTO upload_parts (upload_id, n, etag, bytes) VALUES (?1, ?2, ?3, ?4)").bind(u.id, n, etag, length),
+  // The part counts only while the upload is still open: it may have been stopped (aborted, expired, refused)
+  // while the bytes were arriving. Then the object just written belongs to nothing, and it goes again.
+  const [, updated] = await db.batch([
+    db.prepare("INSERT OR REPLACE INTO upload_parts (upload_id, n, etag, bytes) SELECT ?1, ?2, ?3, ?4 WHERE EXISTS (SELECT 1 FROM uploads WHERE id = ?1 AND state = 'open')")
+      .bind(u.id, n, etag, length),
     db.prepare("UPDATE uploads SET received_bytes = (SELECT coalesce(sum(bytes), 0) FROM upload_parts WHERE upload_id = ?1), last_part_at = ?2, updated_at = ?2 WHERE id = ?1 AND state = 'open'")
       .bind(u.id, t),
   ]);
+  if (updated.meta.changes !== 1) {
+    await dropStopped(env, [u]);
+    throw new HubError(409, "upload_closed", "That upload was stopped while this part arrived.");
+  }
   return json({ n, etag });
 }
 
@@ -440,7 +477,9 @@ export async function completeUpload(env, request, ctx, uploadId) {
     const blocked = await db.prepare("SELECT 1 AS b FROM battle_blocks WHERE battle_id = ?1 AND uploader_id = ?2").bind(facts.battleId, uploader.id).first();
     if (blocked) return refuse(env, u, 409, "removed_before", "This battle was removed from the hub for copyright before.");
   }
-  const dup = await db.prepare("SELECT id FROM packages WHERE fingerprint = ?1 AND status IN ('live','hidden') LIMIT 1").bind(facts.fingerprint).first();
+  // An entry's own new version may keep the same files (to change its description or picture).
+  const dup = await db.prepare("SELECT id FROM packages WHERE fingerprint = ?1 AND status IN ('live','hidden') AND id != ?2 LIMIT 1")
+    .bind(facts.fingerprint, u.package_id).first();
   if (dup) return refuse(env, u, 409, "duplicate", "The same files are already on the hub.", { packageId: dup.id });
 
   // 7-8. Accepted: one batch (a transaction).
@@ -452,7 +491,8 @@ export async function completeUpload(env, request, ctx, uploadId) {
     if (pkg && old === thumb) {
       pictureState = pkg.picture_state;
       pictureDue = pkg.picture_due;
-    } else if (uploader.trusted_at === null && delay > 0) {
+    } else if ((uploader.trusted_at === null || uploader.picture_refused_at !== null) && delay > 0) {
+      // Only a trusted key whose pictures the owner never refused gets its new ones shown at once.
       pictureState = "waiting";
       pictureDue = t + delay * 3600;
     }
@@ -463,7 +503,7 @@ export async function completeUpload(env, request, ctx, uploadId) {
     battle_id: facts.battleId, flags: JSON.stringify(facts.flags), source: facts.source ? JSON.stringify(facts.source) : null,
     contents: JSON.stringify(facts.contents), format: facts.format, requires: JSON.stringify(meta.requires || []),
     length_s: meta.lengthSeconds ?? null, bpm_min: meta.bpm ? meta.bpm[0] : null, bpm_max: meta.bpm ? meta.bpm[1] : null,
-    file_size: u.size, file_sha256: u.sha256, fingerprint: facts.fingerprint, entries: facts.entries,
+    file_size: u.size, file_sha256: u.sha256, fingerprint: facts.fingerprint, entries: facts.entries, r2_key: u.r2_key,
   };
   const result = { packageId: u.package_id, version: u.version, status: "live" };
   const stmts = [
@@ -474,19 +514,19 @@ export async function completeUpload(env, request, ctx, uploadId) {
     ).bind(u.id, uploader.id, u.is_update, u.package_id, u.version - 1),
   ];
   const common = [f.version, f.title, f.title_key, f.artist, f.author, f.description, f.lanes, f.difficulties, f.songs, f.flags, f.source, f.contents,
-    f.format, f.requires, f.length_s, f.bpm_min, f.bpm_max, f.file_size, f.file_sha256, f.fingerprint, f.entries, pictureState, pictureDue, u.size, t];
+    f.format, f.requires, f.length_s, f.bpm_min, f.bpm_max, f.file_size, f.file_sha256, f.fingerprint, f.entries, pictureState, pictureDue, u.size, t, f.r2_key];
   if (pkg) {
     stmts.push(db.prepare(
       "UPDATE packages SET version = ?1, title = ?2, title_key = ?3, artist = ?4, author = ?5, description = ?6, lanes = ?7, difficulties = ?8, songs = ?9, " +
         "flags = ?10, source = ?11, contents = ?12, format = ?13, requires = ?14, length_s = ?15, bpm_min = ?16, bpm_max = ?17, file_size = ?18, " +
-        "file_sha256 = ?19, fingerprint = ?20, entries = ?21, picture_state = ?22, picture_due = ?23, bytes_stored = ?24, updated_at = ?25 WHERE id = ?26",
+        "file_sha256 = ?19, fingerprint = ?20, entries = ?21, picture_state = ?22, picture_due = ?23, bytes_stored = ?24, updated_at = ?25, r2_key = ?26 WHERE id = ?27",
     ).bind(...common, f.id));
   } else {
     stmts.push(db.prepare(
       "INSERT INTO packages (version, title, title_key, artist, author, description, lanes, difficulties, songs, flags, source, contents, format, requires, " +
-        "length_s, bpm_min, bpm_max, file_size, file_sha256, fingerprint, entries, picture_state, picture_due, bytes_stored, updated_at, " +
+        "length_s, bpm_min, bpm_max, file_size, file_sha256, fingerprint, entries, picture_state, picture_due, bytes_stored, updated_at, r2_key, " +
         "id, kind, uploader_id, status, battle_id, created_at) " +
-        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, 'live', ?29, ?25)",
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, 'live', ?30, ?25)",
     ).bind(...common, f.id, u.kind, uploader.id, f.battle_id));
   }
   const songNames = songs ? songs.map((s) => s.song).join(" ") : "";
@@ -501,7 +541,7 @@ export async function completeUpload(env, request, ctx, uploadId) {
   );
   if (pkg) {
     stmts.push(db.prepare("INSERT OR REPLACE INTO trash (r2_key, bytes, delete_after, why) VALUES (?1, ?2, ?3, 'old version')")
-      .bind(fileKey(pkg.id, pkg.version), pkg.bytes_stored, t + 86400));
+      .bind(pkg.r2_key, pkg.bytes_stored, t + 86400));
   }
   stmts.push(
     db.prepare("UPDATE uploads SET state = 'live', result = ?2, meta = NULL, updated_at = ?3 WHERE id = ?1").bind(u.id, JSON.stringify({ status: 200, body: result }), t),

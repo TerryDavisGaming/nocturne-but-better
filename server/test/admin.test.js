@@ -4,6 +4,8 @@
 import { assert, assertEquals, assertMatch } from "./assert.js";
 import { FAKE_ADMIN, advance, fakeKey, makeHub, publish, register, seedFile, seedPackages, seedUploader, time } from "./helpers.js";
 import { goodBattle, goodPack, thumbB64 } from "./make-fixtures.js";
+import { BACKUP_BUDGET } from "../src/admin.js";
+import { sha256Hex } from "../src/ids.js";
 
 const admin = (hub, method, path, json) => hub.call(method, "/v1/admin/" + path, { admin: true, json: method === "GET" ? undefined : json ?? {} });
 
@@ -83,7 +85,7 @@ Deno.test("admin: quarantine moves the file to a private place no cron deletes; 
   assertEquals((await hub.call("GET", `/v1/packages/${id}`)).body.error, "removed");
   assertEquals((await hub.call("GET", `/v1/files/${id}/1/package`)).status, 410);
   advance(400 * 86400);
-  for (const cron of ["7 * * * *", "17 3 * * *", "23 4 * * 0"]) await hub.cron(cron);
+  for (const cron of ["7 * * * *", "17 3 * * *"]) await hub.cron(cron);
   assertEquals([...hub.r2.objects.keys()], [`quarantine/${id}/1/package`]);
   const file = await hub.call("GET", `/v1/admin/files/${id}/1`, { admin: true });
   assertEquals(file.status, 200);
@@ -94,7 +96,9 @@ Deno.test("admin: quarantine moves the file to a private place no cron deletes; 
   assertEquals(mine.body.items[0].removedNote, null);
   const back = await admin(hub, "POST", `packages/${id}/restore`);
   assertEquals(back.body.changed, 1);
-  assertEquals([...hub.r2.objects.keys()], [`pkg/${id}/1/package`]);
+  const stored = hub.d1.one("SELECT r2_key FROM packages").r2_key;
+  assertMatch(stored, new RegExp(`^pkg/${id}/1/up[0-9a-z]{16}$`));
+  assertEquals([...hub.r2.objects.keys()], [stored]);
   assertEquals((await hub.call("GET", `/v1/files/${id}/1/package`)).status, 200);
 });
 
@@ -302,4 +306,113 @@ Deno.test("admin: the owner's lists filter by status, time, key age and text", a
   const o = await admin(hub, "GET", "overview");
   assertEquals(o.body.packages, { live: 2, hidden: 1, removed: 1 });
   assertEquals(o.body.uploadsToday, 1);
+});
+
+// ---- quarantine keeps every version; backups (the review's SEC-05, SEC-06, CF-3) --------------------------
+
+Deno.test("admin: quarantine keeps every version still held, since the reported one may be older; restore brings back the current one", async () => {
+  const hub = await makeHub();
+  const key = fakeKey(1);
+  await register(hub, key);
+  const v1 = await goodBattle({ title: "Reported upload" });
+  const id = await publish(hub, key, v1);
+  assertEquals((await hub.call("POST", `/v1/packages/${id}/report`, { key: fakeKey(2), json: { reason: "other", note: "illegal picture in v1" } })).status, 201);
+  // The uploader swaps in a clean v2 before the owner looks: v1 waits 24 h in the trash.
+  advance(600);
+  const v2 = await goodBattle({ title: "Reported upload (clean)" });
+  await publish(hub, key, v2, { packageId: id });
+  advance(600);
+  const q = await admin(hub, "POST", `packages/${id}/quarantine`, { note: "kept for the report" });
+  assertEquals([q.status, q.body.versions, q.body.moved, q.body.more], [200, [1, 2], true, false]);
+  assertEquals([...hub.r2.objects.keys()].sort(), [`quarantine/${id}/1/package`, `quarantine/${id}/2/package`]);
+  assertEquals(hub.d1.one("SELECT count(*) AS n FROM trash").n, 0);
+  assertMatch(hub.d1.one("SELECT detail FROM audit WHERE action = 'quarantine'").detail, /"versions":\[1,2\]/);
+  // A day (and a year) of crons later, both are still there, and the owner can download either.
+  advance(25 * 3600);
+  await hub.cron("7 * * * *");
+  advance(400 * 86400);
+  await hub.cron("7 * * * *");
+  await hub.cron("17 3 * * *");
+  assertEquals([...hub.r2.objects.keys()].length, 2);
+  const f1 = await hub.call("GET", `/v1/admin/files/${id}/1`, { admin: true });
+  assertEquals([f1.status, await sha256Hex(f1.body)], [200, await sha256Hex(v1)]);
+  assertEquals((await hub.call("GET", `/v1/admin/files/${id}/2`, { admin: true })).status, 200);
+  assertEquals((await hub.call("GET", `/v1/admin/files/${id}/3`, { admin: true })).status, 404);
+  // Everything in quarantine counts toward the storage cap.
+  assertEquals(hub.d1.one("SELECT v FROM settings WHERE k = 'storage_used'").v, String(v1.length + v2.length));
+  // Pressing it again finds nothing left to move.
+  assertEquals((await admin(hub, "POST", `packages/${id}/quarantine`, {})).body.changed, 0);
+  // Restore: the current version is live again; the older one stays in quarantine.
+  const back = await admin(hub, "POST", `packages/${id}/restore`);
+  assertEquals(back.body.changed, 1);
+  const current = hub.d1.one("SELECT r2_key FROM packages").r2_key;
+  assertEquals([...hub.r2.objects.keys()].sort(), [current, `quarantine/${id}/1/package`].sort());
+  const served = await hub.call("GET", `/v1/files/${id}/2/package`);
+  assertEquals(await sha256Hex(served.body), await sha256Hex(v2));
+  assertEquals((await hub.call("GET", `/v1/admin/files/${id}/1`, { admin: true })).status, 200);
+});
+
+Deno.test("admin: quarantine after a copyright removal takes the file from the trash too", async () => {
+  const hub = await makeHub();
+  const key = fakeKey(1);
+  await register(hub, key);
+  const id = await publish(hub, key, await goodBattle());
+  await admin(hub, "POST", `packages/${id}/remove`, { reason: "copyright", note: "" });
+  assertEquals(hub.d1.one("SELECT count(*) AS n FROM trash").n, 1);
+  const q = await admin(hub, "POST", `packages/${id}/quarantine`, {});
+  assertEquals(q.body.versions, [1]);
+  assertEquals(hub.d1.one("SELECT count(*) AS n FROM trash").n, 0);
+  assertEquals([...hub.r2.objects.keys()], [`quarantine/${id}/1/package`]);
+  // The owner's entry view lists what's still held.
+  const d = await admin(hub, "GET", `packages/${id}`);
+  assertEquals([d.body.status, d.body.oldVersions], ["quarantined", []]);
+});
+
+Deno.test("admin: backups leave out the download-count salts and the cursor key", async () => {
+  const hub = await makeHub();
+  const [id] = seedPackages(hub, 1);
+  assertEquals((await hub.call("POST", `/v1/packages/${id}/installed`, { json: { version: 1 }, ip: "198.51.100.23" })).status, 204);
+  const salt = hub.d1.one("SELECT v FROM settings WHERE k = 'stats_salt'").v;
+  const cursorKey = hub.d1.one("SELECT v FROM settings WHERE k = 'cursor_key'").v;
+  assertEquals([salt.length, cursorKey.length], [64, 64]);
+  hub.d1.sqlite.prepare("UPDATE settings SET v = 'an-older-salt' WHERE k = 'stats_salt_prev'").run();
+  let cursor = null;
+  const keys = [];
+  for (let i = 0; i < 20; i++) {
+    const r = await admin(hub, "POST", "backup", { cursor });
+    keys.push(...r.body.written);
+    if (r.body.done) break;
+    cursor = r.body.cursor;
+  }
+  const settingsFile = keys.find((k) => k.includes("/settings-"));
+  const text = new TextDecoder().decode(hub.r2.objects.get(settingsFile).bytes);
+  const rows = JSON.parse(text).rows.map((r) => r.k);
+  assert(rows.includes("takedown_contact") && rows.includes("storage_used"), "the other settings are kept");
+  for (const secret of [salt, cursorKey, "an-older-salt"]) assert(!keys.some((k) => new TextDecoder().decode(hub.r2.objects.get(k).bytes).includes(secret)), "a secret was backed up");
+  assert(!rows.includes("stats_salt") && !rows.includes("stats_salt_prev") && !rows.includes("cursor_key"));
+});
+
+Deno.test("admin: one backup call writes at most its budget of JSON, even over 1000 thumbnails of 16 KB", async () => {
+  const hub = await makeHub();
+  const thumb = "A".repeat(16380) + "AAA=";
+  seedPackages(hub, 1000, () => ({ thumb }));
+  let cursor = null, calls = 0, thumbRows = 0;
+  for (; calls < 200; calls++) {
+    const before = new Set(hub.r2.objects.keys());
+    const r = await admin(hub, "POST", "backup", { cursor });
+    assertEquals(r.status, 200);
+    let bytes = 0;
+    for (const k of r.body.written) {
+      const size = hub.r2.objects.get(k).bytes.length;
+      assert(!before.has(k), "a page was written twice: " + k);
+      bytes += size;
+      if (k.includes("/thumbs-")) thumbRows += JSON.parse(new TextDecoder().decode(hub.r2.objects.get(k).bytes)).rows.length;
+    }
+    assert(bytes <= BACKUP_BUDGET, `call ${calls} wrote ${bytes} bytes`);
+    assertEquals(r.body.bytes, bytes);
+    if (r.body.done) break;
+    cursor = r.body.cursor;
+  }
+  assertEquals(thumbRows, 1000);
+  assert(calls >= 32 && calls < 60, "calls: " + calls);
 });

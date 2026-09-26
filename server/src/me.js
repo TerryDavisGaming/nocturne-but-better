@@ -8,6 +8,8 @@ import { bearerKey, keyHash, requireUploader, uploaderByHash } from "./auth.js";
 import { clientIp, countsOn, ipKey, isUniqueError, rateLimit, refuseReadOnly, uploadsVarClosed } from "./guard.js";
 import { loadSettings } from "./settings.js";
 import { myCard } from "./cards.js";
+import { countForAddress } from "./stats.js";
+import { TRIES_PER_UPLOAD, keyDay } from "./uploads.js";
 
 export const publicUploader = (u) => ({
   id: u.id, name: u.name, tag: tagOf(u.id), createdAt: u.created_at, status: u.status, strikes: u.strikes, trusted: u.trusted_at !== null,
@@ -25,13 +27,18 @@ export async function putMe(env, request) {
   const t = now();
   const existing = await uploaderByHash(db, hash);
   if (!existing) {
-    await rateLimit(env, "RL_NEWKEY", ipKey(clientIp(request), 56));
+    const address = ipKey(clientIp(request), 56);
+    await rateLimit(env, "RL_NEWKEY", address);
     const settings = await loadSettings(db);
     if (!settings.on("new_keys_open") || !settings.on("uploads_open") || uploadsVarClosed(env)) {
       throw new HubError(503, "closed", "The hub isn't taking new uploaders right now.");
     }
     const recent = await db.prepare("SELECT count(*) AS n FROM uploaders WHERE created_at > ?1").bind(t - 86400).first("n");
     if (recent >= settings.num("new_keys_global_day")) throw new HubError(429, "daily_limit", "The hub has taken all the new uploaders it can today. Try again tomorrow.", { retryAfter: 3600 });
+    // One address can't fill the whole hub's daily cap on its own.
+    if (!(await countForAddress(env, "newkey", address, settings.num("new_keys_per_address_day")))) {
+      throw new HubError(429, "daily_limit", "This network has made as many new hub keys as the hub takes in a day. Try again tomorrow.", { retryAfter: 3600 });
+    }
     const id = newUploaderId();
     try {
       await db.prepare("INSERT INTO uploaders (id, key_hash, name, created_at) VALUES (?1, ?2, ?3, ?4)").bind(id, hash, name, t).run();
@@ -58,15 +65,14 @@ export async function getMe(env, request) {
   const t = now();
   const probationUntil = uploader.created_at + settings.num("probation_hours") * 3600;
   const probation = probationUntil > t;
-  const mine = await db.prepare(
-    "SELECT count(*) AS n, coalesce(sum(size), 0) AS bytes FROM uploads WHERE uploader_id = ?1 AND created_at > ?2 AND state IN ('open','completing','live')",
-  ).bind(uploader.id, t - 86400).first();
+  const mine = await keyDay(db, uploader.id, t - 86400);
+  const perDay = settings.num(probation ? "probation_uploads_day" : "uploads_per_key_day");
   const live = await db.prepare("SELECT count(*) AS n FROM packages WHERE uploader_id = ?1 AND status = 'live'").bind(uploader.id).first("n");
   return json({
     uploader: publicUploader(uploader),
     limits: {
       probation, probationUntil: probation ? probationUntil : null,
-      uploadsToday: mine.n, uploadsPerDay: settings.num(probation ? "probation_uploads_day" : "uploads_per_key_day"),
+      uploadsToday: mine.n, uploadsPerDay: perDay, attemptsToday: mine.tries, attemptsPerDay: perDay * TRIES_PER_UPLOAD,
       bytesToday: mine.bytes, bytesPerDay: settings.num(probation ? "probation_bytes_day" : "bytes_per_key_day"),
       livePackages: live, livePerKey: settings.num("live_per_key"),
     },

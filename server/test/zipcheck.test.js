@@ -46,7 +46,7 @@ Deno.test("zip: the good battle passes and its facts come from battle.json", asy
 
 Deno.test("zip: flags for gear, level, dialogue and video; keys read ignoring case; the source's mapper", async () => {
   const json = JSON.stringify({
-    Format: 2, KIND: "Battle", Id: "3F2B8C1E-7D6A-4B5C-9E8F-0A1B2C3D4E5F", Title: "  Boss\u200B Rush ", artist: "A", author: "B", Lanes: 4,
+    Format: 2, KIND: "Battle", Id: "3F2B8C1E-7D6A-4B5C-9E8F-0A1B2C3D4E5F", Title: "  Boss\u200B Rush ", artist: "A", author: "B", Lanes: 4, Audio: "audio/song.ogg",
     gear: { MODE: "set", mainHand: "DBA1" }, level: { mode: "set", value: 12 }, dialogue: "dialogue.json",
     source: { kind: "osu!mania", mapper: "Someone", file: "x.osz" },
   });
@@ -225,4 +225,100 @@ Deno.test("packs: facts from manifest.json; songs, lanes, files, sources and cou
   const songs = Array.from({ length: 41 }, (_, i) => `Song ${i}`);
   await refused(await goodPack({ songs }), /41 songs; the hub takes up to 40/, "charts");
   await refused(await goodBattle(), /no manifest\.json/, "charts");
+});
+
+// ---- what the loader will decode, whatever its name (the review's SEC-02) ----------------------------------
+
+Deno.test("zip: battle.json's audio must name one of the song files, and its card a picture", async () => {
+  // The mod plays the file "audio" names, whatever its name ends with.
+  await refused(await goodBattle({ extra: { audio: "charts/track.sm" }, files: { "charts/track.sm": { data: CHART, method: 8 }, "audio/song.ogg": null } }),
+    /"audio" must name the song file/);
+  await refused(await goodBattle({ extra: { audio: "images/card.png" } }), /"audio" must name the song file/);
+  await refused(await goodBattle({ extra: { audio: "audio/missing.ogg" } }), /"audio" must name the song file/);
+  await refused(await goodBattle({ json: battleJson().replace('"audio": "audio/song.ogg",', "") }), /"audio" must name the song file/);
+  await refused(await goodBattle({ extra: { card: "charts/song.sm" } }), /"card" must name a picture/);
+  await refused(await goodBattle({ extra: { card: 5 } }), /"card" must name a picture/);
+  // Case and backslashes as the mod's reader takes them; no card at all is fine.
+  const ok = await check(await goodBattle({ extra: { audio: "Audio\\Song.OGG", card: "" } }));
+  assert(ok.facts, JSON.stringify(ok.problems));
+  const noCard = await check(await goodBattle({ json: battleJson().replace('"card": "images/card.png"', '"cardFit": "fill"') }));
+  assert(noCard.facts, JSON.stringify(noCard.problems));
+});
+
+Deno.test("zip: every .sm and .json file must hold text, stored or deflated (a chart's #MUSIC or enemy art can name any file)", async () => {
+  const disguised = {
+    "MP4/M4A": media.mp4(), "FLAC": media.flac(), "ADPCM WAV": media.wav({ tag: 2 }), "Ogg": media.ogg("opus"), "MP3": media.mp3(),
+    "ID3": media.mp3({ id3: 20 }), "ADTS": media.adts(), "WebM": media.webm(), "PNG": media.png(), "JPEG": media.jpeg(), "GIF": media.gif(),
+    "WMA": new Uint8Array([0x30, 0x26, 0xb2, 0x75, 0x8e, 0x66, 0xcf, 0x11, 0xa6, 0xd9, 0, 0xaa, 0, 0x62, 0xce, 0x6c]),
+  };
+  for (const [what, data] of Object.entries(disguised)) {
+    for (const method of [0, 8]) {
+      await refused(await goodBattle({ files: { "charts/extra.sm": { data, method } } }), /charts\/extra\.sm holds a sound, picture or video file/, "battle");
+      await refused(await goodBattle({ files: { "enemy.json": { data, method } } }), /enemy\.json holds a sound, picture or video file/, "battle");
+    }
+    void what;
+  }
+  await refused(await goodBattle({ files: { "dialogue.json": { data: '{"a":\u0000}' } } }), /dialogue\.json isn't a text file/);
+  // Text with a BOM, CRLF line ends, tabs and any non-ASCII letters is fine.
+  const fine = await check(await goodBattle({ files: { "enemy.json": { data: "\uFEFF{\r\n\t\"name\": \"\u041D\u043E\u0447\u044C\"\r\n}", method: 8 }, "charts/two.sm": { data: CHART, method: 0 } } }));
+  assert(fine.facts, JSON.stringify(fine.problems));
+  // A deflate stream whose first 1 KB yields nothing (empty stored blocks) can't be judged, so it's refused.
+  const empties = [];
+  for (let i = 0; i < 250; i++) empties.push(0x00, 0x00, 0x00, 0xff, 0xff);
+  const mp4 = media.mp4();
+  const packed = new Uint8Array([...empties, 0x01, mp4.length & 255, mp4.length >> 8, ~mp4.length & 255, (~mp4.length >> 8) & 255, ...mp4]);
+  await refused(await goodBattle({ files: { "charts/deep.sm": { data: mp4, method: 8, packed } } }), /compressed in a way the hub can't look into/);
+});
+
+Deno.test("packs: a chart file holding a song (a chart's #MUSIC can name it) is refused; 40 songs' charts pass in a few reads", async () => {
+  await refused(await goodPack({ files: { "charts/beat.sm": { data: media.mp4(), method: 0 } } }), /charts\/beat\.sm holds a sound/, "charts");
+  const songs = Array.from({ length: 40 }, (_, i) => `Song ${i}`);
+  const r = await check(await goodPack({ songs }), "charts");
+  assert(r.facts, JSON.stringify(r.problems));
+  assert(r.r2.ops.get <= 12, "gets: " + r.r2.ops.get);
+});
+
+Deno.test("zip: text files too spread out for the read budget are refused, not skipped", async () => {
+  const files = {};
+  // 120 small .json files, each followed by a 200 KB stored picture: one read each is past the budget.
+  for (let i = 0; i < 120; i++) {
+    const n = String(i).padStart(3, "0");
+    files[`art/f${n}.json`] = { data: "{}", method: 0 };
+    const pic = new Uint8Array(200 * 1024);
+    pic.set(media.png());
+    files[`art/f${n}.png`] = { data: pic, method: 0 };
+  }
+  await refused(await goodBattle({ files }), /too many, or too spread out/);
+});
+
+// ---- local extra fields (the review's SEC-09) ---------------------------------------------------------------
+
+Deno.test("zip: a local extra field is refused, so it can't move an entry's data onto the next one (extra-field quoting)", async () => {
+  const base = [
+    { name: "T/battle.json", data: battleJson(), method: 8 },
+    { name: "T/audio/song.ogg", data: media.ogg("vorbis", 4000) },
+    { name: "T/images/card.png", data: media.png() },
+    { name: "T/charts/song.sm", data: CHART },
+  ];
+  // A's declared data is exactly B's local header, name and data; A's local extra field pushes A's real data
+  // start onto B, so an overlap rule that ignores the local extra would pass it.
+  const probe = await buildZip([...base.slice(0, 3), { name: "T/charts/a.sm", data: "" }, base[3]]);
+  const enc = new TextEncoder();
+  let bStart = -1;
+  for (let i = 0; i + 30 < probe.length; i++) {
+    if (probe[i] === 0x50 && probe[i + 1] === 0x4b && probe[i + 2] === 3 && probe[i + 3] === 4) {
+      const n = probe[i + 26] | (probe[i + 27] << 8);
+      if (new TextDecoder().decode(probe.subarray(i + 30, i + 30 + n)) === "T/charts/song.sm") bStart = i;
+    }
+  }
+  const quoted = probe.slice(bStart, bStart + 30 + enc.encode("T/charts/song.sm").length + enc.encode(CHART).length);
+  const zip = await buildZip([
+    ...base.slice(0, 3),
+    { name: "T/charts/a.sm", data: "", csize: quoted.length, usize: quoted.length, crc: crc32(quoted), localExtra: new Uint8Array(quoted.length) },
+    base[3],
+  ]);
+  await refused(zip, /a\.sm has an extra field in its local header/);
+  // Anywhere else the server reads a local header too.
+  await refused(await goodBattle({ files: { "audio/song.ogg": { data: media.ogg("vorbis", 4000), localExtra: new Uint8Array([0x0a, 0, 4, 0, 1, 2, 3, 4]) } } }), /extra field in its local header/);
+  await refused(await goodBattle({ files: { "battle.json": { data: battleJson(), method: 8, localExtra: new Uint8Array([0x0a, 0, 0, 0]) } } }), /extra field in its local header/);
 });

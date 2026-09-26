@@ -2,7 +2,7 @@
 // route and a code, never a key, an address or a header; the D1 per-invocation query limit holds.
 
 import { assert, assertEquals } from "./assert.js";
-import { FAKE_ADMIN, fakeKey, makeHub, publish, register, seedFile, seedPackages } from "./helpers.js";
+import { FAKE_ADMIN, fakeKey, makeHub, publish, register, seedFile, seedPackages, startBody } from "./helpers.js";
 import { captureConsole } from "./fakes.js";
 import { goodBattle } from "./make-fixtures.js";
 
@@ -112,4 +112,39 @@ Deno.test("rate limits: per address for every request, for searches, and per key
     for (let i = 0; i < 3; i++) assertEquals((await bare.call("GET", "/v1/info")).status, 200);
   });
   assert(lines.filter((l) => l.includes("binding=RL_IP")).length <= 1, lines.join("\n"));
+});
+
+Deno.test("429s: every one carries Retry-After as well as retryAfter (the review's C5)", async () => {
+  const hub = await makeHub();
+  const checked = [];
+  const expect429 = (r, what) => {
+    assertEquals(r.status, 429, what);
+    assert(Number.isFinite(r.body.retryAfter) && r.body.retryAfter > 0, what + ": retryAfter");
+    assertEquals(r.headers.get("Retry-After"), String(Math.ceil(r.body.retryAfter)), what);
+    checked.push(r.body.error);
+  };
+  // rename_limit
+  const key = fakeKey(1);
+  await register(hub, key, "Bryce");
+  await register(hub, key, "Bryce W");
+  expect429(await register(hub, key, "Bryce X"), "rename");
+  // daily_limit: reports per key, then per address
+  const ids = seedPackages(hub, 30);
+  await hub.call("PUT", "/v1/admin/settings", { admin: true, json: { reports_per_key_day: "1", reports_per_address_day: "2" } });
+  await hub.call("POST", `/v1/packages/${ids[0]}/report`, { key: fakeKey(9), json: { reason: "spam" }, ip: "198.51.100.1" });
+  expect429(await hub.call("POST", `/v1/packages/${ids[1]}/report`, { key: fakeKey(9), json: { reason: "spam" }, ip: "198.51.100.2" }), "reports per key");
+  await hub.call("POST", `/v1/packages/${ids[2]}/report`, { key: fakeKey(10), json: { reason: "spam" }, ip: "198.51.100.1" });
+  expect429(await hub.call("POST", `/v1/packages/${ids[3]}/report`, { key: fakeKey(11), json: { reason: "spam" }, ip: "198.51.100.1" }), "reports per address");
+  // daily_limit: uploads per key
+  await hub.call("PUT", "/v1/admin/settings", { admin: true, json: { probation_uploads_day: "0" } });
+  const bytes = await goodBattle();
+  expect429(await hub.call("POST", "/v1/uploads", { key, json: startBody(bytes, { sha256: "0".repeat(64), entriesSha256: "1".repeat(64) }) }), "uploads per key");
+  // daily_limit: new keys for the whole hub
+  await hub.call("PUT", "/v1/admin/settings", { admin: true, json: { new_keys_global_day: "1" } });
+  expect429(await register(hub, fakeKey(2), "Two", "198.51.100.77"), "new keys");
+  // slow_down from a rate limiter
+  let r;
+  for (let i = 0; i < 12; i++) r = await hub.call("GET", "/v1/packages?q=moon" + "x".repeat(i));
+  expect429(r, "searches");
+  assertEquals(checked, ["rename_limit", "daily_limit", "daily_limit", "daily_limit", "daily_limit", "slow_down"]);
 });

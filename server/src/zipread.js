@@ -43,9 +43,15 @@ export function parseLocal(buf, at) {
   };
 }
 
-/** Why a local header disagrees with its central directory entry, or null. */
+/**
+ * Why a local header disagrees with its central directory entry, or null. A local extra field is refused
+ * outright: readers start an entry's data after it, but the directory doesn't say how long it is, so it
+ * could move the data onto the next entry and get past the overlap rule (extra-field quoting). The mod's
+ * zip writer puts none there.
+ */
 export function localProblem(local, entry, nameBytes) {
   if (!local) return "has a damaged local header";
+  if (local.extraLength !== 0) return "has an extra field in its local header; hub packages have none";
   if (local.method !== entry.method) return "has local and central headers that disagree";
   if ((local.flags & 0x1) !== (entry.flags & 0x1) || (local.flags & 0x8) !== (entry.flags & 0x8)) return "has local and central headers that disagree";
   if (!(local.flags & 0x8) && (local.crc !== entry.crc || local.csize !== entry.csize || local.usize !== entry.usize)) {

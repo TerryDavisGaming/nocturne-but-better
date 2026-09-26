@@ -12,7 +12,7 @@ export const DEFAULTS = {
   probation_bytes_day: "104857600", live_per_key: "50", uploads_global_day: "200", attempts_global_day: "1000",
   new_keys_global_day: "2000", reports_per_key_day: "20", reports_global_day: "1000", close_uploads_key_days: "0",
   strikes_to_ban: "3", picture_delay_hours: "24", max_songs_per_pack: "40", stats_salt: "", stats_salt_prev: "",
-  stats_folded_until: "0", orphan_cursor: "",
+  stats_folded_until: "0", orphan_cursor: "", reports_per_address_day: "50", new_keys_per_address_day: "20", cursor_key: "",
 };
 
 const int = (min, max) => (v) => {
@@ -62,13 +62,15 @@ export const EDITABLE = {
   new_keys_global_day: int(0, 1000000),
   reports_per_key_day: int(0, 10000),
   reports_global_day: int(0, 1000000),
+  reports_per_address_day: int(0, 1000000),
+  new_keys_per_address_day: int(0, 1000000),
   close_uploads_key_days: int(0, 3650),
   strikes_to_ban: int(1, 100),
   picture_delay_hours: int(0, 24 * 365),
   max_songs_per_pack: int(1, 100),
 };
 
-/** Shown on /admin but not editable there. The salts are never shown. */
+/** Shown on /admin but not editable there. The salts and the cursor key are never shown. */
 export const READ_ONLY_KEYS = ["storage_used", "d1_size_bytes", "stats_folded_until"];
 
 export class Settings {

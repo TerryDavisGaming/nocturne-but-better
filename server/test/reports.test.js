@@ -1,7 +1,7 @@
 // Reports: from any well-formed key, once per key per entry, capped, and never hiding anything by themselves.
 
 import { assert, assertEquals } from "./assert.js";
-import { fakeKey, makeHub, register, seedPackages } from "./helpers.js";
+import { advance, fakeKey, makeHub, register, seedPackages } from "./helpers.js";
 import { sha256Hex } from "../src/ids.js";
 
 Deno.test("reports: a key that never registered can report; the second report is 'already'", async () => {
@@ -90,4 +90,34 @@ Deno.test("reports and uploads reach the owner's Discord webhook without pinging
   const body = JSON.parse(sent[0].body);
   assertEquals(body.allowed_mentions, { parse: [] });
   assert(body.content.includes("`@everyone 'look' <@123>`"), body.content);
+});
+
+Deno.test("reports: one address with throwaway keys can't fill the whole hub's cap; the webhook hears of an entry at most once an hour (the review's SEC-07)", async () => {
+  const hub = await makeHub({ env: { NOTIFY_WEBHOOK: "https://discord.example/api/webhooks/fake" } });
+  const [target, victim] = seedPackages(hub, 2);
+  const sent = [];
+  const saved = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    sent.push(String(init.body));
+    return new Response(null, { status: 204 });
+  };
+  let reports = 0, last;
+  try {
+    for (let i = 0; i < 60; i++) {
+      if (i && i % 5 === 0) advance(61); // RL_REPORT: 5 a minute per address
+      last = await hub.call("POST", `/v1/packages/${target}/report`, { key: fakeKey(1000 + i), json: { reason: "spam" }, ip: "203.0.113.99" });
+      if (last.status !== 201) break;
+      reports++;
+    }
+    assertEquals(reports, 50);
+    assertEquals([last.status, last.body.error], [429, "daily_limit"]);
+    // A real player's report from elsewhere still gets through.
+    const real = await hub.call("POST", `/v1/packages/${victim}/report`, { key: fakeKey(5), json: { reason: "malicious", note: "it deletes files" }, ip: "192.0.2.50" });
+    assertEquals(real.status, 201);
+  } finally {
+    globalThis.fetch = saved;
+  }
+  // 50 reports over about 10 minutes on one entry, and one on another: two messages.
+  assertEquals(sent.length, 2);
+  assertEquals(hub.d1.one("SELECT count(*) AS n FROM reports").n, 51);
 });

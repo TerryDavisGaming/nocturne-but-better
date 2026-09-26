@@ -6,13 +6,16 @@ import {
   AUDIO_EXT, PICTURE_EXT, VIDEO_EXT, ZipProblem, checkEntries, checkMagic, contentsSummary, fingerprint, parseCentral, parseEnd,
 } from "./zipcheck.js";
 import { Budget, EntryReader, LOCAL_SLACK, OutOfBudget, localProblem, parseLocal, readRange } from "./zipread.js";
-import { audioProblem, pictureProblem, videoProblem } from "./media.js";
+import { audioProblem, pictureProblem, textProblem, videoProblem } from "./media.js";
 import { crc32, inflateAll } from "./inflate.js";
 import { LIMITS, cleanLine } from "./names.js";
 import { BATTLE_ID } from "./ids.js";
 
 export const MAX_ROOT_JSON = 256 * 1024;
 export const MAX_HEAVY_MEDIA = 16; // song and video files a battle may have
+export const TEXT_EXT = new Set(["json", "sm"]);
+const TEXT_HEAD = 64; // bytes of each .sm and .json file looked at
+const TEXT_INFLATE = 1024; // compressed bytes read to get them
 export const BATTLE_FORMAT = 2;
 export const PACK_FORMAT = 1;
 
@@ -31,6 +34,7 @@ export async function checkPackage(files, key, size, kind, limits) {
 
   const json = await readRootJson(files, key, root, end.cdOffset);
   const facts = kind === "battle" ? battleFacts(json, list) : packFacts(json, list, limits.maxSongs);
+  await checkText(files, key, list, root, end.cdOffset);
   const media = await checkMedia(files, key, list, end.cdOffset);
 
   facts.fingerprint = await fingerprint(entries);
@@ -101,6 +105,17 @@ export function battleFacts(j, list) {
   if (artist === null || author === null) problems.push("battle.json's artist and author must be text.");
   const lanes = field(j, "lanes");
   if (lanes !== 4 && lanes !== 5) problems.push("battle.json must say its lanes (4 or 5).");
+  // The mod plays the file "audio" names, whatever its name ends with (and falls back to the chart's #MUSIC
+  // without it), so it must be one of the song files whose bytes are checked below. Likewise the card.
+  const entries = new Map(list.map((e) => [e.relative.toLowerCase(), e]));
+  const entryFor = (v) => (typeof v === "string" ? entries.get(v.replace(/\\/g, "/").trim().toLowerCase()) : undefined);
+  const song = entryFor(field(j, "audio"));
+  if (!song || !AUDIO_EXT.has(song.ext)) problems.push('battle.json\'s "audio" must name the song file in the package (an .ogg, .wav or .mp3).');
+  const card = field(j, "card");
+  if (card !== undefined && card !== null && card !== "") {
+    const picture = entryFor(card);
+    if (!picture || !PICTURE_EXT.has(picture.ext)) problems.push('battle.json\'s "card" must name a picture in the package (a .png, .jpg or .gif).');
+  }
   if (problems.length) throw new ZipProblem(problems);
 
   const rawSource = field(j, "source");
@@ -163,6 +178,45 @@ export function packFacts(j, list, maxSongs) {
     kind: "charts", format, battleId: null, title, artist: "", author, lanes, source: null,
     flags: { gear: false, level: false, dialogue: false, video: false }, songs,
   };
+}
+
+/**
+ * Every .sm and .json file (besides battle.json / manifest.json, read above) must hold text. A chart's #MUSIC,
+ * battle.json's references and enemy art can name any file, and the mod reads a file by its bytes, so a song
+ * or video stored under a text name would otherwise reach a decoder without the media check below. Local
+ * headers close together are read in one window; a package whose text files can't all be read within the
+ * budget is refused (the mod's builder writes them together).
+ */
+async function checkText(files, key, list, root, cdOffset) {
+  const texts = list.filter((e) => TEXT_EXT.has(e.ext) && e !== root).sort((a, b) => a.offset - b.offset);
+  if (!texts.length) return;
+  const groups = [];
+  for (const e of texts) {
+    const start = e.offset, end = Math.min(e.offset + 30 + e.nameLength + Math.min(e.csize, e.method === 0 ? TEXT_HEAD : TEXT_INFLATE), cdOffset);
+    const last = groups[groups.length - 1];
+    if (last && start - last.end <= 128 * KiB && end - last.start <= 1 * MiB) {
+      last.end = Math.max(last.end, end);
+      last.items.push(e);
+    } else groups.push({ start, end, items: [e] });
+  }
+  const budget = new Budget(96, 16 * MiB);
+  const problems = [];
+  try {
+    for (const g of groups) {
+      const seed = await readRange(files, key, g.start, g.end - g.start, budget);
+      for (const e of g.items) {
+        const reader = await new EntryReader(files, key, e, budget, { seed, seedOffset: g.start, window: TEXT_HEAD, inflateCap: TEXT_INFLATE }).open();
+        const head = await reader.read(0, TEXT_HEAD);
+        // A deflate stream that yields less than it must from its first bytes can't be judged: refused.
+        const why = head.length < Math.min(TEXT_HEAD, e.usize) ? "is compressed in a way the hub can't look into" : textProblem(head);
+        if (why && problems.length < 20) problems.push(`${e.relative} ${why}.`);
+      }
+    }
+  } catch (err) {
+    if (err instanceof OutOfBudget) throw new ZipProblem("The package's chart and .json files are too many, or too spread out, for the hub to check them all.");
+    throw err;
+  }
+  if (problems.length) throw new ZipProblem(problems);
 }
 
 /**

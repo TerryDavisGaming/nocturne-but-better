@@ -22,9 +22,21 @@ export const API_VERSION = 1;
 const WRITES = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const PAGES = new Set(["home", "legal", "robots", "admin-page", "asset"]); // these work without the database
 
+const LOOPBACK = /^(127\.0\.0\.1|localhost|\[::1\])$/;
+
+/**
+ * The /legal address for /v1/info. Workers Cache keys a cached answer on its path and query only, not the
+ * scheme or host, so the address is always https (a plain-http request mustn't put an http link into the
+ * answer every player gets); only the local stand-in on a loopback address keeps http.
+ */
+export function legalUrl(requestUrl) {
+  const url = new URL(requestUrl);
+  const scheme = LOOPBACK.test(url.hostname) ? url.protocol : "https:";
+  return `${scheme}//${url.host}/legal`;
+}
+
 async function info(env, request) {
   const s = await loadSettings(env.DB);
-  const origin = new URL(request.url).origin;
   return json({
     api: API_VERSION,
     hub: s.str("hub_name"),
@@ -40,7 +52,8 @@ async function info(env, request) {
     text: { title: LIMITS.title, artist: LIMITS.artist, author: LIMITS.author, packTitle: LIMITS.packTitle, description: LIMITS.description, name: LIMITS.name, note: LIMITS.note },
     media: { audio: ["wav-pcm", "ogg-vorbis", "mp3"], pictures: ["png", "jpeg", "gif"], video: ["webm-vp8"] },
     message: s.str("message"),
-    legalUrl: origin + "/legal",
+    takedownContact: s.str("takedown_contact"),
+    legalUrl: legalUrl(request.url),
     time: now(),
   }, 200, CACHE_INFO, { "Cache-Tag": "info" });
 }

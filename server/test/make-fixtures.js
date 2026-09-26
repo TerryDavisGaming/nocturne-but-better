@@ -60,7 +60,7 @@ export async function buildZip(files, opts = {}) {
   for (const f of files) {
     const data = bytesOf(f.data ?? "");
     const method = f.method ?? 0;
-    const packed = method === 8 ? await deflateRaw(data) : f.packed ? bytesOf(f.packed) : data;
+    const packed = f.packed ? bytesOf(f.packed) : method === 8 ? await deflateRaw(data) : data;
     const nameBytes = f.nameBytes ?? enc.encode(f.name);
     const utf8 = f.nameBytes ? false : /[^\x00-\x7f]/.test(f.name);
     const flags = f.flags ?? (utf8 ? 0x800 : 0) | (f.dataDescriptor ? 0x8 : 0);
@@ -262,6 +262,16 @@ export async function goodPack(o = {}) {
   return buildZip(files, o.zip || {});
 }
 
+/**
+ * Search texts and the hub's normalized form of each (the server is the reference), for the client's own
+ * normalization test: capitals outside A-Z, marks, invisible characters, astral letters, long words.
+ */
+export const SEARCH_TEXTS = [
+  "  Moonlit   DUEL!! ", "\u00C9milie", "\u041D\u043E\u0447\u044C", "\u039F\u0394\u039F\u03A3 Remix", "\u0130stanbul Nights", "Stra\u00DFe BEAT",
+  "E\u0301toile", "Love\u2665Song (Remix)", "zero\u200Bwidth", "\u{1D400}\u{1D401}\u{1D402} astral", "a b c", "one two three four five",
+  "x".repeat(40) + " tail", "\uFF21\uFF22\uFF23 fullwidth",
+];
+
 /** Every fixture by name, for the client harness. */
 export async function allFixtures() {
   const big = {};
@@ -293,5 +303,8 @@ if (import.meta.main) {
   const dir = new URL("./fixtures/", import.meta.url);
   await Deno.mkdir(dir, { recursive: true });
   for (const [name, bytes] of Object.entries(await allFixtures())) await Deno.writeFile(new URL(name, dir), bytes);
+  const { normalizeSearch } = await import("../src/names.js");
+  const search = SEARCH_TEXTS.map((q) => ({ q, normalized: normalizeSearch(q) }));
+  await Deno.writeTextFile(new URL("search-normalization.json", dir), JSON.stringify(search, null, 2) + "\n");
   console.log("fixtures written to server/test/fixtures/");
 }

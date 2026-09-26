@@ -72,7 +72,8 @@ export async function legalPage(env) {
     "<li>the display name you pick</li>" +
     "<li>what you upload and the details in its listing</li>" +
     "<li>reports: the reason, the note and the scrambled key of whoever sent it, until 90 days after the report is dealt with</li>" +
-    "<li>download counts: a package id and a scrambled form of the address that downloaded it. the scrambling changes every day and the old one is deleted after 2 days, so after that nobody can tell who downloaded what</li></ul>" +
+    "<li>download counts: a package id and a scrambled form of the address that downloaded it. the scrambling changes every day and the old one is deleted after 2 days, so after that nobody can tell who downloaded what</li>" +
+    "<li>a count of reports and new hub keys per scrambled address, so one network can't use up the whole day's limits. it's deleted every day when the scrambling changes</li></ul>" +
     "<p>NO ACCOUNTS, e-mail addresses, steam ids, windows user names or ip addresses are stored. there's no tracking and there are no cookies. cloudflare, which runs the hub's servers, sees ip addresses as the network that carries the traffic.</p>" +
     "<h2>contact</h2>" +
     `<p>${who}</p>`;

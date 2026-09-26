@@ -26,8 +26,25 @@ export const newUploadId = () => "up" + randomId(16);
 /** The 4-character tag shown after an uploader's name ("Bryce #7K2M"). */
 export const tagOf = (uploaderId) => String(uploaderId).slice(1, 5).toUpperCase();
 
-export const fileKey = (packageId, version) => `pkg/${packageId}/${version}/package`;
+/**
+ * Where an upload's bytes live in R2: one key per upload, never shared. A part that is still arriving after
+ * its upload was stopped can then only land on that dead upload's own key, never on a file another upload
+ * has already checked and published. The key is stored on the upload, the package and any trash row.
+ */
+export const objectKey = (packageId, version, uploadId) => `pkg/${packageId}/${version}/${uploadId}`;
 export const quarantineKey = (packageId, version) => `quarantine/${packageId}/${version}/package`;
+
+/** The package id and version an object key belongs to, or null. */
+export function keyParts(key) {
+  const m = /^pkg\/([0-9a-hjkmnp-tv-z]{10})\/([1-9][0-9]{0,8})\/[^/]+$/.exec(String(key));
+  return m ? { packageId: m[1], version: Number(m[2]) } : null;
+}
+
+/** The [from, to) key range that holds every object of one version (or, without a version, of one package). */
+export function keyRange(packageId, version) {
+  const prefix = version === undefined ? `pkg/${packageId}/` : `pkg/${packageId}/${version}/`;
+  return [prefix, prefix.slice(0, -1) + "0"]; // "0" sorts right after "/"
+}
 
 export function hex(bytes) {
   const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);

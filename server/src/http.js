@@ -51,8 +51,14 @@ export function noContent() {
 }
 
 export function errorResponse(err) {
-  const body = { error: err.code, message: err.userMessage || "Something went wrong.", ...err.extra };
-  return json(body, err.status, NO_STORE, err.headers || {});
+  const extra = err.extra || {};
+  const body = { error: err.code, message: err.userMessage || "Something went wrong.", ...extra };
+  const headers = { ...(err.headers || {}) };
+  // Every 429 says when to try again, in the header as well as the body.
+  if (err.status === 429 && Number.isFinite(extra.retryAfter) && !Object.keys(headers).some((k) => k.toLowerCase() === "retry-after")) {
+    headers["Retry-After"] = String(Math.max(1, Math.ceil(extra.retryAfter)));
+  }
+  return json(body, err.status, NO_STORE, headers);
 }
 
 // ---- strict query strings ---------------------------------------------------------------------------
@@ -60,8 +66,9 @@ export function errorResponse(err) {
 /**
  * Checks a query string against a fixed list of parameters in a fixed order, each at most once, with
  * canonical percent-encoding and normalized values; anything else is 400 bad_query before any D1 work.
- * `spec` is an ordered array of [name, normalize] where normalize(value) returns the canonical value or
- * throws. Returns an object of the decoded values.
+ * `spec` is an ordered array of [name, normalize, options] where normalize(value) returns the canonical value
+ * or throws. With `{ loose: true }` any value that normalizes is taken as its normalized form (the search
+ * text: a client's own lower-casing may differ from JavaScript's). Returns an object of the values.
  */
 export function strictQuery(rawUrl, spec) {
   const q = rawUrl.indexOf("?");
@@ -77,6 +84,7 @@ export function strictQuery(rawUrl, spec) {
     const name = part.slice(0, eq);
     const rawValue = part.slice(eq + 1);
     const index = spec.findIndex(([n]) => n === name);
+    const loose = index >= 0 && Boolean(spec[index][2] && spec[index][2].loose);
     if (index < 0) badQuery(`Unknown parameter "${name.slice(0, 20)}".`);
     if (index <= at) badQuery("Parameters must come once each, in the documented order.");
     at = index;
@@ -88,15 +96,15 @@ export function strictQuery(rawUrl, spec) {
       badQuery();
     }
     const canonical = name === "ids" ? value.split(",").map(encodeURIComponent).join(",") : encodeURIComponent(value);
-    if (canonical !== rawValue) badQuery("A parameter isn't in its canonical encoding.");
+    if (!loose && canonical !== rawValue) badQuery("A parameter isn't in its canonical encoding.");
     let normalized;
     try {
       normalized = spec[index][1](value);
     } catch (e) {
       badQuery(e instanceof HubError ? e.userMessage : `Bad value for "${name}".`);
     }
-    if (normalized !== value) badQuery(`"${name}" isn't in its normalized form.`);
-    out[name] = value;
+    if (!loose && normalized !== value) badQuery(`"${name}" isn't in its normalized form.`);
+    out[name] = loose ? normalized : value;
   }
   return out;
 }

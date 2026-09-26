@@ -2,12 +2,13 @@
 // (DESIGN-HUB 2.3, 2.12). Plus the uploader's own delete.
 
 import { CACHE_FILE, CACHE_LIST, FILE_CSP, HubError, checkWrite, json, noContent, readJson, strictQuery } from "./http.js";
-import { PKG_ID, UPLOADER_ID, fileKey, now } from "./ids.js";
+import { PKG_ID, UPLOADER_ID, hex, keyRange, now } from "./ids.js";
 import { card, detail, goneStatus } from "./cards.js";
 import { normalizeSearch } from "./names.js";
-import { PAGE, browseQuery, decodeCursor, encodeCursor, nextBrowseCursor, searchQuery, uploaderQuery } from "./search.js";
-import { blockedIds, clientIp, countsOn, ipKey, rateLimit, readOnly, refuseReadOnly } from "./guard.js";
+import { MAX_OFFSET, PAGE, browseQuery, decodeCursor, encodeCursor, nextBrowseCursor, searchQuery, uploaderQuery } from "./search.js";
+import { blockedIds, classifyDbError, clientIp, countsOn, ipKey, rateLimit, readOnly, refuseReadOnly } from "./guard.js";
 import { recordInstall } from "./stats.js";
+import { getSetting } from "./settings.js";
 import { requireUploader } from "./auth.js";
 import { listTags, queueStatement, runPurges } from "./purge.js";
 
@@ -23,14 +24,29 @@ const LIST_SPEC = [
     if (!UPLOADER_ID.test(v)) throw new Error("bad");
     return v;
   }],
+  // Any text is taken and searched in its normalized form; sending exactly that form keeps the cache useful.
   ["q", (v) => {
+    if (v.length > MAX_RAW_SEARCH) throw new HubError(400, "bad_query", "The search is too long.");
     const n = normalizeSearch(v);
     if (!n) throw new HubError(400, "bad_query", "Search for words of at least 2 letters.");
     return n;
-  }],
+  }, { loose: true }],
   ["sort", oneOf("popular", "title", "new", "best")],
   ["cursor", (v) => v],
 ];
+
+const MAX_RAW_SEARCH = 200;
+
+/** The key that signs page cursors (made by the migration; made here if a database lacks it). */
+export async function cursorSecret(env) {
+  let secret = await getSetting(env.DB, "cursor_key");
+  if (!secret) {
+    await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('cursor_key', ?1) ON CONFLICT(k) DO UPDATE SET v = excluded.v WHERE settings.v = ''")
+      .bind(hex(crypto.getRandomValues(new Uint8Array(32)))).run();
+    secret = await getSetting(env.DB, "cursor_key");
+  }
+  return secret;
+}
 
 export async function listPackages(env, request) {
   const p = strictQuery(request.url, LIST_SPEC);
@@ -41,11 +57,16 @@ export async function listPackages(env, request) {
   }
   const sort = p.sort ?? (searching ? "best" : "new");
   if (p.uploader && !searching && sort !== "new") throw new HubError(400, "bad_query", "An uploader's list is sorted newest first.");
+  // A cursor is signed for exactly this list, so only pages the hub handed out can be asked for.
+  const scope = [p.kind ?? "", p.lanes ?? "", p.uploader ?? "", p.q ?? "", sort].join("|");
+  let secret = null;
+  const getSecret = async () => (secret ??= await cursorSecret(env));
   let cursor = null;
   if (p.cursor !== undefined) {
     try {
-      cursor = decodeCursor(p.cursor, sort, searching);
-    } catch {
+      cursor = await decodeCursor(p.cursor, sort, searching, getSecret, scope);
+    } catch (e) {
+      if (classifyDbError(e)) throw e;
       throw new HubError(400, "bad_query", "That page cursor isn't valid.");
     }
   }
@@ -57,15 +78,15 @@ export async function listPackages(env, request) {
     const offset = cursor ? cursor.offset : 0;
     const { sql, params } = searchQuery({ q: p.q, kind: p.kind, lanes, uploader: p.uploader, sort, offset });
     rows = (await env.DB.prepare(sql).bind(...params).all()).results;
-    if (rows.length > PAGE && offset + PAGE <= 175) next = encodeCursor(["o", offset + PAGE]);
+    if (rows.length > PAGE && offset + PAGE <= MAX_OFFSET) next = await encodeCursor(["o", offset + PAGE], await getSecret(), scope);
   } else if (p.uploader) {
     const { sql, params } = uploaderQuery({ uploader: p.uploader, kind: p.kind, lanes, cursor });
     rows = (await env.DB.prepare(sql).bind(...params).all()).results;
-    if (rows.length > PAGE) next = nextBrowseCursor(rows[PAGE - 1], "new");
+    if (rows.length > PAGE) next = await nextBrowseCursor(rows[PAGE - 1], "new", await getSecret(), scope);
   } else {
     const { sql, params } = browseQuery({ kind: p.kind, lanes, sort, cursor });
     rows = (await env.DB.prepare(sql).bind(...params).all()).results;
-    if (rows.length > PAGE) next = nextBrowseCursor(rows[PAGE - 1], sort);
+    if (rows.length > PAGE) next = await nextBrowseCursor(rows[PAGE - 1], sort, await getSecret(), scope);
   }
   const items = rows.slice(0, PAGE).map((r) => card(r, counts));
   return json({ items, next }, 200, CACHE_LIST, { "Cache-Tag": "list" });
@@ -136,17 +157,24 @@ export function fileHeaders(id, kind, cache) {
 export async function packageFile(env, request, id, version) {
   strictQuery(request.url, []);
   refuseBlocked(env, id);
-  const row = await env.DB.prepare("SELECT id, kind, status, version, file_sha256, removed_reason FROM packages WHERE id = ?1").bind(id).first();
+  const row = await env.DB.prepare("SELECT id, kind, status, version, file_sha256, removed_reason, r2_key FROM packages WHERE id = ?1").bind(id).first();
   if (!row) throw new HubError(404, "not_found", "There's no such entry.");
   if (row.status !== "live") gone(row);
-  // Old versions stay downloadable while they wait in the trash (24 h), so running downloads finish.
   if (version > row.version) throw new HubError(404, "not_found", "There's no such version.");
-  const obj = await env.FILES.get(fileKey(id, version));
+  // Old versions stay downloadable while they wait in the trash (24 h), so running downloads finish.
+  const key = version === row.version ? row.r2_key : await trashKeyOf(env.DB, id, version);
+  const obj = key ? await env.FILES.get(key) : null;
   if (!obj) throw new HubError(404, "not_found", "There's no such version.");
   const headers = fileHeaders(id, row.kind, CACHE_FILE);
   headers["Cache-Tag"] = `pkg-${id}`;
   if (version === row.version) headers.ETag = `"${row.file_sha256}"`;
   return new Response(obj.body, { status: 200, headers });
+}
+
+/** The trash row's object key for an old version of a package, or null. */
+export async function trashKeyOf(db, id, version) {
+  const [from, to] = keyRange(id, version);
+  return db.prepare("SELECT r2_key FROM trash WHERE r2_key >= ?1 AND r2_key < ?2 LIMIT 1").bind(from, to).first("r2_key");
 }
 
 export async function packageInstalled(env, request, id) {
@@ -165,7 +193,7 @@ export async function deleteOwnPackage(env, request, ctx, id) {
   refuseReadOnly(env);
   const { uploader } = await requireUploader(env, request, { allowBanned: true });
   await rateLimit(env, "RL_WRITE", "key:" + uploader.id);
-  const row = await env.DB.prepare("SELECT id, uploader_id, status, version, bytes_stored, seq FROM packages WHERE id = ?1").bind(id).first();
+  const row = await env.DB.prepare("SELECT id, uploader_id, status, version, bytes_stored, seq, r2_key FROM packages WHERE id = ?1").bind(id).first();
   if (!row) throw new HubError(404, "not_found", "There's no such entry.");
   if (row.uploader_id !== uploader.id) throw new HubError(403, "not_yours", "This entry was uploaded with another hub key.");
   if (row.status !== "live" && row.status !== "hidden") gone(row);
@@ -178,7 +206,7 @@ export async function deleteOwnPackage(env, request, ctx, id) {
     db.prepare("UPDATE packages SET status = 'deleted', removed_at = ?2 WHERE id = ?1").bind(id, t),
     db.prepare("DELETE FROM packages_fts WHERE rowid = ?1").bind(row.seq),
     db.prepare("INSERT OR REPLACE INTO trash (r2_key, bytes, delete_after, why) VALUES (?1, ?2, ?3, 'deleted by uploader')")
-      .bind(fileKey(id, row.version), row.bytes_stored, t + 86400),
+      .bind(row.r2_key, row.bytes_stored, t + 86400),
     db.prepare("UPDATE uploads SET state = 'aborted', meta = NULL, updated_at = ?2 WHERE package_id = ?1 AND state IN ('open','completing')").bind(id, t),
     db.prepare("INSERT INTO audit (at, actor, action, package_id, uploader_id) VALUES (?1, 'uploader', 'delete', ?2, ?3)").bind(t, id, uploader.id),
     queueStatement(db, listTags([id])),

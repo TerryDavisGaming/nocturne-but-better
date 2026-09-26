@@ -1,7 +1,11 @@
-// Cron jobs (DESIGN-HUB 2.13). Each job handles at most 30 items a run and leaves the rest for the next run,
-// and each runs in its own try/catch so one failure doesn't stop the others.
+// Cron jobs (DESIGN-HUB 2.13). Each job handles at most 30 items a run and leaves the rest for the next run
+// (the orphan sweep deletes up to 1000 keys in its one R2 call), and each runs in its own try/catch so one
+// failure doesn't stop the others.
+//
+// The cron strings here must equal wrangler.jsonc's triggers exactly: runCron picks the jobs by the string.
+// Cloudflare's weekday field is 1-7 (1 = Sunday) or SUN-SAT; a 0 there makes every deploy fail.
 
-import { PKG_ID, now } from "./ids.js";
+import { now } from "./ids.js";
 import { getSetting, upsertSetting } from "./settings.js";
 import { dropStopped } from "./packages.js";
 import { runPurges } from "./purge.js";
@@ -10,8 +14,9 @@ import { IDLE_FIRST_PART, IDLE_NEXT_PART, IDLE_WHERE } from "./uploads.js";
 
 export const HOURLY = "7 * * * *";
 export const DAILY = "17 3 * * *";
-export const WEEKLY = "23 4 * * 0";
+export const CRONS = [HOURLY, DAILY];
 export const PER_RUN = 30;
+export const SWEEP_MAX = 1000; // one R2 delete call
 const DAY = 86400;
 
 async function job(name, fn, report) {
@@ -71,14 +76,24 @@ export async function markTrusted(env, t = now()) {
   return { trusted: r.meta.changes };
 }
 
-/** storage_used from what's really stored: live, hidden and quarantined entries plus the trash. */
+/**
+ * storage_used from what's really stored: live and hidden entries, the trash, and everything in quarantine
+ * (every version of a quarantined entry, listed from R2, so files the owner deleted there by hand drop out).
+ */
 export async function recountStorage(env) {
+  let quarantined = 0, cursor;
+  for (let page = 0; page < 10; page++) {
+    const listing = await env.FILES.list({ prefix: "quarantine/", cursor, limit: 1000 });
+    for (const o of listing.objects) quarantined += o.size;
+    if (!listing.truncated) break;
+    cursor = listing.cursor;
+  }
   const used = await env.DB.prepare(
-    "SELECT (SELECT coalesce(sum(bytes_stored), 0) FROM packages WHERE status IN ('live','hidden','quarantined')) + " +
+    "SELECT (SELECT coalesce(sum(bytes_stored), 0) FROM packages WHERE status IN ('live','hidden')) + " +
       "(SELECT coalesce(sum(bytes), 0) FROM trash) AS n",
   ).first("n");
-  await upsertSetting(env.DB, "storage_used", used).run();
-  return { storageUsed: used };
+  await upsertSetting(env.DB, "storage_used", used + quarantined).run();
+  return { storageUsed: used + quarantined };
 }
 
 export async function cleanOldRows(env, t = now()) {
@@ -97,34 +112,30 @@ export async function cleanOldRows(env, t = now()) {
 }
 
 /**
- * The weekly orphan sweep of pkg/: an object no package version, trash row or running upload accounts for
- * is deleted (at most 30 a run). The listing cursor is kept in settings across runs.
+ * The daily orphan sweep of pkg/: an object that no package, trash row or running upload names is deleted
+ * (one page of up to 1000 keys a run; the listing cursor is kept in settings across runs). Objects come from
+ * crashes and from parts that arrived after their upload was stopped.
+ *
+ * The running uploads are read BEFORE the packages and the trash: an upload whose complete commits in
+ * between is then seen by one query or the other, so a file that was just published is never taken for an
+ * orphan.
  */
 export async function sweepOrphans(env) {
   const db = env.DB;
   const cursor = (await getSetting(db, "orphan_cursor")) || undefined;
-  const listing = await env.FILES.list({ prefix: "pkg/", cursor, limit: 1000 });
+  const listing = await env.FILES.list({ prefix: "pkg/", cursor, limit: SWEEP_MAX });
   const keys = listing.objects.map((o) => o.key);
-  const parsed = keys.map((k) => {
-    const m = /^pkg\/([^/]+)\/([0-9]+)\/package$/.exec(k);
-    return m && PKG_ID.test(m[1]) ? [k, m[1], Number(m[2])] : [k, "", 0];
-  });
-  const { results: known } = await db.prepare(
-    "SELECT json_extract(j.value, '$[0]') AS k FROM json_each(?1) j WHERE " +
-      "EXISTS (SELECT 1 FROM trash t WHERE t.r2_key = json_extract(j.value, '$[0]')) OR " +
-      "EXISTS (SELECT 1 FROM packages p WHERE p.id = json_extract(j.value, '$[1]') AND p.version = json_extract(j.value, '$[2]') " +
-      "AND p.status IN ('live','hidden'))",
-  ).bind(JSON.stringify(parsed)).all();
   const { results: open } = await db.prepare("SELECT r2_key FROM uploads WHERE state IN ('open','completing')").all();
+  const { results: known } = await db.prepare(
+    "SELECT j.value AS k FROM json_each(?1) j WHERE EXISTS (SELECT 1 FROM trash t WHERE t.r2_key = j.value) " +
+      "OR EXISTS (SELECT 1 FROM packages p WHERE p.r2_key = j.value)",
+  ).bind(JSON.stringify(keys)).all();
   const keep = new Set([...known.map((r) => r.k), ...open.map((r) => r.r2_key)]);
-  const orphans = keys.filter((k) => !keep.has(k));
-  const now_ = orphans.slice(0, PER_RUN);
-  if (now_.length) await env.FILES.delete(now_);
-  // Only move on when this page is clean, so a page with many orphans is finished over several runs.
-  const next = orphans.length > PER_RUN ? cursor ?? "" : listing.truncated ? listing.cursor : "";
-  await upsertSetting(db, "orphan_cursor", next).run();
-  if (now_.length) console.error(`route=cron-orphans code=deleted count=${now_.length}`);
-  return { listed: keys.length, deleted: now_.length };
+  const orphans = keys.filter((k) => !keep.has(k)).slice(0, SWEEP_MAX);
+  if (orphans.length) await env.FILES.delete(orphans);
+  await upsertSetting(db, "orphan_cursor", listing.truncated ? listing.cursor : "").run();
+  if (orphans.length) console.error(`route=cron-orphans code=deleted count=${orphans.length}`);
+  return { listed: keys.length, deleted: orphans.length };
 }
 
 export async function runCron(event, env, ctx) {
@@ -145,9 +156,11 @@ export async function runCron(event, env, ctx) {
     }, report);
     await job("trusted", () => markTrusted(env), report);
     await job("cleanup", () => cleanOldRows(env), report);
-    await job("storage", () => recountStorage(env), report);
-  } else if (cron === WEEKLY) {
     await job("orphans", () => sweepOrphans(env), report);
+    await job("storage", () => recountStorage(env), report);
+  } else {
+    // A trigger this code doesn't know (the dashboard's, or a config that drifted from CRONS).
+    console.error("route=cron code=unknown_cron");
   }
   return report;
 }

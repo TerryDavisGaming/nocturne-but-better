@@ -54,8 +54,12 @@ export function detail(row, counts) {
   };
 }
 
+/**
+ * The uploader's own view: status live, hidden (under review), removed or deleted. A quarantined entry shows
+ * as removed for breaking the rules; the uploader isn't told that its file is being kept.
+ */
 export function myCard(row, counts) {
-  return {
+  const out = {
     ...card(row, counts),
     description: row.description ?? "",
     removedReason: row.removed_reason ?? null,
@@ -63,6 +67,11 @@ export function myCard(row, counts) {
     removedAt: row.removed_at ?? null,
     pictureState: row.picture_state,
   };
+  if (row.status === "quarantined") {
+    out.status = "removed";
+    out.removedReason = "rules";
+  }
+  return out;
 }
 
 /** The public status of a package that isn't live: 410 codes and lookup statuses. */

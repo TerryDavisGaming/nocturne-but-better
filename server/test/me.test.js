@@ -127,3 +127,34 @@ Deno.test("delete: the uploader removes their own entry for everyone; others can
   assertEquals((await hub.call("DELETE", `/v1/packages/${id}`, { key })).status, 410);
   assertEquals(hub.d1.one("SELECT delete_after - ? AS d, why FROM trash", time()), { d: 86400, why: "deleted by uploader" });
 });
+
+Deno.test("my uploads: a quarantined entry shows as removed for the rules, like anywhere else (the review's C6)", async () => {
+  const hub = await makeHub();
+  const key = fakeKey(1);
+  await register(hub, key, "Bryce");
+  const id = await publish(hub, key, await goodBattle());
+  assertEquals((await hub.call("POST", `/v1/admin/packages/${id}/quarantine`, { admin: true, json: { note: "x" } })).status, 200);
+  const item = (await hub.call("GET", "/v1/me/packages", { key })).body.items[0];
+  assertEquals([item.status, item.removedReason, item.removedNote], ["removed", "rules", null]);
+  assertEquals((await hub.call("GET", `/v1/packages/lookup?ids=${id}`)).body.items[0].status, "removed");
+});
+
+Deno.test("registering: one address makes at most 20 new keys a day, so it can't fill the whole hub's cap (the review's SEC-07)", async () => {
+  const hub = await makeHub();
+  for (let i = 0; i < 20; i++) {
+    if (i && i % 3 === 0) advance(61); // RL_NEWKEY: 3 a minute
+    assertEquals((await register(hub, fakeKey(i), "P" + i, "198.51.100.9")).status, 200, "key " + i);
+  }
+  advance(61);
+  const over = await register(hub, fakeKey(20), "P20", "198.51.100.9");
+  assertEquals([over.status, over.body.error], [429, "daily_limit"]);
+  // Another address can, and the key that was refused isn't registered.
+  assertEquals((await register(hub, fakeKey(21), "P21", "203.0.113.50")).status, 200);
+  assertEquals(hub.d1.one("SELECT count(*) AS n FROM uploaders").n, 21);
+  // The address is kept only as a salted hash, and the daily salt change deletes the counts.
+  const rows = hub.d1.q("SELECT h, what, n FROM address_day");
+  assert(rows.every((r) => /^[0-9a-f]{32}$/.test(r.h) && !r.h.includes("198")), JSON.stringify(rows));
+  await hub.cron("17 3 * * *");
+  assertEquals(hub.d1.one("SELECT count(*) AS n FROM address_day").n, 0);
+  assertEquals((await register(hub, fakeKey(20), "P20", "198.51.100.9")).status, 200);
+});

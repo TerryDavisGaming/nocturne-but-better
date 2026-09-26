@@ -1,7 +1,8 @@
 // The upload flow: start checks, parts, complete (retries, resumes, refusals), expiry, and every quota.
 
 import { assert, assertEquals, assertMatch } from "./assert.js";
-import { FAKE_ADMIN, advance, fakeKey, makeHub, publish, register, startBody, upload, zipFingerprint } from "./helpers.js";
+import { FAKE_ADMIN, ORIGIN, advance, fakeKey, makeHub, publish, register, startBody, upload, zipFingerprint } from "./helpers.js";
+import worker from "../src/worker.js";
 import { goodBattle, goodPack, media, thumbB64 } from "./make-fixtures.js";
 import { sha256Hex } from "../src/ids.js";
 
@@ -289,10 +290,16 @@ Deno.test("duplicates: the same files already live are refused by fingerprint, n
   const bytes = await goodPack();
   const id = await publish(hub, key, bytes, { kind: "charts" });
   await register(hub, fakeKey(2), "Copier");
+  // The start already says so, before any part is sent.
   const dup = await upload(hub, fakeKey(2), bytes, { kind: "charts" });
-  assertEquals(dup.complete.status, 409);
-  assertEquals(dup.complete.body.error, "duplicate");
-  assertEquals(dup.complete.body.packageId, id);
+  assertEquals(dup.start.status, 409);
+  assertEquals(dup.start.body.error, "duplicate");
+  assertEquals(dup.start.body.packageId, id);
+  // Declaring another fingerprint doesn't get past it: complete computes it from the file.
+  const lying = await upload(hub, fakeKey(2), bytes, { kind: "charts", entriesSha256: "0".repeat(64) });
+  assertEquals(lying.start.status, 201);
+  assertEquals(lying.complete.status, 422);
+  assertMatch(lying.complete.body.problems[0], /file list doesn't match/);
 });
 
 Deno.test("new versions: same id, version 2, old file kept 24 h in the trash, created date and downloads kept", async () => {
@@ -310,7 +317,9 @@ Deno.test("new versions: same id, version 2, old file kept 24 h in the trash, cr
   assertEquals(row.title, "Moonlit Duel (fixed)");
   assertEquals(row.downloads, 42);
   assert(row.updated_at > row.created_at);
-  assertEquals(hub.d1.one("SELECT r2_key FROM trash").r2_key, `pkg/${id}/1/package`);
+  const v1Key = hub.d1.one("SELECT r2_key FROM uploads WHERE version = 1").r2_key;
+  assertEquals(hub.d1.one("SELECT r2_key FROM trash").r2_key, v1Key);
+  assertEquals(hub.d1.one("SELECT r2_key FROM packages").r2_key, hub.d1.one("SELECT r2_key FROM uploads WHERE version = 2").r2_key);
   assertEquals((await hub.call("GET", `/v1/files/${id}/1/package`)).status, 200);
   assertEquals((await hub.call("GET", `/v1/files/${id}/2/package`)).status, 200);
   assertEquals((await hub.call("GET", `/v1/files/${id}/3/package`)).status, 404);
@@ -413,9 +422,12 @@ Deno.test("quotas: whole-hub caps on completed uploads from untrusted keys, and 
   assertEquals(trusted.status, 201);
   await hub.call("PUT", "/v1/admin/settings", { admin: true, json: { attempts_global_day: "2" } });
   await register(hub, fakeKey(3), "Three");
-  hub.d1.sqlite.prepare("UPDATE uploaders SET trusted_at = 1").run();
   const attempt = await startOnly(hub, fakeKey(3), await goodPack({ title: "c", songs: ["Firefly - 3"] }), { kind: "charts", songs: ["Firefly - 3"] });
   assertEquals(attempt.body.error, "daily_limit");
+  // A trusted key is outside the whole-hub attempts cap too (DESIGN-HUB 2.9).
+  hub.d1.sqlite.prepare("UPDATE uploaders SET trusted_at = 1 WHERE name = 'Three'").run();
+  const trustedAttempt = await startOnly(hub, fakeKey(3), await goodPack({ title: "c", songs: ["Firefly - 3"] }), { kind: "charts", songs: ["Firefly - 3"] });
+  assertEquals(trustedAttempt.status, 201);
 });
 
 Deno.test("quotas: live entries per key", async () => {
@@ -496,4 +508,138 @@ Deno.test("races: an expiry never deletes the file of an upload that completed m
   const report = await hub.cron(HOURLY);
   assertEquals(report.expire.expired, 0);
   assertEquals(hub.r2.objects.size, 1);
+});
+
+// ---- parts that arrive after their upload was stopped (the review's SEC-01, SEC-03, SEC-04) ---------------
+
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+/** PUT part n with a body the test feeds: { done: Promise<Response>, push(bytes), close() }. */
+function slowPart(hub, key, uploadId, n, length) {
+  let controller;
+  const stream = new ReadableStream({ start(c) { controller = c; } });
+  const headers = new Headers({
+    "Authorization": `Bearer ${key}`, "X-NBB-Client": "1", "Content-Type": "application/octet-stream",
+    "Content-Length": String(length), "CF-Connecting-IP": "203.0.113.7",
+  });
+  const request = new Request(`${ORIGIN}/v1/uploads/${uploadId}/parts/${n}`, { method: "PUT", headers, body: stream, duplex: "half" });
+  const done = worker.fetch(request, hub.env(), hub.ctx());
+  return { done, push: (b) => controller.enqueue(b), close: () => controller.close() };
+}
+
+async function waitFor(fn) {
+  for (let i = 0; i < 200 && !fn(); i++) await tick();
+  assert(fn(), "timed out waiting");
+}
+
+Deno.test("races: a part still arriving after its upload was stopped lands on that upload's own key and is deleted; the version published meanwhile is untouched", async () => {
+  const { hub, key } = await ready();
+  const v1 = await goodBattle({ title: "Moonlit Duel" });
+  const id = await publish(hub, key, v1);
+  // U1: a new version declaring the SHA-256 of bytes that were never checked (not even a zip).
+  const evil = new TextEncoder().encode("MZ this is not a zip and was never checked by the hub ".repeat(40));
+  const u1 = await hub.call("POST", "/v1/uploads", { key, json: startBody(evil, { packageId: id, sha256: await sha256Hex(evil), entriesSha256: "0".repeat(64) }) });
+  assertEquals(u1.status, 201);
+  const putsBefore = hub.r2.ops.put;
+  const part = slowPart(hub, key, u1.body.uploadId, 1, evil.length);
+  await waitFor(() => hub.r2.ops.put > putsBefore); // past every check, streaming into R2
+  assertEquals((await hub.call("DELETE", `/v1/uploads/${u1.body.uploadId}`, { key })).status, 204);
+  // U2 publishes a real v2 while U1's part is still arriving.
+  const v2 = await goodBattle({ title: "Moonlit Duel (remaster)" });
+  const u2 = await upload(hub, key, v2, { packageId: id });
+  assertEquals(u2.complete.status, 200);
+  assertEquals(u2.complete.body.version, 2);
+  part.push(evil);
+  part.close();
+  const late = await part.done;
+  assertEquals(late.status, 409);
+  assertEquals((await late.json()).error, "upload_closed");
+  // The served v2 is the file that was checked, and U1's late object is gone again.
+  const served = await hub.call("GET", `/v1/files/${id}/2/package`);
+  assertEquals(await sha256Hex(served.body), await sha256Hex(v2));
+  const keys = [...hub.r2.objects.keys()].sort();
+  const want = hub.d1.q("SELECT r2_key FROM uploads WHERE state = 'live' ORDER BY version").map((r) => r.r2_key).sort();
+  assertEquals(keys, want);
+  assert(!keys.some((k) => k.endsWith(u1.body.uploadId)), "no object for the stopped upload");
+  assertEquals(hub.d1.one("SELECT v FROM settings WHERE k = 'storage_used'").v, String(v1.length + v2.length));
+});
+
+Deno.test("quotas: start-then-stop is capped per key (3 starts for each upload it may finish), and late parts leave nothing in R2", async () => {
+  const { hub, key } = await ready(); // a new key: 2 uploads a day, so 6 starts
+  const blob = new Uint8Array(1024 * 1024);
+  blob[0] = 1;
+  const hash = await sha256Hex(blob);
+  let rounds = 0, last;
+  for (;;) {
+    last = await hub.call("POST", "/v1/uploads", { key, json: startBody(blob, { sha256: hash, entriesSha256: "0".repeat(64) }) });
+    if (last.status !== 201) break;
+    const before = hub.r2.ops.put;
+    const part = slowPart(hub, key, last.body.uploadId, 1, blob.length);
+    await waitFor(() => hub.r2.ops.put > before);
+    assertEquals((await hub.call("DELETE", `/v1/uploads/${last.body.uploadId}`, { key })).status, 204);
+    part.push(blob);
+    part.close();
+    assertEquals((await part.done).status, 409);
+    rounds++;
+  }
+  assertEquals(rounds, 6);
+  assertEquals([last.status, last.body.error, last.body.attemptsPerDay], [429, "daily_limit", 6]);
+  assert(Number(last.headers.get("Retry-After")) > 0);
+  assertEquals([...hub.r2.objects.keys()].filter((k) => k.startsWith("pkg/")), []);
+  assertEquals(hub.d1.one("SELECT v FROM settings WHERE k = 'storage_used'").v, "0");
+  const me = await hub.call("GET", "/v1/me", { key });
+  assertEquals([me.body.limits.uploadsToday, me.body.limits.attemptsToday, me.body.limits.attemptsPerDay], [0, 6, 6]);
+});
+
+Deno.test("parts: a part for an upload that expired while it arrived is refused and its object deleted", async () => {
+  const { hub, key } = await ready();
+  const bytes = await goodBattle();
+  const s = await startOnly(hub, key, bytes);
+  const before = hub.r2.ops.put;
+  const part = slowPart(hub, key, s.body.uploadId, 1, bytes.length);
+  await waitFor(() => hub.r2.ops.put > before);
+  advance(16 * 60);
+  await hub.cron(HOURLY); // expires it: nothing was stored yet
+  part.push(bytes);
+  part.close();
+  assertEquals((await part.done).status, 409);
+  assertEquals(hub.r2.objects.size, 0);
+  assertEquals(hub.d1.one("SELECT count(*) AS n FROM upload_parts").n, 0);
+});
+
+// ---- new versions with the same files, pictures after a refusal (the review's C4, SEC-10) ----------------
+
+Deno.test("new versions: the same files with a new description or picture publish (only another entry's files are a duplicate)", async () => {
+  const { hub, key } = await ready();
+  const bytes = await goodBattle();
+  const id = await publish(hub, key, bytes, { description: "tpyo" });
+  const r = await upload(hub, key, bytes, { packageId: id, description: "typo fixed", thumb: thumbB64() });
+  assertEquals(r.start.status, 201);
+  assertEquals(r.complete.status, 200, JSON.stringify(r.complete.body));
+  const d = await hub.call("GET", `/v1/packages/${id}`);
+  assertEquals([d.body.version, d.body.description], [2, "typo fixed"]);
+  // Both versions are served from their own objects while v1 waits in the trash.
+  assertEquals((await hub.call("GET", `/v1/files/${id}/1/package`)).status, 200);
+  assertEquals((await hub.call("GET", `/v1/files/${id}/2/package`)).status, 200);
+  assertEquals(hub.r2.objects.size, 2);
+});
+
+Deno.test("pictures: after the owner refuses one, the uploader's new thumbnails wait even once the key is trusted", async () => {
+  const { hub, key } = await ready();
+  const id = await publish(hub, key, await goodBattle({ title: "Trusted entry" }), { thumb: thumbB64() });
+  advance(8 * 86400);
+  await hub.cron("17 3 * * *");
+  assert(hub.d1.one("SELECT trusted_at FROM uploaders").trusted_at !== null, "trusted");
+  assertEquals((await hub.call("POST", `/v1/admin/packages/${id}/picture`, { admin: true, json: { show: false } })).status, 200);
+  // A new version with the picture changed a little: it waits instead of showing at once.
+  await publish(hub, key, await goodBattle({ title: "Trusted entry (v2)" }), { packageId: id, thumb: thumbB64({ width: 120 }) });
+  assertEquals(hub.d1.one("SELECT picture_state FROM packages").picture_state, "waiting");
+  assertEquals((await hub.call("GET", `/v1/packages/${id}`)).body.thumb, undefined);
+  // The same for their other entries, and the daily trust run doesn't undo it.
+  await hub.cron("17 3 * * *");
+  const other = await publish(hub, key, await goodBattle({ title: "Another", id: "4f2b8c1e-7d6a-4b5c-9e8f-0a1b2c3d4e5f" }), { thumb: thumbB64({ width: 64 }) });
+  assertEquals(hub.d1.one("SELECT picture_state FROM packages WHERE id = ?", other).picture_state, "waiting");
+  // The owner's OK still shows it at once.
+  await hub.call("POST", `/v1/admin/packages/${other}/picture`, { admin: true, json: { show: true } });
+  assertEquals(hub.d1.one("SELECT picture_state FROM packages WHERE id = ?", other).picture_state, "shown");
 });

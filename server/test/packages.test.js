@@ -3,6 +3,7 @@
 import { assert, assertEquals, assertMatch } from "./assert.js";
 import { BASE_TIME, fakeKey, makeHub, publish, register, seedFile, seedPackages } from "./helpers.js";
 import { goodBattle, thumbB64 } from "./make-fixtures.js";
+import worker, { legalUrl } from "../src/worker.js";
 
 const ids = (r) => r.body.items.map((i) => i.id);
 
@@ -108,18 +109,50 @@ Deno.test("search: at most 200 hits, 24 a page, 8 pages; other sorts work on the
   assertEquals((await hub.call("GET", "/v1/packages?q=common&cursor=" + btoa('["o",200]').replace(/=+$/, ""))).status, 400);
 });
 
-Deno.test("search: injection strings and non-normalized text are refused before the database", async () => {
+Deno.test("search: injection strings become plain words; text with no words is refused before the database", async () => {
   const hub = await makeHub();
-  seedPackages(hub, 3);
+  seedPackages(hub, 3, (i) => ({ title: ["Moonlit Duel", "Near Title", "Other"][i] }));
   const before = hub.d1.statements.length;
-  for (const q of ['"', "*", "NEAR(a", "title:moon", "moon OR duel", '"unbalanced', "one two three four five", "Moon", "a", "moon  duel", "moon%20", " moon"]) {
+  for (const q of ['"', "*", "a", "- ( ) :", " ", "x".repeat(201)]) {
     const r = await hub.call("GET", "/v1/packages?q=" + encodeURIComponent(q));
     assertEquals(r.status, 400, q);
     assertEquals(r.body.error, "bad_query");
   }
   assertEquals(hub.d1.statements.length, before);
-  const ok = await hub.call("GET", "/v1/packages?q=" + encodeURIComponent("near title or"));
-  assertEquals(ok.status, 200);
+  // Any text is searched in its normalized form: FTS operators and quotes never reach MATCH as syntax.
+  const titles = async (q) => {
+    const r = await hub.call("GET", "/v1/packages?q=" + encodeURIComponent(q));
+    assertEquals(r.status, 200, q);
+    return r.body.items.map((x) => x.title).sort();
+  };
+  assertEquals(await titles("NEAR(a"), ["Near Title"]);
+  assertEquals(await titles("title:moon"), []);
+  assertEquals(await titles("moon OR duel"), []);
+  assertEquals(await titles('"unbalanced'), []);
+  assertEquals(await titles("near title or"), []);
+  assertEquals(await titles("  Moonlit   DUEL  "), ["Moonlit Duel"]);
+  assertEquals(await titles("moonlit duel x y z"), ["Moonlit Duel"]);
+});
+
+Deno.test("search: any client's lower-casing works; capitals outside A-Z give the normalized form's results", async () => {
+  const hub = await makeHub({ limits: { RL_SEARCH: 1000 } });
+  const shown = ["\u00C9milie", "\u041D\u043E\u0447\u044C", "\u039F\u0394\u039F\u03A3 Remix", "\u0130stanbul Nights", "Stra\u00DFe Beat"];
+  seedPackages(hub, shown.length, (i) => ({ title: shown[i] }));
+  const titles = async (q) => {
+    const r = await hub.call("GET", "/v1/packages?q=" + encodeURIComponent(q));
+    assertEquals(r.status, 200, q);
+    return r.body.items.map((x) => x.title);
+  };
+  // What a client that lower-cases only A-Z sends (.NET 6 in invariant mode), what JavaScript sends, and the
+  // capitals as typed all find the same entry.
+  for (const [typed, found] of [["\u00C9milie", "\u00C9milie"], ["\u041D\u043E\u0447\u044C", "\u041D\u043E\u0447\u044C"], ["\u039F\u0394\u039F\u03A3", "\u039F\u0394\u039F\u03A3 Remix"], ["\u0130stanbul", "\u0130stanbul Nights"], ["Stra\u00DFe", "Stra\u00DFe Beat"]]) {
+    const asciiLowered = typed.replace(/[A-Z]/g, (c) => c.toLowerCase());
+    assertEquals(await titles(asciiLowered), [found], asciiLowered);
+    assertEquals(await titles(typed.toLowerCase()), [found], typed.toLowerCase());
+    assertEquals(await titles(typed), [found], typed);
+  }
+  // Mis-encoded or not, a search is taken as text: "+" is a character, and the normalized form is used.
+  assertEquals((await hub.call("GET", "/v1/packages?q=beat+stra%C3%9Fe")).body.items.map((x) => x.title), ["Stra\u00DFe Beat"]);
 });
 
 Deno.test("strict query strings: unknown, repeated, reordered, empty, default or mis-encoded parameters are 400 with no D1 call", async () => {
@@ -128,7 +161,7 @@ Deno.test("strict query strings: unknown, repeated, reordered, empty, default or
   const id = hub.d1.one("SELECT id FROM packages").id;
   const before = hub.d1.statements.length;
   for (const qs of ["x=1", "kind=battle&kind=battle", "lanes=4&kind=battle", "kind=", "sort=new", "q=moon&sort=best", "kind=Battle", "lanes=6",
-    "q=moon+duel", "cursor=%%%", "uploader=u123", "sort=popular&x=1", "&", "kind=battle&"]) {
+    "q=%%%", "cursor=%%%", "cursor=abc", "cursor=" + btoa('["x",1]') + ".abc", "uploader=u123", "sort=popular&x=1", "&", "kind=battle&", "kind=battle&q=a"]) {
     const r = await hub.call("GET", "/v1/packages?" + qs);
     assertEquals(r.status, 400, qs);
   }
@@ -313,4 +346,72 @@ Deno.test("versioning: everything is under /v1/; other versions and unknown path
   assertEquals((await hub.call("GET", "/v1/nothing")).status, 404);
   assertEquals((await hub.call("POST", "/v1/info", { json: {} })).status, 405);
   assertEquals((await hub.call("GET", "/v1/packages/zzzzzzzzzz/report")).status, 405);
+});
+
+// ---- signed cursors, long titles, info (the review's SEC-08, C2, C1, CF-4) ---------------------------------
+
+const browseQueries = (hub, from) => hub.d1.statements.slice(from).filter((s) => /FROM packages INDEXED BY|packages_fts MATCH/.test(s.sql)).length;
+
+Deno.test("cursors: only pages the hub handed out work; a made-up or moved cursor is 400 without the list query", async () => {
+  const hub = await makeHub({ limits: { RL_SEARCH: 1000 } });
+  seedPackages(hub, 400, (i) => ({ title: `Common ${i}` }));
+  const first = await hub.call("GET", "/v1/packages");
+  const second = await hub.call("GET", "/v1/packages?cursor=" + first.body.next);
+  assertEquals(second.status, 200);
+  assertEquals(second.body.items.length, 24);
+  // 50 made-up cursors: none runs the browse query (each costs one small settings read at most).
+  const before = hub.d1.statements.length;
+  for (let i = 0; i < 50; i++) {
+    const payload = btoa(JSON.stringify([BASE_TIME + 100000 + i, 1000000 + i])).replace(/=+$/, "");
+    for (const cursor of [payload, payload + ".AAAAAAAAAAAAAAAAAAAAAA"]) {
+      const r = await hub.call("GET", "/v1/packages?cursor=" + cursor);
+      assertEquals([r.status, r.body.error], [400, "bad_query"]);
+    }
+  }
+  assertEquals(browseQueries(hub, before), 0);
+  // A real cursor only works on the list that handed it out.
+  for (const qs of ["kind=battle&cursor=", "lanes=4&cursor=", "sort=popular&cursor=", "sort=title&cursor=", "q=common&cursor="]) {
+    assertEquals((await hub.call("GET", "/v1/packages?" + qs + first.body.next)).status, 400, qs);
+  }
+  const search = await hub.call("GET", "/v1/packages?q=common");
+  assertEquals((await hub.call("GET", "/v1/packages?q=common&cursor=" + search.body.next)).status, 200);
+  assertEquals((await hub.call("GET", "/v1/packages?q=common&sort=title&cursor=" + search.body.next)).status, 400);
+  assert(first.body.next.length <= 1024);
+});
+
+Deno.test("browse: title paging goes past 100-character titles in any script", async () => {
+  const hub = await makeHub();
+  const cjk = "b" + "\u6F22".repeat(99); // 100 code points, a legal title
+  const ligatures = "c" + "\uFDFA".repeat(99); // NFKD makes each one 18 letters
+  seedPackages(hub, 30, (i) => ({ title: i < 23 ? `a ${String(i).padStart(2, "0")}` : i === 23 ? cjk : i === 24 ? ligatures : `d ${i}` }));
+  const keys = hub.d1.q("SELECT title_key FROM packages").map((r) => [...r.title_key].length);
+  assert(Math.max(...keys) <= 64, "title keys are cut to 64 code points");
+  const seen = [];
+  let cursor = null;
+  do {
+    const r = await hub.call("GET", "/v1/packages?sort=title" + (cursor ? "&cursor=" + cursor : ""));
+    assertEquals(r.status, 200, JSON.stringify(r.body).slice(0, 200));
+    seen.push(...r.body.items.map((x) => x.title));
+    cursor = r.body.next;
+    if (cursor) assert(cursor.length <= 1024, "cursor length " + cursor.length);
+  } while (cursor);
+  assertEquals(seen.length, 30);
+  assertEquals(new Set(seen).size, 30);
+  assertEquals(seen[23], cjk);
+  assertEquals(seen[24], ligatures);
+});
+
+Deno.test("info: the takedown contact for the game's rules text, and a rules address that is always https", async () => {
+  const hub = await makeHub();
+  assertEquals((await hub.call("GET", "/v1/info")).body.takedownContact, "");
+  await hub.call("PUT", "/v1/admin/settings", { admin: true, json: { takedown_contact: "dmca@nocturnbutbetter.com" } });
+  const info = await hub.call("GET", "/v1/info");
+  assertEquals(info.body.takedownContact, "dmca@nocturnbutbetter.com");
+  assertEquals(info.body.legalUrl, "https://hub.nocturnbutbetter.com/legal");
+  // Workers Cache keys an answer on its path only, so a plain-http request mustn't put an http link in it.
+  const plain = await worker.fetch(new Request("http://hub.nocturnbutbetter.com/v1/info", { headers: { "CF-Connecting-IP": "203.0.113.7" } }), hub.env(), hub.ctx());
+  assertEquals((await plain.json()).legalUrl, "https://hub.nocturnbutbetter.com/legal");
+  // The local stand-in on a loopback address keeps its own scheme.
+  assertEquals(legalUrl("http://127.0.0.1:8787/v1/info"), "http://127.0.0.1:8787/legal");
+  assertEquals(legalUrl("http://[::1]:8787/v1/info"), "http://[::1]:8787/legal");
 });

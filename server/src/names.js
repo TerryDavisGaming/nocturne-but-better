@@ -48,9 +48,17 @@ export function cleanName(value) {
   return name;
 }
 
-/** The Title sort key: NFKD, marks removed, lower case. */
+export const TITLE_KEY_POINTS = 64;
+
+/**
+ * The Title sort key: NFKD, marks removed, lower case, cut to its first 64 code points. NFKD can make a title
+ * much longer (one ligature becomes 18 letters), and the key travels in page cursors; the sort only needs a
+ * prefix, since the row's seq breaks ties.
+ */
 export function titleKey(title) {
-  return String(title).normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+  const key = String(title).normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+  const points = [...key];
+  return points.length <= TITLE_KEY_POINTS ? key : points.slice(0, TITLE_KEY_POINTS).join("");
 }
 
 // ---- search text (DESIGN-HUB 1.3) -------------------------------------------------------------------

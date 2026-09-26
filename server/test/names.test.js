@@ -1,5 +1,6 @@
 import { assert, assertEquals } from "./assert.js";
 import { LIMITS, cleanLine, cleanName, cleanText, indexText, matchString, normalizeSearch, titleKey } from "../src/names.js";
+import { SEARCH_TEXTS } from "./make-fixtures.js";
 
 Deno.test("text: control, bidi, invisible and tag characters are removed", () => {
   const nasty = "Moon\u202Elit\u2066 \u200BDuel\u0000\u0007\u00AD\u034F\u061C\u115F\u1160\u3164\uFFA0\uFEFF\u{E0041}\u2060\u180E";
@@ -42,6 +43,22 @@ Deno.test("search: normalized form, 4 words, 2+ characters, prefix only on a las
   assertEquals(matchString("moonlit duel"), '"moonlit" "duel"*');
   assertEquals(matchString("mo"), '"mo"');
   assertEquals(matchString("moo"), '"moo"*');
+});
+
+Deno.test("search: capitals outside A-Z use the full Unicode lower-case mapping; lengths count code points", () => {
+  assertEquals(normalizeSearch("\u00C9milie"), "\u00E9milie");
+  assertEquals(normalizeSearch("\u041D\u043E\u0447\u044C"), "\u043D\u043E\u0447\u044C");
+  assertEquals(normalizeSearch("\u039F\u0394\u039F\u03A3 Remix"), "\u03BF\u03B4\u03BF\u03C2 remix"); // a final sigma, as JavaScript lower-cases it
+  assertEquals(normalizeSearch("\u0130stanbul"), "i\u0307stanbul"); // dotted capital I: i + a combining dot
+  assertEquals(normalizeSearch("E\u0301toile"), "\u00E9toile"); // NFC first
+  assertEquals(normalizeSearch("zero\u200Bwidth"), "zerowidth");
+  assertEquals(normalizeSearch("\u{1D400}\u{1D401}"), "\u{1D400}\u{1D401}"); // 2 code points (4 UTF-16 units): kept
+  assertEquals([...normalizeSearch("\u{1D400}".repeat(40))].length, 32);
+  // Every shared search fixture normalizes to something the server accepts again unchanged.
+  for (const q of SEARCH_TEXTS) {
+    const n = normalizeSearch(q);
+    assertEquals(normalizeSearch(n), n, q);
+  }
 });
 
 Deno.test("search: FTS operators and quotes can't get through", () => {

@@ -146,7 +146,10 @@ export async function publish(hub, key, bytes, o = {}) {
 // ---- seeding the catalogue directly (fast, for listing and query-plan tests) ----------------------------
 
 import { indexText, titleKey } from "../src/names.js";
-import { fileKey } from "../src/ids.js";
+import { objectKey } from "../src/ids.js";
+
+/** The object key a seeded package's version lives at. */
+export const seedKey = (id, version = 1) => objectKey(id, version, "upseed" + "0".repeat(10));
 
 let seedCounter = 0;
 
@@ -178,8 +181,8 @@ export function seedPackages(hub, count, fields = () => ({})) {
   const uploader = seedUploader(hub);
   const ins = db.prepare(
     "INSERT INTO packages (id, kind, uploader_id, status, version, title, title_key, artist, author, description, lanes, difficulties, songs, battle_id, " +
-      "flags, contents, format, file_size, file_sha256, fingerprint, entries, picture_state, bytes_stored, created_at, updated_at, downloads) " +
-      "VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, '[]', ?, ?, '{}', '{}', 2, 1000, ?, ?, 4, ?, 1000, ?, ?, ?)",
+      "flags, contents, format, file_size, file_sha256, fingerprint, entries, picture_state, bytes_stored, created_at, updated_at, downloads, r2_key) " +
+      "VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, '[]', ?, ?, '{}', '{}', 2, 1000, ?, ?, 4, ?, 1000, ?, ?, ?, ?)",
   );
   const fts = db.prepare("INSERT INTO packages_fts (rowid, title, artist, author, songs, description) VALUES (?, ?, ?, ?, ?, ?)");
   const thumb = db.prepare("INSERT INTO thumbs (package_id, version, b64) VALUES (?, 1, ?)");
@@ -195,7 +198,7 @@ export function seedPackages(hub, count, fields = () => ({})) {
     const status = f.status ?? "live";
     const r = ins.run(id, kind, f.uploader ?? uploader, status, title, titleKey(title), f.artist ?? "Artist", f.author ?? "Charter", f.description ?? "",
       f.lanes ?? (i % 4 < 2 ? 4 : 5), songs, kind === "battle" ? f.battleId ?? crypto.randomUUID() : null, "0".repeat(64), f.fingerprint ?? "f" + n,
-      f.picture ?? "shown", f.created ?? BASE_TIME - 1000 + i, f.created ?? BASE_TIME - 1000 + i, f.downloads ?? 0);
+      f.picture ?? "shown", f.created ?? BASE_TIME - 1000 + i, f.created ?? BASE_TIME - 1000 + i, f.downloads ?? 0, seedKey(id));
     const seq = Number(r.lastInsertRowid);
     if (status === "live" || status === "hidden") {
       const songText = songs ? JSON.parse(songs).map((s) => s.song).join(" ") : "";
@@ -210,5 +213,5 @@ export function seedPackages(hub, count, fields = () => ({})) {
 
 /** Puts a fake object for a seeded package into R2. */
 export async function seedFile(hub, id, version = 1, bytes = new Uint8Array(1000)) {
-  await hub.r2.put(fileKey(id, version), bytes);
+  await hub.r2.put(seedKey(id, version), bytes);
 }

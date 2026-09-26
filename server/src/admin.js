@@ -2,12 +2,12 @@
 // an audit row; actions that change what players see queue a cache purge and try it at once.
 
 import { HubError, NO_STORE, checkWrite, json, readJson } from "./http.js";
-import { BATTLE_ID, PKG_ID, UPLOADER_ID, fileKey, now, quarantineKey } from "./ids.js";
+import { BATTLE_ID, PKG_ID, UPLOADER_ID, keyParts, keyRange, now, quarantineKey } from "./ids.js";
 import { LIMITS, cleanText, indexText } from "./names.js";
 import { DEFAULTS, EDITABLE, READ_ONLY_KEYS, checkSettingChanges, loadSettings, upsertSetting } from "./settings.js";
 import { blockedIds, countsOn, isUniqueError, readOnly, uploadsVarClosed } from "./guard.js";
 import { listTags, queueStatement, runPurges } from "./purge.js";
-import { dropStopped, fileHeaders } from "./packages.js";
+import { dropStopped, fileHeaders, trashKeyOf } from "./packages.js";
 import { REASONS } from "./reports.js";
 import { tagOf } from "./ids.js";
 
@@ -59,7 +59,7 @@ export async function removePackages(env, ctx, ids, reason, text, strike) {
   const live = JSON.stringify(rows.map((r) => r.id));
   const uploads = await openUploadsFor(db, rows.map((r) => r.id));
   const stmts = [
-    db.prepare("INSERT OR REPLACE INTO trash (r2_key, bytes, delete_after, why) SELECT 'pkg/' || id || '/' || version || '/package', bytes_stored, ?2, ?3 " +
+    db.prepare("INSERT OR REPLACE INTO trash (r2_key, bytes, delete_after, why) SELECT r2_key, bytes_stored, ?2, ?3 " +
       "FROM packages WHERE id IN (SELECT value FROM json_each(?1))").bind(live, t + keep, "removed: " + reason),
     db.prepare("UPDATE packages SET status = 'removed', removed_reason = ?2, removed_note = ?3, removed_at = ?4 WHERE id IN (SELECT value FROM json_each(?1))")
       .bind(live, reason, text, t),
@@ -95,33 +95,59 @@ async function moveObject(env, from, to) {
   return true;
 }
 
+export const QUARANTINE_MAX = 20; // old versions moved per call; a repeat moves the rest
+
+/**
+ * Quarantine (illegal material): the entry comes down and EVERY version that still exists (the current one,
+ * and older ones waiting in the trash) moves to quarantine/<id>/<version>/package, which no cron deletes, so
+ * whatever version was reported is kept (DESIGN-HUB 2.11). Pressing it again on a quarantined entry moves
+ * anything left behind.
+ */
 export async function quarantinePackage(env, ctx, id, text) {
   const db = env.DB;
-  const row = await db.prepare("SELECT id, seq, status, version FROM packages WHERE id = ?1").bind(id).first();
+  const row = await db.prepare("SELECT id, seq, status, version, r2_key FROM packages WHERE id = ?1").bind(id).first();
   if (!row) throw new HubError(404, "not_found", "There's no such entry.");
-  if (row.status === "quarantined") return { changed: 0, purge: "none" };
-  const src = fileKey(id, row.version), dst = quarantineKey(id, row.version);
-  const moved = await moveObject(env, src, dst);
+  const [from, to] = keyRange(id);
+  const { results: trashed } = await db.prepare("SELECT r2_key FROM trash WHERE r2_key >= ?1 AND r2_key < ?2 ORDER BY r2_key LIMIT ?3")
+    .bind(from, to, QUARANTINE_MAX).all();
+  const objects = [];
+  if (row.status !== "quarantined") objects.push({ key: row.r2_key, version: row.version });
+  for (const r of trashed) {
+    const parts = keyParts(r.r2_key);
+    if (parts && r.r2_key !== row.r2_key) objects.push({ key: r.r2_key, version: parts.version });
+  }
+  if (row.status === "quarantined" && objects.length === 0) return { changed: 0, versions: [], purge: "none" };
+  const versions = [];
+  for (const o of objects) if (await moveObject(env, o.key, quarantineKey(id, o.version))) versions.push(o.version);
+  versions.sort((a, b) => a - b);
   const t = now();
   const uploads = await openUploadsFor(db, [id]);
-  await db.batch([
-    db.prepare("UPDATE packages SET status = 'quarantined', removed_reason = 'rules', removed_note = NULL, removed_at = ?2 WHERE id = ?1").bind(id, t),
-    db.prepare("DELETE FROM packages_fts WHERE rowid = ?1").bind(row.seq),
-    db.prepare("DELETE FROM trash WHERE r2_key = ?1").bind(src),
-    db.prepare("UPDATE uploads SET state = 'aborted', meta = NULL, updated_at = ?2 WHERE package_id = ?1 AND state IN ('open','completing')").bind(id, t),
-    audit(db, "quarantine", id, null, JSON.stringify({ note: text, moved })),
-    queueStatement(db, listTags([id])),
-  ]);
+  const keys = JSON.stringify([...new Set([row.r2_key, ...trashed.map((r) => r.r2_key)])]);
+  const stmts = [
+    db.prepare("DELETE FROM trash WHERE r2_key IN (SELECT value FROM json_each(?1))").bind(keys),
+    audit(db, "quarantine", id, null, JSON.stringify({ note: text, versions })),
+  ];
+  if (row.status !== "quarantined") {
+    stmts.unshift(
+      db.prepare("UPDATE packages SET status = 'quarantined', removed_reason = 'rules', removed_note = NULL, removed_at = ?2 WHERE id = ?1").bind(id, t),
+      db.prepare("DELETE FROM packages_fts WHERE rowid = ?1").bind(row.seq),
+      db.prepare("UPDATE uploads SET state = 'aborted', meta = NULL, updated_at = ?2 WHERE package_id = ?1 AND state IN ('open','completing')").bind(id, t),
+    );
+    stmts.push(queueStatement(db, listTags([id])));
+  }
+  await db.batch(stmts);
   await dropStopped(env, uploads);
-  return { changed: 1, moved, purge: await afterChange(env, ctx) };
+  const more = trashed.length === QUARANTINE_MAX;
+  return { changed: 1, moved: versions.includes(row.version), versions, more, purge: row.status !== "quarantined" ? await afterChange(env, ctx) : "none" };
 }
 
+/** Restore brings the current version back; older quarantined versions stay in quarantine. */
 export async function restorePackage(env, ctx, id) {
   const db = env.DB;
   const row = await db.prepare("SELECT * FROM packages WHERE id = ?1").bind(id).first();
   if (!row) throw new HubError(404, "not_found", "There's no such entry.");
   if (row.status === "live") return { changed: 0, purge: "none" };
-  const key = fileKey(id, row.version);
+  const key = row.r2_key;
   if (row.status === "quarantined") {
     if (!(await moveObject(env, quarantineKey(id, row.version), key))) throw new HubError(409, "files_gone", "The entry's file is gone.");
   } else if (row.status !== "hidden" && !(await env.FILES.head(key))) {
@@ -239,6 +265,9 @@ async function adminPackage(env, id) {
   ).bind(id).all();
   const { results: log } = await db.prepare("SELECT at, actor, action, detail FROM audit WHERE package_id = ?1 ORDER BY at DESC, id DESC LIMIT 50").bind(id).all();
   const blocked = r.battle_id ? await db.prepare("SELECT uploader_id, package_id, at FROM battle_blocks WHERE battle_id = ?1").bind(r.battle_id).all() : { results: [] };
+  // Older versions still held: in the trash (for 24 h, or 30 days after a copyright removal) or in quarantine.
+  const [from, to] = keyRange(id);
+  const { results: trashed } = await db.prepare("SELECT r2_key, delete_after FROM trash WHERE r2_key >= ?1 AND r2_key < ?2 LIMIT 50").bind(from, to).all();
   return {
     ...adminRow(r), description: r.description, contents: JSON.parse(r.contents || "{}"), flags: JSON.parse(r.flags || "{}"),
     difficulties: JSON.parse(r.difficulties || "[]"), songs: r.songs ? JSON.parse(r.songs) : null, sha256: r.file_sha256, fingerprint: r.fingerprint,
@@ -246,6 +275,7 @@ async function adminPackage(env, id) {
     reports: reports.map((x) => ({ reporter: x.reporter_hash.slice(0, 12), reporterHash: x.reporter_hash, version: x.version, reason: x.reason, note: x.note,
       createdAt: x.created_at, resolvedAt: x.resolved_at, resolution: x.resolution })),
     audit: log, battleBlocks: blocked.results,
+    oldVersions: trashed.map((x) => ({ version: keyParts(x.r2_key)?.version ?? null, deleteAfter: x.delete_after })).filter((x) => x.version !== null),
   };
 }
 
@@ -287,25 +317,38 @@ async function listPurges(env) {
   return { items: results.map((r) => ({ ...r, tags: JSON.parse(r.tags) })) };
 }
 
+/** Any version that still exists: the current file, an old one in the trash, or one in quarantine. */
 async function adminFile(env, id, version) {
-  const row = await env.DB.prepare("SELECT kind, status FROM packages WHERE id = ?1").bind(id).first();
+  const row = await env.DB.prepare("SELECT kind, status, version, r2_key FROM packages WHERE id = ?1").bind(id).first();
   if (!row) throw new HubError(404, "not_found", "There's no such entry.");
-  const obj = (await env.FILES.get(fileKey(id, version))) || (await env.FILES.get(quarantineKey(id, version)));
+  if (version > row.version) throw new HubError(404, "not_found", "There's no such version.");
+  const key = version === row.version ? row.r2_key : await trashKeyOf(env.DB, id, version);
+  const obj = (key && (await env.FILES.get(key))) || (await env.FILES.get(quarantineKey(id, version)));
   if (!obj) throw new HubError(404, "not_found", "That version's file is gone.");
   return new Response(obj.body, { status: 200, headers: fileHeaders(id, row.kind, NO_STORE) });
 }
 
 // ---- backups and the search index ------------------------------------------------------------------------
 
+// [table, key columns, rows a page, rows to leave out]. Pages of tables with big rows are small, since a
+// call parses the whole page it asks D1 for (thumbs up to 16 KB, open uploads' meta up to 32 KB, packs' song
+// lists). The download-count salts stay out of backups: /legal
+// promises they are gone after 2 days, and a copy would let old data points be traced back to addresses.
+// The cursor key stays out too (a restored database makes a new one). address_day is never copied.
 export const BACKUP_TABLES = [
-  ["uploaders", ["seq"], 500], ["packages", ["seq"], 200], ["battle_blocks", ["battle_id", "uploader_id"], 500], ["thumbs", ["package_id"], 100],
-  ["uploads", ["id"], 500], ["upload_parts", ["upload_id", "n"], 500], ["reports", ["package_id", "reporter_hash"], 500],
-  ["purge_queue", ["id"], 500], ["settings", ["k"], 500], ["audit", ["id"], 500], ["trash", ["r2_key"], 500],
+  ["uploaders", ["seq"], 500], ["packages", ["seq"], 25], ["battle_blocks", ["battle_id", "uploader_id"], 500], ["thumbs", ["package_id"], 25],
+  ["uploads", ["id"], 25], ["upload_parts", ["upload_id", "n"], 500], ["reports", ["package_id", "reporter_hash"], 500],
+  ["purge_queue", ["id"], 500], ["settings", ["k"], 500, "k NOT IN ('stats_salt', 'stats_salt_prev', 'cursor_key')"], ["audit", ["id"], 500],
+  ["trash", ["r2_key"], 500],
 ];
 
+// JSON written per call: the free plan gives a request 10 ms of CPU, and parsing, writing and encoding
+// JSON costs about 1.4 ms a MB. A call stops at this budget and hands back its cursor.
+export const BACKUP_BUDGET = 512 * 1024;
+
 /**
- * Writes the next pages of the base tables (not the search index) as JSON into backup/<date>/ in R2.
- * The /admin page repeats the call with the returned cursor until done.
+ * Writes the next pages of the base tables (not the search index) as JSON into backup/<date>/ in R2, up to
+ * BACKUP_BUDGET of JSON a call. The /admin page repeats the call with the returned cursor until done.
  */
 async function backup(env, body) {
   const c = body.cursor && typeof body.cursor === "object" ? body.cursor : { date: new Date(now() * 1000).toISOString().slice(0, 10), table: 0, after: null, page: 0 };
@@ -313,23 +356,38 @@ async function backup(env, body) {
     throw new HubError(400, "bad_request", "Bad backup cursor.");
   }
   const written = [];
+  let bytes = 0;
   let { table, after, page } = c;
-  for (let step = 0; step < 8 && table < BACKUP_TABLES.length; step++) {
-    const [name, keys, size] = BACKUP_TABLES[table];
-    let where = "", binds = [];
+  for (let step = 0; step < 8 && table < BACKUP_TABLES.length && bytes < BACKUP_BUDGET; step++) {
+    const [name, keys, size, leaveOut] = BACKUP_TABLES[table];
+    const where = [], binds = [];
     if (after) {
       if (!Array.isArray(after) || after.length !== keys.length) throw new HubError(400, "bad_request", "Bad backup cursor.");
-      where = `WHERE (${keys.join(", ")}) > (${keys.map((_, i) => `?${i + 1}`).join(", ")})`;
-      binds = after;
+      where.push(`(${keys.join(", ")}) > (${keys.map((_, i) => `?${i + 1}`).join(", ")})`);
+      binds.push(...after);
     }
-    const { results } = await env.DB.prepare(`SELECT * FROM ${name} ${where} ORDER BY ${keys.join(", ")} LIMIT ${size}`).bind(...binds).all();
-    if (results.length) {
+    if (leaveOut) where.push(leaveOut);
+    const { results } = await env.DB.prepare(
+      `SELECT * FROM ${name} ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY ${keys.join(", ")} LIMIT ${size}`,
+    ).bind(...binds).all();
+    // Rows go in while they fit the call's budget (a call's first row always does, so every call moves on).
+    const rows = [];
+    let pageBytes = JSON.stringify({ table: name, rows: [] }).length;
+    for (const r of results) {
+      const n = JSON.stringify(r).length + (rows.length ? 1 : 0);
+      if ((bytes > 0 || rows.length > 0) && bytes + pageBytes + n > BACKUP_BUDGET) break;
+      rows.push(r);
+      pageBytes += n;
+    }
+    if (results.length > 0 && rows.length === 0) break; // full: the next call starts here
+    if (rows.length) {
       const key = `backup/${c.date}/${name}-${String(page).padStart(4, "0")}.json`;
-      await env.FILES.put(key, JSON.stringify({ table: name, rows: results }));
+      await env.FILES.put(key, JSON.stringify({ table: name, rows }));
       written.push(key);
+      bytes += pageBytes;
     }
-    if (results.length === size) {
-      after = keys.map((k) => results[results.length - 1][k]);
+    if (rows.length < results.length || results.length === size) {
+      after = keys.map((k) => rows[rows.length - 1][k]);
       page++;
     } else {
       table++;
@@ -339,7 +397,7 @@ async function backup(env, body) {
   }
   const done = table >= BACKUP_TABLES.length;
   if (done) await audit(env.DB, "backup", null, null, c.date).run();
-  return { done, written, cursor: done ? null : { date: c.date, table, after, page } };
+  return { done, written, bytes, cursor: done ? null : { date: c.date, table, after, page } };
 }
 
 /** Rebuilds the search rows for live and hidden entries, 40 at a time (after a restore). */
@@ -463,6 +521,10 @@ export async function adminRoute(env, request, ctx, parts) {
     if (typeof body.show !== "boolean") throw new HubError(400, "bad_request", "Give show: true or false.");
     await db.batch([
       db.prepare("UPDATE packages SET picture_state = ?2, picture_due = NULL WHERE id = ?1").bind(id, body.show ? "shown" : "refused"),
+      // A refusal is remembered on the uploader: their new thumbnails wait for the delay or your OK, even
+      // once the key is trusted, so a new version can't bring the picture straight back.
+      db.prepare("UPDATE uploaders SET picture_refused_at = ?2 WHERE ?3 = 1 AND id = (SELECT uploader_id FROM packages WHERE id = ?1)")
+        .bind(id, now(), body.show ? 0 : 1),
       audit(db, body.show ? "picture-show" : "picture-refuse", id, null, null),
       queueStatement(db, listTags([id])),
     ]);

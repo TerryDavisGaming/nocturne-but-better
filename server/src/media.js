@@ -116,6 +116,34 @@ async function mp3Problem(read, size) {
   return "isn't a song file the hub takes (it takes WAV, Ogg Vorbis and MP3)";
 }
 
+// ---- text files (DESIGN-HUB 2.7): the mod picks decoders by bytes, not names --------------------------------
+
+/**
+ * Whether the first bytes are something one of the mod's sniffers (AudioFile.Detect, MediaSniff.TypeOf,
+ * VideoProbe) would take for a sound, picture or video: the name of a file doesn't decide how the mod reads
+ * it. battle.json's "audio", a chart's #MUSIC and enemy art can name any file in the package.
+ */
+export function mediaSignature(b) {
+  if (ascii(b, 0, "RIFF") || ascii(b, 0, "OggS") || ascii(b, 0, "fLaC") || ascii(b, 0, "FORM") || ascii(b, 0, "ID3")) return true;
+  if (["ftyp", "moov", "mdat", "wide", "free", "skip"].some((box) => ascii(b, 4, box))) return true;
+  if (b.length >= 4 && b[0] === 0x30 && b[1] === 0x26 && b[2] === 0xb2 && b[3] === 0x75) return true; // ASF (WMA)
+  if (b.length >= 4 && b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return true; // EBML (WebM, Matroska)
+  if (b.length >= 2 && b[0] === 0xff && (b[1] & 0xe0) === 0xe0) return true; // MPEG audio or ADTS frame sync
+  if (b.length >= 2 && ((b[0] === 0x89 && b[1] === 0x50) || (b[0] === 0xff && b[1] === 0xd8))) return true; // PNG, JPEG
+  if (ascii(b, 0, "GIF8")) return true;
+  return false; // (WebP, BMP, TIFF and HEIC are refused by the mod before any decoder; HEIC has "ftyp" anyway)
+}
+
+/**
+ * A .sm or .json file must hold text: no media signature at its start (above) and no NUL or other control
+ * characters (tab, line feed and carriage return are fine) in its first bytes. Returns null or the reason.
+ */
+export function textProblem(head) {
+  if (mediaSignature(head)) return "holds a sound, picture or video file, not text";
+  for (const x of head) if ((x < 0x20 && x !== 0x09 && x !== 0x0a && x !== 0x0d) || x === 0x7f) return "isn't a text file";
+  return null;
+}
+
 /** PNG, JPEG or GIF by the first bytes. */
 export async function pictureProblem(read) {
   const b = await read(0, 8);

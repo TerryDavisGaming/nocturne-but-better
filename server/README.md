@@ -42,6 +42,7 @@ the config asks cloudflare for a custom domain, `hub.nocturnbutbetter.com`, on y
 - if the deploy says the name is already in use, a dns record for `hub` exists already. delete that record under your domain's dns settings and retry the build.
 - to check it by hand: workers & pages > `nbb-hub` > settings > domains & routes. `hub.nocturnbutbetter.com` should be listed as a custom domain, and `workers.dev` should be OFF. the config turns workers.dev off on purpose: while it's on, a flood can go to the workers.dev address and skip the domain's rate-limiting rule below.
 - leave the domain's "normalize incoming urls" setting as it is.
+- turn on ALWAYS USE HTTPS: your domain > ssl/tls > edge certificates > always use https. without it the hub also answers plain http, and an owner key typed into `/admin` over http would cross the network readable (the admin page refuses to send it then).
 
 the address must NEVER change once a mod release has it built in.
 
@@ -49,8 +50,8 @@ the address must NEVER change once a mod release has it built in.
 
 1. open `https://hub.nocturnbutbetter.com/v1/info` in a browser. you should see json that starts with `"api":1`.
 2. open `https://hub.nocturnbutbetter.com/admin` and paste your admin key. you should see an empty overview. a wrong key says "wrong key".
-3. on `/admin` > settings, fill in `takedown_contact`: an address you're fine with being public, ideally not your personal e-mail. it shows on `/legal` and in the game. you can also change `hub_name` and leave a `message` for players there.
-4. run the check from this folder in windows powershell:
+3. on `/admin` > settings, fill in `takedown_contact`: an address you're fine with being public, ideally not your personal e-mail. it shows on `/legal` and in the game's rules before every upload. you can also change `hub_name` and leave a `message` for players there.
+4. get the check onto your pc: on github, open the repo the button made, then code > download zip, and extract it. open windows powershell in the extracted `server` folder (shift + right-click the folder > open powershell window here) and run:
 
    ```
    powershell -ExecutionPolicy Bypass -File tools\Check-Hub.ps1
@@ -64,14 +65,15 @@ the address must NEVER change once a mod release has it built in.
 
 your own domain gets one free waf rate-limiting rule. it drops a flood from a single address before it counts against the worker's daily allowance.
 
-security > waf > rate limiting rules > create rule:
+in the dashboard, open your domain, then security > security rules > create rule > rate limiting rules (older dashboards: security > waf > rate limiting rules):
 
-- if incoming requests match: hostname equals `hub.nocturnbutbetter.com`
+- if incoming requests match: field "uri path", operator "starts with", value `/`
 - counting by: ip, over 10 seconds
 - when requests exceed: 50
-- then: block for 10 seconds
+- then: block, for 10 seconds
+- if the form offers "also apply rate limiting to cached assets", leave it ON: cached answers still count against the daily allowance. the free plan doesn't show it and always counts them.
 
-50 in 10 seconds is far more than a player needs. raise it if players behind a shared address (a school, a phone network) start seeing "slow down". the free plan allows only this shape of rule: by ip, 10 second windows, 10 second blocks. the worker keeps its own per-address limits too.
+the free plan's rule can only match on the path, not the hostname, so it covers every name in your domain. that's fine while the domain serves only the hub. 50 in 10 seconds is far more than a player needs. raise it if players behind a shared address (a school, a phone network) start seeing "slow down". the free plan allows only this shape of rule: by ip, 10 second windows, 10 second blocks. the worker keeps its own per-address limits too.
 
 ## the admin page
 
@@ -79,7 +81,7 @@ security > waf > rate limiting rules > create rule:
 
 - overview: counts, storage, the database size, today's uploads and new keys, open reports, pictures waiting, and cache purges that are stuck.
 - reports: open reports grouped per entry, with a count per reason.
-- pictures: uploaders' thumbnails waiting to show. a new uploader's thumbnail shows after 24 hours unless you refuse it, or at once if you press show. uploaders whose entries have been live for a week with no strikes get theirs shown straight away.
+- pictures: uploaders' thumbnails waiting to show. a new uploader's thumbnail shows after 24 hours unless you refuse it, or at once if you press show. uploaders whose entries have been live for a week with no strikes get theirs shown straight away, unless you've refused one of their pictures before: then their new ones wait too.
 - entries: every entry, filtered by status, how recently it changed, how new its uploader's key is, or text. open one to hide, restore, remove, quarantine, show or refuse its picture, release its battle id, resolve its reports, or download it to look at.
 - the uploader panel (from an entry): ban, unban, set strikes, turn the key off for good, remove all their entries, or move their entries to another uploader.
 - spam waves: bulk hide or remove, pause uploads from new keys, close uploads, stop new keys.
@@ -100,7 +102,7 @@ a copyright notice (see `/legal` for what one must contain):
 
 offensive, spam or broken entries: remove with that reason. the file is kept 24 hours. hide instead if you want to look at it first; the uploader sees "under review".
 
-clearly illegal material: QUARANTINE it, don't delete it. quarantine takes the entry down and moves the file to a private place that no cleanup job deletes. in the us, child sexual abuse material must be reported to ncmec's cybertipline (report.cybertip.org) and the report kept. check the law where you live. this isn't legal advice.
+clearly illegal material: QUARANTINE it, don't delete it. quarantine takes the entry down and moves EVERY version that still exists (the current one, and older ones still waiting in the trash) to a private place that no cleanup job deletes, so the version that was reported is kept even if the uploader has since put up a new one. the entry's panel downloads any version by number, and reports say which version they were about. restore brings back only the current version; older ones stay in quarantine. quarantined files count toward the 9 GB until you delete them by hand (r2 > `nbb-hub-files` > `quarantine/<entry id>/`). in the us, child sexual abuse material must be reported to ncmec's cybertipline (report.cybertip.org) and the report kept. check the law where you live. this isn't legal advice.
 
 when a takedown can't get through the cache (purges keep failing on `/admin` > purges) or the database is out of its daily limit (every `/admin` action errors):
 
@@ -126,7 +128,7 @@ their key lived on their pc; without it they can't manage their uploads. you can
 ## backups
 
 - cloudflare keeps 7 days of database history (time travel) by itself.
-- once a month, press `/admin` > backup > back up now. it writes the database tables as json files into your r2 bucket under `backup/<date>/`.
+- once a month, press `/admin` > backup > back up now. it writes the database tables as json files into your r2 bucket under `backup/<date>/`, a little at a time. the download-count salts are left out on purpose (see what the hub stores).
 - restoring is rare and done together with the mod's developer: a fresh database is filled from those files, then `/admin` > backup > rebuild search rebuilds the search index.
 
 ## updating the server
@@ -135,7 +137,11 @@ the deployed code lives in the repo the button made in your github account. a se
 
 ## optional extras
 
-- download counts: create an api token with only "account analytics: read", add it as the secret `STATS_TOKEN`, and add your account id as the text variable `STATS_ACCOUNT_ID`. without them, downloads are still recorded but the game shows no counts and hides "most downloaded". a token added later counts everything from the last 3 months.
+- download counts: two things go into workers & pages > `nbb-hub` > settings > variables and secrets.
+  - your account id, as the text variable `STATS_ACCOUNT_ID`. it's on the workers & pages overview page, on the right, under "account id", with a copy button.
+  - an api token that can only read analytics, as the secret `STATS_TOKEN`: click your profile icon (top right) > my profile > api tokens > create token > custom token > get started. give it a name, then under permissions pick "account", "account analytics", "read". under account resources pick "include" and this account. continue to summary > create token, and copy it straight into the secret (cloudflare shows it only once).
+
+  without them, downloads are still recorded but the game shows no counts and hides "most downloaded". a token added later counts everything from the last 3 months.
 - a discord webhook: add its url as the secret `NOTIFY_WEBHOOK` to get a message for every new upload (with its picture, before players see it) and every report. recommended, since uploads go live at once. it never pings anyone.
 - a dmca agent: registering one with the us copyright office costs $6 for 3 years. WITHOUT a registered agent there's no section 512(c) safe harbor for you. this isn't legal advice.
 
@@ -145,7 +151,7 @@ cloudflare's free plan allows 100,000 worker requests a day for the whole accoun
 
 the rate-limiting rule above stops a flood from one address. workers paid ($5 a month) removes the daily cap, so a flood becomes a bill instead of an outage (budget alerts only e-mail you). that's worth it once real use passes about 60,000 requests a day.
 
-the database has daily limits of its own (5 million rows read, 100,000 written). the hub counts downloads outside the database and bounds every search so players can't use those up.
+the database has daily limits of its own (5 million rows read, 100,000 written). the hub counts downloads outside the database, bounds every search, and only answers list pages it handed out itself, so players can't use those up.
 
 ## what the hub stores
 
@@ -155,6 +161,7 @@ the database has daily limits of its own (5 million rows read, 100,000 written).
 - reports: reason, note and the reporter's scrambled key, until 90 days after you resolve them
 - your actions, for a year
 - download counts: an entry id and a scrambled form of the address, with the scrambling changed every day and the old one deleted after 2 days
+- a count of reports and new hub keys per scrambled address (so one network can't use up the whole day's limits), deleted every day when the scrambling changes
 
 no e-mails, steam ids, windows user names or ip addresses. the worker's per-request logs are off; its error lines hold only the route and an error code. cloudflare itself sees ip addresses as the network.
 
@@ -210,4 +217,4 @@ deno run --no-remote --no-npm --allow-net=127.0.0.1:8787 --allow-read=server,<da
 ] }
 ```
 
-other options: `truncateAt` (cut a body), `status` with `error` and `message` (any json error, like 503 `busy_today`).
+other options: `truncateAt` (cut a body), `status` with `error` and `message` (any json error, like 503 `busy_today`), and `html1102: true` (cloudflare's "worker exceeded resource limits" page, which the mod must NOT show as "too busy today").

@@ -11,7 +11,8 @@ CREATE TABLE uploaders (
   created_at      INTEGER NOT NULL,
   status          TEXT NOT NULL DEFAULT 'ok' CHECK (status IN ('ok','banned','revoked')),
   strikes         INTEGER NOT NULL DEFAULT 0,            -- copyright removals
-  trusted_at      INTEGER                                -- set by the daily cron: a live package older than 7 days, no strikes
+  trusted_at      INTEGER,                               -- set by the daily cron: a live package older than 7 days, no strikes
+  picture_refused_at INTEGER                             -- the owner refused one of this key's thumbnails: its new ones always wait
 );
 CREATE INDEX ul_created ON uploaders(created_at);
 
@@ -39,6 +40,7 @@ CREATE TABLE packages (
   length_s REAL, bpm_min REAL, bpm_max REAL,
   file_size      INTEGER NOT NULL,
   file_sha256    TEXT NOT NULL,                          -- declared; R2 checks it for single-part uploads; the client always checks it
+  r2_key         TEXT NOT NULL,                          -- the current version's object: pkg/<id>/<version>/<upload id>, one per upload
   fingerprint    TEXT NOT NULL,                          -- server-computed: SHA-256 of the sorted (name, size, CRC-32) list
   entries        INTEGER NOT NULL,
   picture_state  TEXT NOT NULL DEFAULT 'waiting' CHECK (picture_state IN ('waiting','shown','refused')),
@@ -59,6 +61,7 @@ CREATE INDEX pk_owner ON packages(uploader_id, status, created_at DESC, seq DESC
 CREATE INDEX pk_fp    ON packages(fingerprint);                                     -- exact re-uploads
 CREATE INDEX pk_pic   ON packages(picture_state, picture_due);
 CREATE INDEX pk_upd   ON packages(updated_at);                                      -- the owner's recent list and bulk actions
+CREATE INDEX pk_key   ON packages(r2_key);                                          -- the orphan sweep
 CREATE UNIQUE INDEX pk_bid_live ON packages(battle_id)
   WHERE battle_id IS NOT NULL AND status IN ('live','hidden');                      -- one live package per battle id
 
@@ -120,7 +123,9 @@ INSERT INTO settings (k, v) VALUES
  ('uploads_global_day','200'), ('attempts_global_day','1000'), ('new_keys_global_day','2000'),
  ('reports_per_key_day','20'), ('reports_global_day','1000'), ('close_uploads_key_days','0'),
  ('strikes_to_ban','3'), ('picture_delay_hours','24'), ('max_songs_per_pack','40'),
- ('stats_salt',''), ('stats_salt_prev',''), ('stats_folded_until','0'), ('orphan_cursor','');
+ ('stats_salt',''), ('stats_salt_prev',''), ('stats_folded_until','0'), ('orphan_cursor',''),
+ ('reports_per_address_day','50'), ('new_keys_per_address_day','20'),
+ ('cursor_key', lower(hex(randomblob(32))));                -- signs the list's page cursors; never shown or backed up
 
 CREATE TABLE audit (id INTEGER PRIMARY KEY, at INTEGER NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL,
   package_id TEXT, uploader_id TEXT, detail TEXT);
@@ -129,3 +134,8 @@ CREATE INDEX au_pkg ON audit(package_id, at);
 
 CREATE TABLE trash (r2_key TEXT PRIMARY KEY, bytes INTEGER NOT NULL, delete_after INTEGER NOT NULL, why TEXT) WITHOUT ROWID;
 CREATE INDEX tr_due ON trash(delete_after);
+
+-- Per-address daily counts for the whole-hub caps that one address could otherwise fill (reports, new keys).
+-- h is an HMAC of the address with the day's stats salt; the daily cron empties the table when it replaces
+-- the salt, so a row lives at most a day and can't be traced back once the salt is gone.
+CREATE TABLE address_day (h TEXT NOT NULL, what TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (h, what)) WITHOUT ROWID;

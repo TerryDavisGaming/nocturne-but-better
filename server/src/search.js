@@ -1,9 +1,10 @@
 // Listing and search SQL (DESIGN-HUB 2.12). Pure builders: every browse reads index-ordered facets, and every
-// search is bounded to its best 200 FTS hits before the join.
+// search is bounded to its best 200 FTS hits before the join. Page cursors are signed, so only the pages the
+// hub handed out can be asked for: a made-up cursor would otherwise be a fresh cache miss every time.
 
 import { base64urlDecode, base64urlEncode } from "./ids.js";
 import { CARD_COLUMNS } from "./cards.js";
-import { matchString } from "./names.js";
+import { TITLE_KEY_POINTS, matchString } from "./names.js";
 
 export const PAGE = 24;
 export const SEARCH_HITS = 200;
@@ -15,23 +16,66 @@ export const SORTS = {
   title: { col: "title_key", dir: "ASC", index: "pk_title" },
 };
 
-export function encodeCursor(values) {
-  return base64urlEncode(JSON.stringify(values));
+export const MAX_CURSOR = 1024;
+const MAC_BYTES = 16;
+let macCache = { secret: null, key: null };
+
+async function macKey(secret) {
+  if (!secret) throw new Error("no cursor key");
+  if (macCache.secret !== secret) {
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    macCache = { secret, key };
+  }
+  return macCache.key;
 }
 
-/** Decodes and checks a cursor: browse [sortValue, seq], search ["o", offset]. Throws on anything else. */
-export function decodeCursor(text, sort, searching) {
-  if (text.length > 400) throw new Error("cursor");
-  const v = JSON.parse(base64urlDecode(text));
+function bytesToBase64url(bytes) {
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function mac(secret, scope, payload) {
+  const sig = await crypto.subtle.sign("HMAC", await macKey(secret), new TextEncoder().encode(scope + "|" + payload));
+  return bytesToBase64url(new Uint8Array(sig).subarray(0, MAC_BYTES));
+}
+
+/**
+ * A page cursor: base64url(JSON) + "." + a MAC over the list it belongs to (`scope`: its filters, text and
+ * sort), so a cursor only works on the list that handed it out.
+ */
+export async function encodeCursor(values, secret, scope) {
+  const payload = base64urlEncode(JSON.stringify(values));
+  return payload + "." + (await mac(secret, scope, payload));
+}
+
+/**
+ * Decodes and checks a cursor: browse [sortValue, seq], search ["o", offset]. Its shape is checked first, and
+ * only then its MAC, with the key from `getSecret()` (one small read). Throws on anything else.
+ */
+export async function decodeCursor(text, sort, searching, getSecret, scope) {
+  if (text.length > MAX_CURSOR) throw new Error("cursor");
+  const dot = text.indexOf(".");
+  if (dot <= 0) throw new Error("cursor");
+  const payload = text.slice(0, dot);
+  const v = JSON.parse(base64urlDecode(payload));
   if (!Array.isArray(v) || v.length !== 2) throw new Error("cursor");
+  let out;
   if (searching) {
     if (v[0] !== "o" || !Number.isInteger(v[1]) || v[1] <= 0 || v[1] > MAX_OFFSET || v[1] % PAGE !== 0) throw new Error("cursor");
-    return { offset: v[1] };
+    out = { offset: v[1] };
+  } else {
+    const [value, seq] = v;
+    if (!Number.isInteger(seq) || seq < 0) throw new Error("cursor");
+    if (sort === "title" ? typeof value !== "string" || [...value].length > TITLE_KEY_POINTS : !Number.isInteger(value)) throw new Error("cursor");
+    out = { value, seq };
   }
-  const [value, seq] = v;
-  if (!Number.isInteger(seq) || seq < 0) throw new Error("cursor");
-  if (sort === "title" ? typeof value !== "string" || value.length > 400 : !Number.isInteger(value)) throw new Error("cursor");
-  return { value, seq };
+  const want = await mac(await getSecret(), scope, payload);
+  const given = text.slice(dot + 1);
+  let diff = want.length ^ given.length;
+  for (let i = 0; i < want.length; i++) diff |= want.charCodeAt(i) ^ (given.charCodeAt(i) || 0);
+  if (diff !== 0) throw new Error("cursor");
+  return out;
 }
 
 /** The (kind, lanes) facets a filter allows. */
@@ -118,6 +162,6 @@ export function searchQuery({ q, kind, lanes, uploader, sort, offset }) {
 }
 
 /** The next-page cursor for a browse page, from its last row. */
-export function nextBrowseCursor(row, sort) {
-  return encodeCursor([row[SORTS[sort].col], row.seq]);
+export function nextBrowseCursor(row, sort, secret, scope) {
+  return encodeCursor([row[SORTS[sort].col], row.seq], secret, scope);
 }

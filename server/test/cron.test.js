@@ -2,11 +2,12 @@
 // the orphan sweep, and the download-count fold every sixth hour.
 
 import { assert, assertEquals } from "./assert.js";
-import { BASE_TIME, advance, fakeKey, makeHub, publish, register, seedFile, seedPackages, setTime, time } from "./helpers.js";
+import { BASE_TIME, advance, fakeKey, makeHub, publish, register, seedFile, seedKey, seedPackages, setTime, time, upload } from "./helpers.js";
+import { CRONS, sweepOrphans } from "../src/cron.js";
 import { goodBattle } from "./make-fixtures.js";
 import { captureConsole } from "./fakes.js";
 
-const HOURLY = "7 * * * *", DAILY = "17 3 * * *", WEEKLY = "23 4 * * 0";
+const HOURLY = "7 * * * *", DAILY = "17 3 * * *";
 
 Deno.test("cron: idle uploads expire at most 30 a run", async () => {
   const hub = await makeHub();
@@ -75,7 +76,7 @@ Deno.test("cron: the daily salt change keeps one old salt; trusted keys; storage
   assert(hub.d1.one("SELECT trusted_at FROM uploaders").trusted_at !== null);
 });
 
-Deno.test("cron: the weekly orphan sweep deletes only objects nothing accounts for", async () => {
+Deno.test("cron: the daily orphan sweep deletes only objects nothing accounts for", async () => {
   const hub = await makeHub();
   const key = fakeKey(1);
   await register(hub, key);
@@ -87,22 +88,26 @@ Deno.test("cron: the weekly orphan sweep deletes only objects nothing accounts f
   await hub.r2.put("backup/2026-09-01/settings-0000.json", "{}");
   await hub.r2.put("pkg/not-an-id/x/package", "junk");
   const lines = await captureConsole(async () => {
-    const r = await hub.cron(WEEKLY);
+    const r = await hub.cron(DAILY);
     assertEquals(r.orphans.deleted, 2);
   });
   assert(lines.some((l) => /route=cron-orphans code=deleted count=2/.test(l)));
-  assertEquals([...hub.r2.objects.keys()].sort(), ["backup/2026-09-01/settings-0000.json", "pkg/bbbbbbbbbb/3/package", `pkg/${live}/1/package`, "quarantine/cccccccccc/1/package"].sort());
+  const liveKey = hub.d1.one("SELECT r2_key FROM packages WHERE id = ?", live).r2_key;
+  assertEquals([...hub.r2.objects.keys()].sort(), ["backup/2026-09-01/settings-0000.json", "pkg/bbbbbbbbbb/3/package", liveKey, "quarantine/cccccccccc/1/package"].sort());
 });
 
 Deno.test("cron: the orphan sweep pages through big buckets across runs", async () => {
   const hub = await makeHub();
-  for (let i = 0; i < 1100; i++) await hub.r2.put(`pkg/${String(i).padStart(10, "0")}/1/package`, "x");
+  for (let i = 0; i < 2500; i++) await hub.r2.put(`pkg/${String(i).padStart(10, "0")}/1/package`, "x");
   const kept = seedPackages(hub, 1, () => ({ id: "0000000005" }));
   assert(kept[0] === "0000000005");
-  let deleted = 0;
-  for (let run = 0; run < 60 && hub.r2.objects.size > 1; run++) deleted += (await hub.cron(WEEKLY)).orphans.deleted;
-  assertEquals(deleted, 1099);
-  assertEquals([...hub.r2.objects.keys()], ["pkg/0000000005/1/package"]);
+  await seedFile(hub, "0000000005");
+  const runs = [];
+  for (let run = 0; run < 10 && hub.r2.objects.size > 1; run++) runs.push((await hub.cron(DAILY)).orphans.deleted);
+  // Up to 1000 a run (one listed page, one R2 delete call); the kept file is on the first page.
+  assertEquals(runs, [999, 1000, 501]);
+  assertEquals(hub.r2.ops.delete, 3);
+  assertEquals([...hub.r2.objects.keys()], [seedKey("0000000005")]);
 });
 
 Deno.test("cron: download counts fold only on every sixth hour; failures in one job don't stop the others", async () => {
@@ -138,4 +143,101 @@ Deno.test("cron: scheduled() without a database does nothing; with one it runs t
   await seedFile(hub, id);
   await hub.scheduled(DAILY);
   assertEquals(hub.d1.one("SELECT v FROM settings WHERE k = 'storage_used'").v, "1000");
+});
+
+// ---- the cron config, and the sweep against a publish (the review's CF-1, CF-6) ----------------------------
+
+/** wrangler.jsonc without its comments (outside strings), parsed. */
+async function wranglerConfig() {
+  const text = await Deno.readTextFile(new URL("../wrangler.jsonc", import.meta.url));
+  let out = "", inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      out += c;
+      if (c === "\\") out += text[++i];
+      else if (c === '"') inString = false;
+    } else if (c === '"') {
+      inString = true;
+      out += c;
+    } else if (c === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++;
+      out += "\n";
+    } else out += c;
+  }
+  return JSON.parse(out);
+}
+
+/** Cloudflare's cron syntax: minute 0-59, hour 0-23, day 1-31, month 1-12 or JAN-DEC, weekday 1-7 or SUN-SAT. */
+function cronFieldOk(field, min, max, names = []) {
+  return field.split(",").every((part) => {
+    const [range, step] = part.split("/");
+    if (step !== undefined && !/^[1-9][0-9]*$/.test(step)) return false;
+    if (range === "*") return true;
+    return range.split("-").every((v) => (/^[0-9]+$/.test(v) ? Number(v) >= min && Number(v) <= max : names.includes(v.toUpperCase())));
+  });
+}
+
+Deno.test("cron: wrangler.jsonc's triggers are exactly the jobs' cron strings, in Cloudflare's syntax (weekdays 1-7 or SUN-SAT)", async () => {
+  const config = await wranglerConfig();
+  assertEquals(config.triggers.crons, CRONS);
+  const days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+  const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  for (const cron of config.triggers.crons) {
+    const f = cron.split(" ");
+    assertEquals(f.length, 5, cron);
+    assert(cronFieldOk(f[0], 0, 59) && cronFieldOk(f[1], 0, 23) && cronFieldOk(f[2], 1, 31) && cronFieldOk(f[3], 1, 12, months), cron);
+    assert(cronFieldOk(f[4], 1, 7, days), `weekday field of "${cron}"`);
+  }
+  // The check itself catches the mistake the review found.
+  assert(!cronFieldOk("0", 1, 7, days));
+  assert(cronFieldOk("SUN", 1, 7, days) && cronFieldOk("1-7", 1, 7, days));
+  // And the other bindings the code expects are there.
+  assertEquals(config.routes, [{ pattern: "hub.nocturnbutbetter.com", zone_name: "nocturnbutbetter.com", custom_domain: true }]);
+  assertEquals([config.workers_dev, config.preview_urls], [false, false]);
+});
+
+Deno.test("cron: a trigger the code doesn't know does nothing but log unknown_cron", async () => {
+  const hub = await makeHub();
+  let report;
+  const lines = await captureConsole(async () => {
+    report = await hub.cron("23 4 * * SUN");
+  });
+  assertEquals(report, {});
+  assert(lines.some((l) => l === "route=cron code=unknown_cron"), lines.join("\n"));
+});
+
+async function sweepWithPublishAt(pattern) {
+  const hub = await makeHub();
+  const key = fakeKey(1);
+  await register(hub, key);
+  const r = await upload(hub, key, await goodBattle(), { noComplete: true }); // one part: its object is in R2, the upload 'open'
+  const { uploadId, packageId } = r.start.body;
+  const objKey = hub.d1.one("SELECT r2_key FROM uploads WHERE id = ?", uploadId).r2_key;
+  assert(hub.r2.objects.has(objKey), "setup");
+  const env = hub.env();
+  const prepare = env.DB.prepare.bind(env.DB);
+  let staged = false;
+  env.DB.prepare = (sql) => {
+    if (!staged && pattern.test(sql)) {
+      // The upload's complete commits right here: it's live, and its package names its object.
+      staged = true;
+      hub.d1.sqlite.prepare("UPDATE uploads SET state = 'live' WHERE id = ?").run(uploadId);
+      seedPackages(hub, 1, () => ({ id: packageId, kind: "battle" }));
+      hub.d1.sqlite.prepare("UPDATE packages SET r2_key = ? WHERE id = ?").run(objKey, packageId);
+    }
+    return prepare(sql);
+  };
+  const out = await sweepOrphans(env);
+  assert(staged, "the publish was staged");
+  return { out, kept: hub.r2.objects.has(objKey) };
+}
+
+Deno.test("cron: the orphan sweep never deletes a file that an upload publishes while the sweep runs", async () => {
+  // Just before its first query and between its two queries: the live file is kept each time.
+  for (const pattern of [/FROM uploads WHERE state IN/, /FROM json_each\(\?1\) j WHERE EXISTS/]) {
+    const { out, kept } = await sweepWithPublishAt(pattern);
+    assert(kept, `the live entry's file was deleted (published at ${pattern})`);
+    assertEquals(out.deleted, 0);
+  }
 });

@@ -148,8 +148,13 @@ export const ADMIN_JS = String.raw`(function () {
       show("overview");
     }, function (e) { if (key) signOut(e.message); });
   }
+  // Over plain http the key would cross the network readable: refuse to send it (loopback is the local stand-in).
+  var plainHttp = location.protocol === "http:" && !/^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
+  var HTTP_WARNING = "this page was opened over plain http, so the key would travel unprotected. open it with https:// instead (and turn on always use https for the domain).";
+  if (plainHttp) key = "";
   $("signin-form").addEventListener("submit", function (ev) {
     ev.preventDefault();
+    if (plainHttp) return;
     key = $("key").value.trim();
     try { sessionStorage.setItem(STORE, key); } catch (e) { /* this tab only */ }
     signIn();
@@ -281,8 +286,12 @@ export const ADMIN_JS = String.raw`(function () {
       var reason = el("select", null, REMOVE_REASONS.map(function (r) { return el("option", { value: r, text: r }); }));
       var strike = el("input", { type: "checkbox" });
       function reload() { openPackage(id); }
+      // Any version still held can be downloaded: reports say which version they were about.
+      var held = [p.version].concat((p.oldVersions || []).map(function (o) { return o.version; }));
+      var version = el("input", { type: "number", min: "1", max: String(p.version), value: String(p.version), size: "4", title: "version" });
+      add(panel, el("p", { "class": "msg", text: "versions still held: " + held.join(", ") + (p.status === "quarantined" ? " (and every version moved to quarantine)" : "") }));
       add(panel, el("div", { "class": "row" },
-        el("button", { text: "download to review", onclick: function () { download(p.id, p.version); } }),
+        el("button", { text: "download to review", onclick: function () { download(p.id, Number(version.value) || p.version); } }), "version", version,
         el("button", { text: "hide", onclick: function () { act("hide", api("POST", "packages/" + id + "/hide", { note: note.value }), reload); } }),
         el("button", { text: "restore", onclick: function () { act("restore", api("POST", "packages/" + id + "/restore", {}), reload); } }),
         el("button", { text: "show picture", onclick: function () { act("show picture", api("POST", "packages/" + id + "/picture", { show: true }), reload); } }),
@@ -293,14 +302,19 @@ export const ADMIN_JS = String.raw`(function () {
         } })));
       add(panel, el("div", { "class": "row" },
         el("button", { "class": "danger", text: "quarantine (illegal material)", onclick: function () {
-          if (window.confirm("quarantine keeps the file privately and takes the entry down. continue?")) act("quarantine", api("POST", "packages/" + id + "/quarantine", { note: note.value }), reload);
+          if (window.confirm("quarantine keeps every version of the file privately and takes the entry down. continue?")) {
+            act("quarantine", api("POST", "packages/" + id + "/quarantine", { note: note.value }), function (r) {
+              reload();
+              say("quarantine: versions kept: " + ((r.versions || []).join(", ") || "none left to move") + (r.more ? ". more are left: press quarantine again" : ""));
+            });
+          }
         } }),
         p.battleId ? el("button", { text: "release battle id", onclick: function () { act("release battle id", api("POST", "battle-ids/" + p.battleId + "/release", {}), reload); } }) : null,
         el("button", { text: "resolve all reports", onclick: function () { act("resolve reports", api("POST", "reports/resolve", { packageId: id, resolution: "resolved" }), reload); } })));
       if (p.reports.length) {
         add(panel, el("h3", { text: "reports" }));
-        add(panel, table(["from", "reason", "note", "when", "state", ""], p.reports.map(function (r) {
-          return [r.reporter, r.reason, r.note, when(r.createdAt), r.resolvedAt ? r.resolution + " " + when(r.resolvedAt) : "open",
+        add(panel, table(["from", "version", "reason", "note", "when", "state", ""], p.reports.map(function (r) {
+          return [r.reporter, "v" + r.version, r.reason, r.note, when(r.createdAt), r.resolvedAt ? r.resolution + " " + when(r.resolvedAt) : "open",
             r.resolvedAt ? "" : el("button", { text: "resolve", onclick: function () { act("resolve", api("POST", "reports/resolve", { packageId: id, reporterHash: r.reporterHash, resolution: "resolved" }), reload); } })];
         })));
       }
@@ -413,7 +427,7 @@ export const ADMIN_JS = String.raw`(function () {
   views.backup = function (view) {
     var out = el("p", { "class": "msg" });
     add(view, el("div", { "class": "panel" },
-      el("p", { text: "writes a copy of the database tables as json into the R2 bucket under backup/<date>/. do it once a month; cloudflare keeps 7 days of database history (time travel) on top." }),
+      el("p", { text: "writes a copy of the database tables as json into the R2 bucket under backup/<date>/, a little at a time. the download-count salts are left out on purpose. do it once a month; cloudflare keeps 7 days of database history (time travel) on top." }),
       el("button", { text: "back up now", onclick: function () {
         var files = 0;
         (function step(cursor) {
@@ -437,6 +451,6 @@ export const ADMIN_JS = String.raw`(function () {
       } }), out2));
   };
 
-  if (key) signIn(); else signOut("");
+  if (plainHttp) signOut(HTTP_WARNING); else if (key) signIn(); else signOut("");
 })();
 `;
