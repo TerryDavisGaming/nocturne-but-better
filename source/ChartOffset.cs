@@ -390,7 +390,8 @@ internal static class ChartOffset
     /// A moment more than the notes need, so the first one appears at the far end of the lane. It's
     /// long enough for a long frame as the notes start (the battle's first frames can be slow, and
     /// until the song starts the clock moves by the whole frame): up to this much, the first note
-    /// still comes in from the far end.
+    /// still comes in from the far end. A frame longer than the whole lead-in carries the clock past
+    /// the song's start, and the song then starts there, with its opening cut (CustomMusic.Start).
     /// </summary>
     internal const double LeadInMargin = 0.75;
     /// <summary>When the note speed can't be read: about when the game's own charts start.</summary>

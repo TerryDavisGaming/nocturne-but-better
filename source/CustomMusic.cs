@@ -450,7 +450,16 @@ internal static class CustomMusic
             c.currentWwiseTrackTime = position;
             double measured = position + c.previousSongSegmentTime - song.RawTime;
             // The clock then aims at the song plus the shorter of this frame and the lead.
-            double drift = measured - Math.Max(0, deltaTime - Math.Max(MinFrameLead, 2 * usualFrame));
+            double excess = deltaTime - Math.Max(MinFrameLead, 2 * usualFrame);
+            double drift = measured;
+            if (excess > 0)
+            {
+                drift = measured - excess;
+                // GetTimeCorrection moves a drift under 0.1 s by a fixed 5 or 10% of the frame. After a
+                // long frame that's more than this small drift, and the clock would end ahead of its lead:
+                // it just takes the frame, as the song did.
+                if (drift > 0 && drift < 0.1 * Math.Min(deltaTime, 1)) drift = 0;
+            }
             usualFrame += (Math.Min(deltaTime, 0.25) - usualFrame) * 0.1;
             c.timeDrift = drift;
             if (Math.Abs((float)measured) > 0.5f) c.OnLargeTimeDrift?.Invoke();

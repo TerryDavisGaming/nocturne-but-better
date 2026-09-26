@@ -317,11 +317,12 @@ internal static partial class ChartEditor
 
     /// <summary>
     /// Whether the timing is still a new battle's, untouched since the editor opened: beat 0 at the
-    /// song's start, 120 BPM, no stops or scroll speed changes, and no notes on any difficulty.
+    /// song's start, 120 BPM, no stops or scroll speed changes, and no notes on any difficulty or
+    /// dialogue lines on beats (those would move with the beats).
     /// </summary>
     private static bool NewBattleTiming() =>
         !timingEdited && chart!.Offset == 0 && chart.Bpms.Count == 1 && chart.Bpms[0] == (0, 120) &&
-        chart.Stops.Count == 0 && scrolls.Count == 0 && !ChartedTabs().Any(c => c);
+        chart.Stops.Count == 0 && scrolls.Count == 0 && !ChartedTabs().Any(c => c) && !cues.Any(c => c.Beat != null);
 
     private static void RemoveTempoChange()
     {
