@@ -9,11 +9,15 @@
     "dev": "wrangler dev"
   },
   "devDependencies": {
-    "wrangler": "4.69.0"
+    "wrangler": "4.141.0"
   },
   "cloudflare": {
     "label": "nocturne but better hub",
-    "products": ["Workers", "D1", "R2"],
+    "products": [
+      "Workers",
+      "D1",
+      "R2"
+    ],
     "bindings": {
       "ADMIN_KEY": {
         "description": "the owner's key for the /admin page. make it on your own pc (see the readme), paste it here, keep it in a password manager, and never share it."
