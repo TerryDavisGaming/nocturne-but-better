@@ -68,27 +68,33 @@ unless noted):
 - arcade gear: 170 of 170 checks on bepinex, 124 of 124 on melonloader,
   and 7 of 7 on each after a restart. the page opened by a click, g and
   a simulated pad's view button; picks by mouse, keys and the pad. the
-  firefly song and custom battles were fought on the picked gear, with a
-  loss and pause-menu quits; a battle's own set gear and set level came
-  first; a consumable used in one battle was gone in the next; unowned
-  items fell back to story gear. with all items on, a battle with an unowned item left the
-  scores alone and skipped the achievement check. the arcade didn't move
-  under the page. on bepinex the test runner lost track of 1 of its 79
-  inputs (a runner fault); the game's own checks all passed.
+  firefly song was fought on the picked gear, with pause-menu quits, and
+  a battle's own set gear came first. on bepinex two custom battles were
+  fought on it too, one with a set level (which came first) and one lost.
+  a consumable used in one battle was gone in the next, and unowned items
+  fell back to story gear. with all items on, a battle with an unowned
+  item left the scores alone and skipped the achievement check. the
+  arcade didn't move under the page. on bepinex the test runner lost
+  track of 1 of its 79 inputs (a runner fault); the game's own checks all
+  passed.
 - get custom battles, against a stand-in hub on the test pc (the real
   server code with stand-ins for cloudflare's database and storage):
-  128 of 129 checks on bepinex, 71 of 71 on melonloader. the failure
-  (down from quit game on the title) came from the game window losing
-  focus; the title test passed when run again on its own. covered:
-  browse, search (café and japanese text), filters, a battle and a pack
-  downloaded and played, damaged and cut-short downloads refused,
-  reports, updates in place, use it now, delete, the hub stopped, the
-  slow down, too busy and too old answers, uploads (a battle, a pack,
-  one from the battle creator), a new version, delete from the hub, the
-  key's backup, restore and replacement, and online hub off. no request
-  before the notice was accepted or while the hub was off, and no hub
-  key in any log. the server's 162 offline tests and the hub client's
-  350 offline checks passed. NOT TRIED AGAINST THE REAL HUB YET.
+  128 of 129 checks on bepinex, 71 of 71 on melonloader. the failure was
+  the run's first key press (down from quit game on the title), which
+  left the selection where it was; the title test passed when run again
+  on its own, and on melonloader. covered on bepinex: browse, search
+  (café and japanese text), filters, a battle and a pack downloaded and
+  played, damaged and cut-short downloads refused, reports, updates in
+  place, use it now, delete, the hub stopped, the slow down, too busy
+  and too old answers, uploads (a battle, a pack, one from the battle
+  creator), a new version, delete from the hub, the key's backup,
+  restore and replacement, and online hub off. melonloader ran the main
+  paths: search, downloads, updates, the damaged download and its
+  report, delete, the hub stopped, a first upload with its key backup,
+  and online hub off. no request before the notice was accepted or while
+  the hub was off, and no hub key in any log. the server's 162 offline
+  tests and the hub client's 350 offline checks passed. NOT TRIED
+  AGAINST THE REAL HUB YET.
 - the 2d armor badge: 7 battles per loader (the antlion fight and a
   5-lane custom battle) in all three scroll modes, with bigger notes,
   wider lanes, a higher receptor height, a switch to default and back,
