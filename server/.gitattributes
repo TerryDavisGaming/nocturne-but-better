@@ -1,0 +1,3 @@
+# the server is deployed from linux builds; keep its files lf everywhere
+* text=auto eol=lf
+*.ps1 text eol=crlf
