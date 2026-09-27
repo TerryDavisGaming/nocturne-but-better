@@ -2,7 +2,7 @@ nocturne but better 2.7.0 - package verification
 checked september 27, 2026 on windows 11, using windows powershell 5.1.
 
 installer
-INSTALLER_CHECKS checks ran against throwaway copies of the game files. the
+83 checks ran against throwaway copies of the game files. the
 real game folder was not used, and its files were unchanged afterwards.
 - every package script parses in windows powershell 5.1.
 - install previews (-whatif) leave the game folder unchanged for both
