@@ -93,8 +93,10 @@ unless noted):
   report, delete, the hub stopped, a first upload with its key backup,
   and online hub off. no request before the notice was accepted or while
   the hub was off, and no hub key in any log. the server's 162 offline
-  tests and the hub client's 350 offline checks passed. NOT TRIED
-  AGAINST THE REAL HUB YET.
+  tests and the hub client's 350 offline checks passed. against the
+  real hub (hub.nocturnbutbetter.com), both loaders connected over
+  https, showed the empty list, searched and opened every tab. NO
+  UPLOAD OR DOWNLOAD ON THE REAL HUB YET.
 - the 2d armor badge: 7 battles per loader (the antlion fight and a
   5-lane custom battle) in all three scroll modes, with bigger notes,
   wider lanes, a higher receptor height, a switch to default and back,
