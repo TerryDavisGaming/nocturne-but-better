@@ -1,8 +1,8 @@
-# nocturne but better 2.6.0
+# nocturne but better 2.7.0
 
 formerly nocturne flat scroll. the files, the plugin id, and the saved settings keep that name, so upgrades from earlier versions keep working.
 
-the package targets windows x64, steam app 1374860, nocturne 1.0.1, build 25487568, unity 2022.3.62f2. 2.6.0 adds custom battles: arcade-only battles with their own song, charts, enemy, gear, level, and dialogue, made in an in-game battle creator and played from an arcade button on the main menu. it also fixes the results screen's high-score info, which 2.5.0 garbled in every battle. the installer pins game code, metadata, and original layout assets. it refuses unknown versions rather than assuming an update is compatible. previous experimental static layout patches must be restored before using this portable package.
+the package targets windows x64, steam app 1374860, nocturne 1.0.1, build 25487568, unity 2022.3.62f2. 2.7.0 adds gear of its own to the main-menu arcade, get custom battles (an online hub for custom battles and custom difficulties), and the akuma note colors, and it moves the 2d armor badge out from under the enemy info panel. 2.6.0 added custom battles: arcade-only battles with their own song, charts, enemy, gear, level, and dialogue, made in an in-game battle creator and played from an arcade button on the main menu. it also fixed the results screen's high-score info, which 2.5.0 garbled in every battle. the installer pins game code, metadata, and original layout assets. it refuses unknown versions rather than assuming an update is compatible. previous experimental static layout patches must be restored before using this portable package.
 
 ## loaders
 
@@ -469,7 +469,7 @@ after the battle is made, the game's own chart reader checks it, and from then o
 
 ## the online hub
 
-get custom battles talks to the hub described in `server/API.md` (api v1). the server's code and the owner's runbook are in `server/`. the address is built in (`ModInfo.HubUrl`, `https://hub.nocturnbutbetter.com`), so a release build can't be pointed anywhere else, and there's no address to edit. only a qa build (one compiled with `NFS_QA`) reads `NFS_QA_HUB_URL`, and only there is plain http allowed, for `127.0.0.1`, `localhost` or `[::1]`. `NFS_QA_HUB_IDENTITY` gives a qa build a second `identity.json`, to act as another player.
+get custom battles talks to the hub described in `server/API.md` (api v1). the server's code, its tests and the owner's runbook are in the `server` folder of the github repository. the release zip leaves that folder out. the address is built in (`ModInfo.HubUrl`, `https://hub.nocturnbutbetter.com`), so a release build can't be pointed anywhere else, and there's no address to edit. only a qa build (one compiled with `NFS_QA`) reads `NFS_QA_HUB_URL`, and only there is plain http allowed, for `127.0.0.1`, `localhost` or `[::1]`. `NFS_QA_HUB_IDENTITY` gives a qa build a second `identity.json`, to act as another player.
 
 the mod makes NO REQUEST UNTIL THE PAGE OPENS, and none at all while online hub is off (player prefs `NocturneFlatScroll.Hub.v1`, on by default, the last row of the custom charts page).
 
@@ -550,6 +550,8 @@ the output goes to `source\bin\<loader>\Release\net6.0`. keep `Release` capitali
 
 ## scope of validation
 
+version 2.7.0 was tested in-game the same way, in 33 runs with qa builds, 19 on bepinex and 14 on melonloader (package-verification.txt has the details, and 2.6.1's and 2.6.2's tests too). the arcade gear passed 170 of 170 checks on bepinex and 124 of 124 on melonloader. get custom battles passed 128 of 129 on bepinex and 71 of 71 on melonloader, against a stand-in hub on the test pc (`server/dev/serve.js`, the real worker with the test fakes, on 127.0.0.1); the one failure came from the game window losing focus, and that title test passed when it ran again. the 2d armor badge was checked in 7 battles per loader across the scroll modes, note sizes, lane spacings, a live switch to default, and show enemy info off. akuma's colors were read back from every note the game drew in 20 battles per loader (2477 notes on bepinex, 2480 on melonloader). the 2.6.x tests ran again without failures; note speed flagged one 61 ms frame at the start of a five-lane battle, on both loaders. the pads in these runs were simulated, and THE HUB HASN'T BEEN TRIED AGAINST ITS DEPLOYED SERVER. the server's 162 deno tests (`deno test --no-remote --no-npm --allow-read=server server/test/`) passed, and so did 350 offline checks of the mod's hub client against a stand-in.
+
 version 2.6.0 was tested in-game on nocturne 1.0.1 with bepinex 6.0.0-be.788 and melonloader 0.7.3, the melonloader one in a separate copy of the game folder. every run took a snapshot of the player's plugin, settings and saves first, put that snapshot back afterwards, and checked that the `.sav` files hadn't changed. on melonloader, no run logged a "native->managed trampoline" error.
 
 - custom battles in the main-menu arcade, in 4 and 5 lanes, with songs played to the end: scores went into `ProdSlotN.score` and the `.sav` files didn't change. both loaders.
@@ -588,13 +590,9 @@ package checks cover windows powershell parsing and isolated installation, upgra
 
 ## integrity
 
-bepinex plugin sha-256:
-`8153e76b0600fc4bbceecc8418b6d3ddb1aadbee03ef663278289bf8dc146dbd`
+the bepinex plugin's and the melonloader mod's sha-256 are in `sha256sums.txt`, as `payload/NocturneFlatScroll.dll` and `payload/NocturneFlatScroll.MelonLoader.dll`, and the installer pins the same two.
 
-melonloader mod sha-256:
-`d7a85b5541ba00292c761ca7fd287c96cd299b894284959dfc1ed5388b4b0fa0`
-
-both dlls are compiled from the same 2.6.0 source with debug symbols disabled, so they contain no development-machine pdb path. the installer also recognizes both 2.5.0 dlls, both 2.4.1 dlls, both 2.4.0 dlls, both 2.3.0 dlls, an earlier 2.3.0 test build, both 2.2.0 dlls, and earlier 2.1.x bepinex builds when upgrading or uninstalling.
+both dlls are compiled from the same 2.7.0 source with debug symbols disabled, so they contain no development-machine pdb path. the installer also recognizes the dlls of earlier releases, back to the 2.1.x bepinex builds and an earlier 2.3.0 test build, when upgrading or uninstalling.
 
 official loader archive sha-256:
 `f4cc496bd098a0df4164b81e3737297707f13a47c2478dba2f60eefab784817a`
