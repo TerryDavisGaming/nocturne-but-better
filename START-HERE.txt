@@ -3,7 +3,7 @@ windows x64 | steam nocturne 1.0.1 | tested steam build 25487568
 works with bepinex 6 (bundled) or melonloader 0.7.3 and newer (not bundled)
 
 install
-1. install nocturne through steam on the other pc, then close the game.
+1. install nocturne through steam, then close the game.
 2. extract this entire zip to a folder. do not run it from inside the zip.
 3. double-click install.cmd. it finds the steam game folder automatically.
    if asked for a folder, use steam > nocturne > manage > browse local files
