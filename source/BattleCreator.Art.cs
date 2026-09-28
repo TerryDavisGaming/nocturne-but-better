@@ -1,10 +1,10 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using UnityEngine;
-using static NocturneFlatScroll.EditorPageKit;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorPageKit;
+using static NocturnePlus.EditorUi;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // The enemy's custom art: the Enemy page's "Game enemy's art | Custom art" switch, and the Art
 // page. Each animation (idle, attack, hurt, defeat) is first given what it is (Image, GIF, Video

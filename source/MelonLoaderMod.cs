@@ -1,8 +1,8 @@
 #if MELONLOADER
 using MelonLoader;
-using NocturneFlatScroll;
+using NocturnePlus;
 
-[assembly: MelonInfo(typeof(FlatScrollMod), ModInfo.Name, ModInfo.Version, "TerryDavisGaming")]
+[assembly: MelonInfo(typeof(NocturnePlusMod), ModInfo.Name, ModInfo.Version, ModInfo.Author)]
 [assembly: MelonGame("PracyStudios", "Nocturne")]
 [assembly: MelonPlatformDomain(MelonPlatformDomainAttribute.CompatibleDomains.IL2CPP)]
 // Built and tested against MelonLoader 0.7.3; the flag makes this a minimum, not an exact match.
@@ -10,9 +10,9 @@ using NocturneFlatScroll;
 // Patches are applied explicitly in OptionsMenuIntegration.Install.
 [assembly: HarmonyDontPatchAll]
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
-public sealed class FlatScrollMod : MelonMod
+public sealed class NocturnePlusMod : MelonMod
 {
     public override void OnInitializeMelon()
     {
@@ -24,7 +24,7 @@ public sealed class FlatScrollMod : MelonMod
     {
         // Unity has run its first Start messages, so scene objects can be searched.
         ModSetup.AttachToExisting();
-        ModLog.Info("Flat scrolling loaded; select a layout in Options > Gameplay > Note scrolling.");
+        ModLog.Info($"{ModInfo.Name} {ModInfo.Version} loaded; its settings are in Options > Gameplay and Options > Audio.");
     }
 
     // MelonLoader calls these from Unity's Update and LateUpdate; LateUpdate runs after

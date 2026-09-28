@@ -1,4 +1,4 @@
-// nocturne but better hub: the Worker's Cloudflare config (DESIGN-HUB 2.1).
+// nocturne+ hub: the Worker's Cloudflare config (DESIGN-HUB 2.1).
 // The name, the domain and the bindings must NEVER change after a mod release ships the address.
 {
   "$schema": "node_modules/wrangler/config-schema.json",

@@ -3,7 +3,7 @@ using UnityEngine;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using Key = UnityEngine.InputSystem.Key;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// What every editor screen needs from the game while it is open: the menus underneath locked

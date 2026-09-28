@@ -1,6 +1,6 @@
 using HarmonyLib;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Plays a custom chart's scroll speed changes (#SCROLLS: beat=ratio) in battle. The game's note

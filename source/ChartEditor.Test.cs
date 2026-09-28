@@ -1,8 +1,8 @@
 using System.Globalization;
 using UnityEngine;
-using static NocturneFlatScroll.EditorInput;
+using static NocturnePlus.EditorInput;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // Test play, like osu!'s editor test: Test (F5) plays the chart being edited in a real battle,
 // from two bars before the play position or (Shift) from the start, and when the battle is left

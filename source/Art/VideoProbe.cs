@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>What a video file's container says, and whether the game can play it.</summary>
 internal sealed class VideoFacts

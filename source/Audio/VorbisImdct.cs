@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The Vorbis inverse MDCT of size N (N/2 coefficients in, N samples out), unscaled as in the spec

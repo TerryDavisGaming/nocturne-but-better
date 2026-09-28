@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>A game enemy the battle creator offers as a placeholder, with its own stats (shown when the battle keeps them).</summary>
 internal sealed record EnemyChoice(string Asset, string Name, double Hp, double Damage, double PassiveEnergyCharge, double EnergyChargeOnMiss, double AttackWindupTime)

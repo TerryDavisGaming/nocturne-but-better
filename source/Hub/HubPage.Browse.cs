@@ -1,11 +1,11 @@
 using UnityEngine;
-using static NocturneFlatScroll.EditorInput;
-using static NocturneFlatScroll.EditorPageKit;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorInput;
+using static NocturnePlus.EditorPageKit;
+using static NocturnePlus.EditorUi;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using Key = UnityEngine.InputSystem.Key;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // Browse (DESIGN-HUB 1.3, 1.4): the hub's entries, 24 a page as the list scrolls, with a search
 // (the list follows it a second after the last key once the last word has 3 letters, or on Enter:

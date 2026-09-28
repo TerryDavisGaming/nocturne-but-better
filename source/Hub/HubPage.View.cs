@@ -1,13 +1,13 @@
 using UnityEngine;
 using UnityEngine.UI;
-using static NocturneFlatScroll.EditorInput;
-using static NocturneFlatScroll.EditorPageKit;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorInput;
+using static NocturnePlus.EditorPageKit;
+using static NocturnePlus.EditorUi;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using InputMouse = UnityEngine.InputSystem.Mouse;
 using Key = UnityEngine.InputSystem.Key;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // The page's frame: the tabs along the top, the list on the left with the bar above it (Browse's
 // search and filters), the detail panel on the right with the entry's buttons, and the bottom bar

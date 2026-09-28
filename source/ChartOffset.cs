@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Puts a chart's beat 0 where StepMania puts it (song time -#OFFSET) in the chart text the game

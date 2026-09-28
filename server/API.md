@@ -24,7 +24,7 @@ every free-text field: nfc; remove c0 and c1 control characters (descriptions ke
 ### `GET /v1/info` (cached 5 minutes)
 
 ```
-{ "api": 1, "hub": "nocturne but better hub", "minClient": "2.7.0", "uploadsOpen": true, "counts": false,
+{ "api": 1, "hub": "nocturne+ hub", "minClient": "2.7.0", "uploadsOpen": true, "counts": false,
   "maxPackageBytes": 104857600, "maxUnpackedBytes": 209715200, "partSize": 8388608, "maxEntries": 1000,
   "maxSongsPerPack": 40, "maxThumbB64": 16384,
   "text": { "title": 100, "artist": 100, "author": 64, "packTitle": 100, "description": 1000, "name": 32, "note": 500 },

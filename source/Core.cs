@@ -1,12 +1,14 @@
 using UnityEngine;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 internal static class ModInfo
 {
+    // Kept from the mod's first name (nocturne flat scroll), so upgrades keep the loaders' settings.
     public const string Id = "local.nocturne.flat-scroll";
-    public const string Name = "Nocturne But Better";
-    public const string Version = "2.7.0";
+    public const string Name = "Nocturne+";
+    public const string Version = "2.8.0";
+    public const string Author = "TerryDavisGaming";
 
     /// <summary>
     /// The online hub behind Get Custom Battles. Built in, so a release build can't be pointed
@@ -58,6 +60,11 @@ public static class SettingsState
     private const string InfiniteConsumablesKey = "NocturneFlatScroll.InfiniteArcadeConsumables.v1";
     private const string ArcadeGearAllItemsKey = "NocturneFlatScroll.ArcadeGearAllItems.v1";
     private const string OnlineHubKey = "NocturneFlatScroll.Hub.v1";
+    // Settings added since the rename carry the new name; the ones above keep theirs, so upgrades keep them.
+    private const string QuickSaveLoadKey = "NocturnePlus.QuickSaveLoad.v1";
+    // The first 2.8.0 test build had a switch for each; either one on turns the shared one on.
+    private const string OldQuickSaveKey = "NocturnePlus.QuickSave.v1";
+    private const string OldQuickLoadKey = "NocturnePlus.QuickLoad.v1";
     public const int MinReceptorHeight = -10;
     public const int MaxReceptorHeight = 30;
     private static ScrollMode? _mode;
@@ -70,6 +77,7 @@ public static class SettingsState
     private static bool? _infiniteConsumables;
     private static bool? _arcadeGearAllItems;
     private static bool? _onlineHub;
+    private static bool? _quickSaveLoad;
     public static ScrollMode Mode => _mode ??= LoadMode();
 
     /// <summary>How notes and receptors are drawn; Default keeps the game's own bars.</summary>
@@ -179,6 +187,21 @@ public static class SettingsState
         PlayerPrefs.SetInt(OnlineHubKey, value ? 1 : 0);
         PlayerPrefs.Save();
         ModLog.Info("Online hub: " + (value ? "On" : "Off"));
+    }
+
+    /// <summary>
+    /// Whether the quick save and quick load keys work (QuickSaveLoad). Off unless turned on.
+    /// </summary>
+    public static bool QuickSaveLoad => _quickSaveLoad ??= PlayerPrefs.HasKey(QuickSaveLoadKey)
+        ? PlayerPrefs.GetInt(QuickSaveLoadKey, 0) == 1
+        : PlayerPrefs.GetInt(OldQuickSaveKey, 0) == 1 || PlayerPrefs.GetInt(OldQuickLoadKey, 0) == 1;
+
+    public static void SetQuickSaveLoad(bool value)
+    {
+        _quickSaveLoad = value;
+        PlayerPrefs.SetInt(QuickSaveLoadKey, value ? 1 : 0);
+        PlayerPrefs.Save();
+        ModLog.Info("Quick save & load: " + (value ? "On" : "Off"));
     }
 
     /// <summary>
@@ -345,6 +368,7 @@ internal static class ModSetup
         Run("Main menu arcade", () => ArcadeSession.Install(harmony));
         // After the chart, gear and battle hooks it relies on, so it knows whether they're in.
         Run("Test play", () => TestPlay.Install(harmony));
+        Run("Quick save and load", QuickSaveLoad.Install);
         Run("Title text", () => TitleBranding.InstallTitle(harmony));
         Run("Intro text", () => TitleBranding.InstallIntro(harmony));
     }
@@ -416,8 +440,9 @@ internal static class LayoutDriver
             MenuFieldLayout.Discover();
         }
         catch (Exception ex) { Report(ex); }
-        // Also once a second. It catches its own errors, so it never stops the layout.
+        // Also once a second. They catch their own errors, so they never stop the layout.
         AkumaNoteColors.Update();
+        TitleBranding.Update();
     }
 
     public static void LateUpdate()
@@ -476,6 +501,7 @@ internal static class LayoutDriver
         BattleDialogue.Update();
         EnemyArt.LateUpdate();
         BattleGear.Update();
+        QuickSaveLoad.Update();
     }
 
     private static void FadeAttacks(CombatNoteFieldView view, bool active)

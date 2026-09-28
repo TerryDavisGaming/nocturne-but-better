@@ -1,10 +1,10 @@
 using System.Globalization;
 using System.Text;
 using UnityEngine;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorUi;
 using InputMouse = UnityEngine.InputSystem.Mouse;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // A custom battle's lines during the song (battle.json's dialogue), which belong to the song's
 // timeline: a violet lane beside the event flags shows each line from its start to its end (a

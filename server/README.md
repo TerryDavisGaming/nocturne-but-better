@@ -1,4 +1,4 @@
-# nocturne but better hub
+# nocturne+ hub
 
 this folder is the server behind GET CUSTOM BATTLES in the mod: an online list of custom battles and custom difficulties that players upload and download from inside the game. it runs on YOUR OWN cloudflare account at `https://hub.nocturnbutbetter.com`, as one cloudflare worker with a d1 database and an r2 bucket.
 
@@ -6,7 +6,7 @@ uploads go live the moment they finish. there are no accounts: each player's gam
 
 this readme is the owner's runbook: deploying, the admin page, takedowns, spam waves, backups and updates. `API.md` describes the api the mod talks to.
 
-[![deploy to cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/TerryDavisGaming/nocturne-but-better/tree/main/server)
+[![deploy to cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/TerryDavisGaming/nocturne-plus/tree/main/server)
 
 ## before you deploy
 

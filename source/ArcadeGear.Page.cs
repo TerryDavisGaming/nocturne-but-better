@@ -1,10 +1,10 @@
 using UnityEngine;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorUi;
 using EventSystem = UnityEngine.EventSystems.EventSystem;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using InputMouse = UnityEngine.InputSystem.Mouse;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The Arcade gear page: a full-screen list like the battle creator's, over the main-menu arcade.

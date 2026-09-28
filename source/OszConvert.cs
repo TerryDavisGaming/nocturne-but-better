@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // The osu!mania import's conversion (beta): osu!'s timing, notes and speed changes as a battle
 // chart (.sm) the battle creator and the chart editor edit like any other.

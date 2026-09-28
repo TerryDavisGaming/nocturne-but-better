@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // The chart's enemy events: the song's #ATTACKS (lane layouts, the enemy's props and animations,
 // helper attacks, combat effects like vines, camera moves, text). A chart starts with the song's

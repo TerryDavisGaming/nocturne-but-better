@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// An Ogg Vorbis file: the Ogg pages split into packets, the three Vorbis headers, and the audio

@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// A bounded GIF decoder for custom enemy art. Scan reads the block structure (sizes, frames,

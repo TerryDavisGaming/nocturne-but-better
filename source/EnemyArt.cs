@@ -6,7 +6,7 @@ using UnityEngine;
 using UnityEngine.Video;
 using Object = UnityEngine.Object;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Custom enemy art: a custom battle whose enemy is in custom mode looks like the player's own

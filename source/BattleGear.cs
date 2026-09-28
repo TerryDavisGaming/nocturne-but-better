@@ -3,7 +3,7 @@ using HarmonyLib;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Gear for custom battles. A battle whose battle.json sets its gear ("mode": "set") is fought

@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Keeps the score of an arcade battle fought with an item the save doesn't own ("All items

@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The custom chart rows in Options > Gameplay: import a chart file, pick a song and the custom
@@ -162,7 +162,7 @@ internal static class CustomChartOptions
     {
         if (dialog != null) return;
         dialog = FileDialogs.Open("Import custom chart", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + "\\Downloads",
-            "Nocturne But Better charts (*.nbbchart, *.sm)", "*.nbbchart;*.sm;*.zip", "All files", "*.*");
+            "Nocturne+ charts (*.nbbchart, *.sm)", "*.nbbchart;*.sm;*.zip", "All files", "*.*");
         onChosen = path =>
         {
             int added = CustomCharts.Import(path);
@@ -184,7 +184,7 @@ internal static class CustomChartOptions
         if (selection.Count == 0) { Show("Nothing to export", Row.Export); return; }
         string name = exportAll || song == null ? "Custom charts" : song;
         dialog = FileDialogs.Save("Export custom charts", Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-            name + CustomCharts.PackExtension, CustomCharts.PackExtension, "Nocturne But Better chart pack (*.nbbchart)", "*.nbbchart");
+            name + CustomCharts.PackExtension, CustomCharts.PackExtension, "Nocturne+ chart pack (*.nbbchart)", "*.nbbchart");
         onChosen = path =>
         {
             CustomCharts.Export(path, selection, name);

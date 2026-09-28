@@ -2,7 +2,7 @@ using System.Diagnostics;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The hub's steps that touch the game, all on the main thread (DESIGN-HUB 3.2): where the mod's

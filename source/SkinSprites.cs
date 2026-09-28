@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>Turns SkinArt masks into Unity sprites once and keeps them for the whole session.</summary>
 internal static class SkinSprites

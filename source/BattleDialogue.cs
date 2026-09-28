@@ -2,7 +2,7 @@ using HarmonyLib;
 using Il2CppInterop.Runtime;
 using UnityEngine;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Boss-style dialogue in custom battles: lines before the fight, during the song, and after a

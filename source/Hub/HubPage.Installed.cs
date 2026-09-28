@@ -1,11 +1,11 @@
 using UnityEngine;
-using static NocturneFlatScroll.EditorInput;
-using static NocturneFlatScroll.EditorPageKit;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorInput;
+using static NocturnePlus.EditorPageKit;
+using static NocturnePlus.EditorUi;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using Key = UnityEngine.InputSystem.Key;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // Installed (DESIGN-HUB 1.5): everything the hub installed, from Hub\installed.json with the saved
 // thumbnails, so it works without the hub. When the hub answers, one lookup marks each item up to

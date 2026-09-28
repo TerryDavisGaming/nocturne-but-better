@@ -1,4 +1,4 @@
-// nocturne but better hub: one Worker, plain JavaScript, no runtime dependencies (DESIGN-HUB 2.1).
+// nocturne+ hub: one Worker, plain JavaScript, no runtime dependencies (DESIGN-HUB 2.1).
 // fetch() routes the versioned /v1/ API and the few pages; scheduled() runs the cron jobs. One top-level
 // try/catch turns failures into JSON and logs only the route and an error code: never a request, header,
 // body, key or address.

@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // The osu!mania import's summary (beta): what the battle creator shows for a .osz it has read and
 // the player's choices, as plain rows with their hints, the lists behind them (slot, lanes, speed

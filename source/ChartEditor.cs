@@ -1,10 +1,10 @@
 using UnityEngine;
-using static NocturneFlatScroll.EditorInput;
+using static NocturnePlus.EditorInput;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using InputMouse = UnityEngine.InputSystem.Mouse;
 using Key = UnityEngine.InputSystem.Key;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// An osu!mania-style chart editor on top of the game: pick a song and melody, start from a blank

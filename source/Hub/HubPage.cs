@@ -1,13 +1,13 @@
 using System.Globalization;
 using UnityEngine;
-using static NocturneFlatScroll.EditorInput;
-using static NocturneFlatScroll.EditorPageKit;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorInput;
+using static NocturnePlus.EditorPageKit;
+using static NocturnePlus.EditorUi;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using InputMouse = UnityEngine.InputSystem.Mouse;
 using Key = UnityEngine.InputSystem.Key;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Get Custom Battles: the online hub's page (DESIGN-HUB 1). One full-screen EditorUi over the

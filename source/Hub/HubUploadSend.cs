@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>What the player chose for an upload, besides the package.</summary>
 internal sealed class HubUploadDetails

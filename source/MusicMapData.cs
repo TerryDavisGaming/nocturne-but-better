@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // Generated from the game's Wwise banks (Nocturne 1.0.1, bank version 145): which music files
 // play for each song and melody, and where on the chart's clock. See SongAudio.

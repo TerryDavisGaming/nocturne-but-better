@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>What a custom battle sets for the player, as the arcade's notice shows it.</summary>
 internal sealed class NoticeInput

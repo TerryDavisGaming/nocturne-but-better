@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>Where a decoder puts its audio: planar float blocks, trimmed or padded afterwards.</summary>
 internal interface IPcmWriter

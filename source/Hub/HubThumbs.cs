@@ -1,7 +1,7 @@
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The hub page's thumbnails (DESIGN-HUB 1.2): decoded on the main thread by the game's own

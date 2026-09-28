@@ -3,7 +3,7 @@ using Il2CppInterop.Runtime;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The speakers of custom battle dialogue. Game characters are found in the game's character list

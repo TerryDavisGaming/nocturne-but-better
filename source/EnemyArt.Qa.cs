@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// A QA aid for in-game tests: with the environment variable NFS_QA_ENEMYART=1, each custom-art

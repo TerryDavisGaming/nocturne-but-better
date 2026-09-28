@@ -2,14 +2,14 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using UnityEngine;
-using static NocturneFlatScroll.EditorInput;
-using static NocturneFlatScroll.EditorPageKit;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorInput;
+using static NocturnePlus.EditorPageKit;
+using static NocturnePlus.EditorUi;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using InputMouse = UnityEngine.InputSystem.Mouse;
 using Key = UnityEngine.InputSystem.Key;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // The Dialogue page: the battle's lines before the fight, during the song, after a win and after
 // a loss, and the battle's own speakers. Column 1 has the sections, the shown section's lines (in

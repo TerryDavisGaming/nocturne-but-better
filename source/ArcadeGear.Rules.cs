@@ -3,7 +3,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>Where a slot's item comes from in the main-menu arcade.</summary>
 internal enum GearSource

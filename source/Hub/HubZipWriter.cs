@@ -1,7 +1,7 @@
 using System.IO.Compression;
 using System.Text;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Writes the zips the hub takes, byte for byte as its rules want them (server/API.md "the package

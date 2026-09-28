@@ -1,9 +1,9 @@
 using UnityEngine;
-using static NocturneFlatScroll.EditorPageKit;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorPageKit;
+using static NocturnePlus.EditorUi;
 using Object = UnityEngine.Object;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // Upload (DESIGN-HUB 1.6): a battle (picked from the player's battle folders, with its card beside
 // the list), custom difficulties for the game's songs (a song, then its difficulties, as many songs

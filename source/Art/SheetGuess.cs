@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// A starting grid for the creator's Sprite sheet choice, guessed from the clear lines between a

@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Consumables in arcade battles. Using one takes it out of the inventory at once (the game's

@@ -1,11 +1,11 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
-using static NocturneFlatScroll.EditorInput;
-using static NocturneFlatScroll.EditorPageKit;
+using static NocturnePlus.EditorInput;
+using static NocturnePlus.EditorPageKit;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using Key = UnityEngine.InputSystem.Key;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // The Art page's "Turn into frames": a video animation becomes a sprite sheet (a PNG in the
 // battle's art folder), so a see-through colour works on it and it plays on any PC, with no video

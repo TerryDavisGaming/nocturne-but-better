@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using UnityEngine;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Player-made difficulties for the game's own songs. They live in one folder as loose .sm files

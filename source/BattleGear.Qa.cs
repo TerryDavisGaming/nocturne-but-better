@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// A QA aid for in-game tests: with the environment variable NFS_QA_GEARDUMP=1, every arcade

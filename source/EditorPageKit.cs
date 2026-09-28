@@ -1,12 +1,12 @@
 using UnityEngine;
 using UnityEngine.UI;
-using static NocturneFlatScroll.EditorInput;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorInput;
+using static NocturnePlus.EditorUi;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using InputMouse = UnityEngine.InputSystem.Mouse;
 using Key = UnityEngine.InputSystem.Key;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// What the mod's full-screen pages share on top of <see cref="EditorUi"/>, first made for the

@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Note fields the mod currently lays out flat. Note size applies only to these, so the

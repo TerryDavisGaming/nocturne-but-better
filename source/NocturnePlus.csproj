@@ -6,8 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
-    <AssemblyName>NocturneFlatScroll</AssemblyName>
-    <Version>2.7.0</Version>
+    <AssemblyName>NocturnePlus</AssemblyName>
+    <Version>2.8.0</Version>
     <!-- Keep builds reproducible: no git commit hash in the informational version. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <BepDir Condition="'$(BepDir)' == ''">$(NOCTURNE_GAME_DIR)\BepInEx</BepDir>
@@ -17,7 +17,7 @@
     <OutputPath>bin\$(Loader)\$(Configuration)\</OutputPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Loader)' == 'MelonLoader'">
-    <AssemblyName>NocturneFlatScroll.MelonLoader</AssemblyName>
+    <AssemblyName>NocturnePlus.MelonLoader</AssemblyName>
     <DefineConstants>$(DefineConstants);MELONLOADER</DefineConstants>
   </PropertyGroup>
   <ItemGroup Condition="'$(Loader)' == 'BepInEx'">

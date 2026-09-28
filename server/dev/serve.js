@@ -240,6 +240,6 @@ async function seedAll() {
 
 if (seed) await seedAll();
 
-console.log(`nocturne but better hub (local stand-in) on http://127.0.0.1:${port}`);
+console.log(`nocturne+ hub (local stand-in) on http://127.0.0.1:${port}`);
 console.log(`owner key for http://127.0.0.1:${port}/admin (this run only): ${adminKey}`);
 Deno.serve({ hostname: "127.0.0.1", port, onListen() {} }, handle);

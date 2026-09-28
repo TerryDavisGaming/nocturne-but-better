@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Decodes standard Vorbis I audio packets to planar float PCM, the way libvorbis and ffmpeg do:

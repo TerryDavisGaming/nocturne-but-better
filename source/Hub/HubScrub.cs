@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The privacy part of building an upload (DESIGN-HUB 3.6 step 1): picture metadata is dropped

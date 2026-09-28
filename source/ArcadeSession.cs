@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 using HarmonyLib;
 using UnityEngine;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The arcade on the main menu. The game already has a hidden Arcade button there; it is shown,
@@ -464,7 +464,7 @@ internal static class ArcadeSession
         }
     }
 
-    private static string SaveFolder(SaveFileManager saveFile)
+    internal static string SaveFolder(SaveFileManager saveFile)
     {
         try
         {

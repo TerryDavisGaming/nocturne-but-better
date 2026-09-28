@@ -5,7 +5,7 @@ using UnityEngine.Events;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Adds the hit sound and miss sound settings to Options > Audio, under Sound Effects. Each

@@ -1,14 +1,14 @@
 using System.Text.Json.Nodes;
 using UnityEngine;
 using UnityEngine.UI;
-using static NocturneFlatScroll.EditorInput;
-using static NocturneFlatScroll.EditorPageKit;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorInput;
+using static NocturnePlus.EditorPageKit;
+using static NocturnePlus.EditorUi;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using InputMouse = UnityEngine.InputSystem.Mouse;
 using Key = UnityEngine.InputSystem.Key;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // The Art page's preview: the enemy as the battle will draw it. It's loaded with the battle's own
 // pipeline (EnemyArt.ArtSet: the same decoders, atlases, feet, size and timing) and played with

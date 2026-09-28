@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>What loading an enemy's art makes, for the Unity side (or the offline check).</summary>
 internal interface IArtLoadHost

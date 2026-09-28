@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 internal enum MediaType { Unknown, Png, Jpeg, Gif, WebP, Bmp, Tiff, Heic, Mp4, WebM }
 

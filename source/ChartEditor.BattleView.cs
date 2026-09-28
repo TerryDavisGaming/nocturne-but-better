@@ -1,8 +1,8 @@
 using UnityEngine;
 using UnityEngine.UI;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorUi;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // The screen's extra pieces for a custom battle: the difficulty tabs above the playfield, the
 // panel on a difficulty that isn't charted yet, the Timing tab's tempo and offset tools, the

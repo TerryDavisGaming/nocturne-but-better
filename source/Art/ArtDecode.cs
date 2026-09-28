@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>A decoded still picture: RGBA, top row first.</summary>
 internal sealed class Picture
