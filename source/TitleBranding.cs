@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using HarmonyLib;
 using UnityEngine;
@@ -33,8 +34,20 @@ internal static class TitleBranding
     private const float ShadowAlpha = 0.55f;
     private const float CreditAlpha = 0.8f;
     private static readonly Color LogoWhite = new(0.988f, 1f, 0.961f, 1f);
-    // The mod's own pages (EditorUi) draw at this sorting order and above; their text is never the game's.
-    private const int ModPageOrder = 30000;
+    // The mod's own canvases (its pages and messages) are named after it; their text is never the game's.
+    private static bool ModCanvas(Canvas canvas)
+    {
+        string name = canvas.gameObject.name;
+        return name.StartsWith("NocturneButBetter", StringComparison.Ordinal) || name.StartsWith("NocturnePlus", StringComparison.Ordinal);
+    }
+
+    private static Canvas? RootCanvas(Component component)
+    {
+        var canvas = component.GetComponentInParent<Canvas>();
+        return canvas ? canvas.rootCanvas : null;
+    }
+
+    private static Vector3 Centre(Rect rect) => new(rect.x + rect.width / 2f, rect.y + rect.height / 2f, 0f);
     // "v1.0.1", "1.0.1", "Version 1.0.1 (build 25487568)" and the like.
     private static readonly Regex VersionPattern = new(@"^\s*(v|ver\.?|version)?\s*\d+(\.\d+)+\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -168,28 +181,34 @@ internal static class TitleBranding
                         ink.width * drawn.width, ink.height * drawn.height);
     }
 
-    /// <summary>The part of the rect the sprite fills, as Image draws a simple sprite.</summary>
+    /// <summary>
+    /// The part of the rect the sprite fills. A logo whose rect has another shape than its picture
+    /// is taken to keep its picture's shape (Image's preserve aspect), centred on the pivot, since a
+    /// stretched logo would look wrong; the game's Image settings themselves can't be read.
+    /// </summary>
     private static Rect DrawnRect(RectTransform logo, Image? image)
     {
         var rect = logo.rect;
-        if (!image || !image!.sprite || !image.preserveAspect || image.type != Image.Type.Simple) return rect;
+        if (!image || !image!.sprite) return rect;
         var size = image.sprite.rect.size;
-        if (size.x <= 0f || size.y <= 0f || rect.width <= 0f || rect.height <= 0f) return rect;
-        float spriteRatio = size.x / size.y;
+        float x = rect.x, y = rect.y, w = rect.width, h = rect.height;
+        if (size.x <= 0f || size.y <= 0f || w <= 0f || h <= 0f) return rect;
+        float spriteRatio = size.x / size.y, rectRatio = w / h;
+        if (Math.Abs(spriteRatio / rectRatio - 1f) < 0.02f) return rect;
         var pivot = logo.pivot;
-        if (spriteRatio > rect.width / rect.height)
+        if (spriteRatio > rectRatio)
         {
-            float height = rect.width / spriteRatio;
-            rect.y += (rect.height - height) * pivot.y;
-            rect.height = height;
+            float fitted = w / spriteRatio;
+            y += (h - fitted) * pivot.y;
+            h = fitted;
         }
         else
         {
-            float width = rect.height * spriteRatio;
-            rect.x += (rect.width - width) * pivot.x;
-            rect.width = width;
+            float fitted = h * spriteRatio;
+            x += (w - fitted) * pivot.x;
+            w = fitted;
         }
-        return rect;
+        return new Rect(x, y, w, h);
     }
 
     private static readonly Dictionary<IntPtr, Rect> Inks = new();
@@ -211,7 +230,7 @@ internal static class TitleBranding
         Texture2D? readable = null;
         try
         {
-            var texture = sprite.texture;
+            var texture = TextureOf(sprite);
             var part = sprite.rect;
             if (texture && part.width >= 1f && part.height >= 1f)
             {
@@ -259,6 +278,10 @@ internal static class TitleBranding
         Inks[sprite.Pointer] = ink;
         return ink;
     }
+
+    // Its own method: a game without Sprite.texture fails here, inside InkOf's try, and the "+" goes by the rect.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static Texture2D TextureOf(Sprite sprite) => sprite.texture;
 
     // ---- the version at the bottom right ------------------------------------------------------
 
@@ -314,13 +337,11 @@ internal static class TitleBranding
             string value = text.text ?? "";
             if (value.Length == 0 || value.Length > 60) continue;
             if (!VersionPattern.IsMatch(value)) continue;
-            var canvas = text.canvas;
-            if (!canvas) continue;
-            var root = canvas.rootCanvas;
-            if (root && root.sortingOrder >= ModPageOrder) continue;
-            var camera = root && root.renderMode != RenderMode.ScreenSpaceOverlay ? root.worldCamera : null;
+            var root = RootCanvas(text);
+            if (!root || ModCanvas(root!)) continue;
+            var camera = root!.renderMode != RenderMode.ScreenSpaceOverlay ? root.worldCamera : null;
             var rect = text.rectTransform;
-            var point = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(rect.rect.center));
+            var point = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(Centre(rect.rect)));
             if (point.x < Screen.width * 0.5f || point.y > Screen.height * 0.5f) continue;
             float score = point.x - point.y;
             if (score > bestScore)
@@ -333,8 +354,8 @@ internal static class TitleBranding
     }
 
     /// <summary>
-    /// Two lines under the game's version, in its font, size, colour and horizontal alignment. When they
-    /// would run off the bottom of the screen, the game's version moves up to make room.
+    /// Two lines under the game's version, right-aligned with it, in its font, size and colour. When
+    /// they would run off the bottom of the screen, the game's version moves up to make room.
     /// </summary>
     private static void AddVersionLines(TMP_Text label)
     {
@@ -343,15 +364,9 @@ internal static class TitleBranding
         float size = label.fontSize > 0f ? label.fontSize : CornerSize;
         float line = Mathf.Round(size * 1.2f);
         float gap = Mathf.Round(size * 0.2f);
-        // Under the text itself, which can sit at the top, middle or bottom of a tall rect.
-        var box = parent.rect;
-        float height = Math.Min(label.GetPreferredValues(label.text).y, box.height);
-        string alignment = label.alignment.ToString();
-        float top = alignment.StartsWith("Top", StringComparison.Ordinal) ? box.yMax - height
-            : alignment.StartsWith("Bottom", StringComparison.Ordinal) ? box.yMin
-            : box.center.y - height / 2f;
-        var align = alignment.Contains("Right") ? TextAlignmentOptions.TopRight
-            : alignment.Contains("Left") ? TextAlignmentOptions.TopLeft : TextAlignmentOptions.Top;
+        // A corner label sits at the bottom of its rect; its alignment can't be read from the game.
+        float top = parent.rect.yMin;
+        var align = TextAlignmentOptions.TopRight;
         var color = label.color;
         var lines = new[] { (VersionName, VersionText, color.a), (CreditName, CreditText, color.a * CreditAlpha) };
         try
@@ -391,9 +406,9 @@ internal static class TitleBranding
     private static void MakeRoom(TMP_Text label, float bottom, float textBottom, float margin)
     {
         var rect = label.rectTransform;
-        var canvas = label.canvas ? label.canvas.rootCanvas : null;
+        var canvas = RootCanvas(label);
         var camera = canvas && canvas!.renderMode != RenderMode.ScreenSpaceOverlay ? canvas.worldCamera : null;
-        var center = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(rect.rect.center));
+        var center = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(Centre(rect.rect)));
         if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(rect, new Vector2(center.x, 0f), camera, out var edge)) return;
         float own = textBottom - edge.y;
         float keep = Math.Max(0f, Math.Min(own, margin));
