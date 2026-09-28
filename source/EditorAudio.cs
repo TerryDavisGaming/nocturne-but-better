@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The chart editor's own music player. The game's Wwise music can't seek or slow down, so the

@@ -1,8 +1,8 @@
-NOCTURNE FLAT SCROLL - THIRD-PARTY NOTICES
+NOCTURNE+ - THIRD-PARTY NOTICES
 
 This package includes the original, unmodified BepInEx Windows x64 IL2CPP
 loader archive. The loader and its dependencies are separate from the
-Nocturne Flat Scroll plugin and retain their respective licenses.
+Nocturne+ plugin and retain their respective licenses.
 
 Original archive:
   BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788+5b766a3.zip
@@ -12,7 +12,7 @@ Original archive:
   Official builds: https://builds.bepinex.dev/projects/bepinex_be
 
 MelonLoader is not included. The MelonLoader build of the mod
-(payload/NocturneFlatScroll.MelonLoader.dll) is compiled against MelonLoader
+(payload/NocturnePlus.MelonLoader.dll) is compiled against MelonLoader
 0.7.3, which users install separately. MelonLoader is developed by Lava Gang
 and licensed under the Apache License 2.0:
 https://github.com/LavaGang/MelonLoader

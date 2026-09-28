@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// How a custom battle's card picture fills the arcade card's picture slot. The slot is square

@@ -2,7 +2,7 @@ using Il2CppInterop.Runtime;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The main-menu arcade's own gear in a battle (ArcadeGear). It goes in the way set gear does: the

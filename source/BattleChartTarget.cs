@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// A custom battle's chart for the chart editor (<see cref="ChartEditor.OpenBattle"/>): the

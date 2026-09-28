@@ -4,7 +4,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>What a hub call was for, so its errors are worded for it.</summary>
 internal enum HubContext { General, Info, Browse, Detail, Download, Upload, Report, Key, Mine }

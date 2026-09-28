@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Reads and writes StepMania .sm text, the format the game's own charts use. A chart file has

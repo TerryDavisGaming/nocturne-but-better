@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Reads song files into 16-bit stereo PCM at the file's own sample rate. The format comes from

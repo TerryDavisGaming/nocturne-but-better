@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Decodes audio with Windows Media Foundation's Source Reader: FLAC, MP3, AAC (M4A/MP4), WMA

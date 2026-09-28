@@ -2,7 +2,7 @@ using HarmonyLib;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Draws notes and receptors as circles or arrows. The game's own bar shapes stay in place

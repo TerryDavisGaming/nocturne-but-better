@@ -1,7 +1,7 @@
 using HarmonyLib;
 using UnityEngine;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Plays a short tick when the player hits a note. Unity's own audio is switched off in this

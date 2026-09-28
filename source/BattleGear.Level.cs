@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// A custom battle's level ("level" in battle.json). The game keeps no level in the save, only

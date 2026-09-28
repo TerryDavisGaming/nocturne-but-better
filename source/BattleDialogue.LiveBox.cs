@@ -2,7 +2,7 @@ using System.Globalization;
 using UnityEngine;
 using UnityEngine.UI;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// A live line's box is see-through. While a line during the song shows (the game's box raised

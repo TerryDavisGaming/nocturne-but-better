@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Frame pixels for custom enemy art: packing an animation's frames into one atlas (the way the

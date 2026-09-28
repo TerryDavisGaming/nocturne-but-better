@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// A custom battle's chart as the chart editor edits it: one .sm whose header (timing, events,

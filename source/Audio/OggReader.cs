@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>One packet of an Ogg logical stream.</summary>
 internal readonly struct OggPacket

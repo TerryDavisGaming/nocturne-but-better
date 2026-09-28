@@ -1,13 +1,13 @@
 using UnityEngine;
 using UnityEngine.UI;
-using static NocturneFlatScroll.EditorInput;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorInput;
+using static NocturnePlus.EditorUi;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using InputMouse = UnityEngine.InputSystem.Mouse;
 using Key = UnityEngine.InputSystem.Key;
 using Object = UnityEngine.Object;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // The Dialogue page's preview: the game's dialogue box on the battle's 480 x 270 screen (at 4/3,
 // or close up at 2x), laid out as the game lays out its own (research: dialogue_tree.txt). The

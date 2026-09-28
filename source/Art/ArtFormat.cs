@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 internal enum ArtKind { Image, Sheet, Gif, Video }
 

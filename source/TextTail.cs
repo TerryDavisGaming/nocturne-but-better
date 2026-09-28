@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The end of a text that is being typed, cut down to what fits in its box, so the end (where

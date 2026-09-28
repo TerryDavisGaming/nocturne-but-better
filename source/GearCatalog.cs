@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>One item a custom battle's creator can pick: its id (what saves and battle.json use) and name.</summary>
 internal sealed record GearItem(string Id, string Name, GearSlot Slot, string Description, string AssetName, bool Debug);

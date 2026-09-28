@@ -1,7 +1,7 @@
 using System.Text;
 using UnityEngine;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// A QA aid for in-game tests. With the environment variable NFS_QA_DIALOGUE=1, custom battle

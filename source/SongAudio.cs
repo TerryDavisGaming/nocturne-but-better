@@ -1,7 +1,7 @@
 using System.Globalization;
 using UnityEngine;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Loads a song's battle music for the chart editor, mixed onto the chart's clock. The game's

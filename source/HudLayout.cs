@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
-namespace NocturneFlatScroll
+namespace NocturnePlus
 {
     /// <summary>Flattens the original meters beside the player and enemy ends of the track.</summary>
     internal static class HudLayout

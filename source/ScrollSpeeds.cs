@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Scroll speed changes (#SCROLLS: beat=ratio,...). A ratio multiplies how fast the notes move

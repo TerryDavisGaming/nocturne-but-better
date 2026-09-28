@@ -1,7 +1,7 @@
 using HarmonyLib;
 using UnityEngine;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// An early/late ("fast/slow") bar in the style of osu!'s hit error meter. It lives in the

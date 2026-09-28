@@ -8,7 +8,7 @@ using UnityEngine.Events;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>Adds native gameplay-options rows without replacing an existing setting.</summary>
 internal static class OptionsMenuIntegration
@@ -160,7 +160,7 @@ internal static class OptionsMenuIntegration
         }
         catch (Exception ex)
         {
-            ModLog.Error($"Refreshing flat-scroll options failed: {ex}");
+            ModLog.Error($"Refreshing the {ModInfo.Name} options failed: {ex}");
         }
         finally { refreshing = false; }
     }
@@ -195,7 +195,7 @@ internal static class OptionsMenuIntegration
         catch (Exception ex)
         {
             // A failed optional menu extension must not prevent the original menu opening.
-            ModLog.Error($"Adding flat-scroll options failed: {ex}");
+            ModLog.Error($"Adding the {ModInfo.Name} options failed: {ex}");
         }
     }
 
@@ -211,10 +211,10 @@ internal static class OptionsMenuIntegration
         try
         {
             // Each clone is inserted directly above Speed Mod, so creation order is display order.
-            foreach (var spec in Specs.Concat(CustomChartOptions.Rows)) created.Add(CreateRow(template, parent, anchor, spec));
+            foreach (var spec in Specs.Concat(QuickSaveLoad.Rows).Concat(CustomChartOptions.Rows)) created.Add(CreateRow(template, parent, anchor, spec));
             if (parent.TryCast<RectTransform>() is { } content)
                 LayoutRebuilder.MarkLayoutForRebuild(content);
-            ModLog.Info("Added flat-scroll rows to Options > Gameplay.");
+            ModLog.Info($"Added the {ModInfo.Name} rows to Options > Gameplay.");
         }
         catch
         {
@@ -405,7 +405,7 @@ internal static class OptionsMenuIntegration
             if (value) toggle.label = value.GetComponent<TMP_Text>();
         }
         if (!toggle.label)
-            throw new InvalidOperationException("Flat-scroll option state label is missing.");
+            throw new InvalidOperationException($"The {ModInfo.Name} option state label is missing.");
         if (!toggle.overridePreferredWidth || toggle._layoutElement) return;
         var layout = toggle.label.GetComponent<LayoutElement>();
         if (!layout) layout = toggle.label.gameObject.AddComponent<LayoutElement>();
@@ -491,12 +491,15 @@ internal static class OptionsMenuIntegration
             SettingsState.EnemyAttackOpacity.Set(SettingsState.EnemyAttackOpacity.Default);
             SettingsState.SetInfiniteArcadeConsumables(false);
             SettingsState.SetArcadeGearAllItems(false);
+            SettingsState.SetQuickSave(false);
+            SettingsState.SetQuickLoad(false);
+            QuickSaveLoad.ResetKeys();
             if (!SettingsState.NoteFlares) SetNoteFlares(true);
             RefreshAll();
         }
         catch (Exception ex)
         {
-            ModLog.Error($"Resetting flat-scroll options failed: {ex}");
+            ModLog.Error($"Resetting the {ModInfo.Name} options failed: {ex}");
         }
     }
 

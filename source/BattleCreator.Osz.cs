@@ -1,6 +1,6 @@
-using static NocturneFlatScroll.EditorPageKit;
+using static NocturnePlus.EditorPageKit;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // A new battle from an osu!mania beatmap (beta, not recommended): the .osz is read on a worker
 // (read-only, bounded, nothing written), then a summary shows what the battle would be. The player

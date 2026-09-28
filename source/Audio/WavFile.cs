@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>RIFF WAVE files: integer PCM and 32-bit float, read by the mod itself.</summary>
 internal static class WavFile

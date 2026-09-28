@@ -3,7 +3,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Reads a package's files by their names inside it: from a folder, or from a zip (and a

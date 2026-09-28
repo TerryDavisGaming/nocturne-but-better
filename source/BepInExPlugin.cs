@@ -4,7 +4,7 @@ using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
 using UnityEngine;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 [BepInPlugin(ModInfo.Id, ModInfo.Name, ModInfo.Version)]
 public sealed class Plugin : BasePlugin
@@ -15,7 +15,7 @@ public sealed class Plugin : BasePlugin
         ModSetup.Patch(new Harmony(ModInfo.Id));
         ModSetup.AttachToExisting();
         AddComponent<LayoutController>();
-        ModLog.Info("Flat scrolling loaded; select a layout in Options > Gameplay > Note scrolling.");
+        ModLog.Info($"{ModInfo.Name} {ModInfo.Version} loaded; its settings are in Options > Gameplay and Options > Audio.");
     }
 }
 

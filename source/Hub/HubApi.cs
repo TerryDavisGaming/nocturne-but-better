@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Where the hub is and what this mod can play from it (DESIGN-HUB 3.8, 2.14). The address is built

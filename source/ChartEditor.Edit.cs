@@ -1,13 +1,13 @@
 using System.Globalization;
 using System.Text;
 using UnityEngine;
-using static NocturneFlatScroll.EditorInput;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorInput;
+using static NocturnePlus.EditorUi;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using InputMouse = UnityEngine.InputSystem.Mouse;
 using Key = UnityEngine.InputSystem.Key;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // Editing: the tools, the clock and music, selection, clipboard, undo, saving and exporting.
 internal static partial class ChartEditor
@@ -933,7 +933,7 @@ internal static partial class ChartEditor
         if (editing == null) return;
         string name = $"{song!.name} - {title}";
         exportDialog = FileDialogs.Save("Export custom chart", Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-            CustomCharts.Sanitize(name) + CustomCharts.PackExtension, CustomCharts.PackExtension, "Nocturne But Better chart pack (*.nbbchart)", "*.nbbchart");
+            CustomCharts.Sanitize(name) + CustomCharts.PackExtension, CustomCharts.PackExtension, "Nocturne+ chart pack (*.nbbchart)", "*.nbbchart");
         Say("Choose where to save the pack...", 60f);
     }
 

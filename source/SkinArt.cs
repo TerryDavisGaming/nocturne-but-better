@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Draws the mod's artwork as anti-aliased signed-distance shapes, so it stays crisp at any

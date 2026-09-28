@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // The Timing tab: bookmarks, the metronome, and scroll speed changes. A scroll speed change makes
 // the notes scroll faster or slower from a beat on without moving them in time (like osu!'s

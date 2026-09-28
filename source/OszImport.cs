@@ -3,7 +3,7 @@ using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // The osu!mania import (beta): reads a .osz (an osu! beatmap set, a zip) into a plan the battle
 // creator shows before anything is written. Reading is read-only and bounded in size and time;
@@ -493,7 +493,7 @@ internal static class OszImport
         var osus = files.Where(f => f.Name.EndsWith(".osu", StringComparison.OrdinalIgnoreCase)).ToList();
         if (osus.Count == 0)
             throw new OszRefused(battleJson
-                ? "it's a Nocturne But Better battle. Use \"Import a .nbbbattle file...\" for it."
+                ? "it's a Nocturne+ battle. Use \"Import a .nbbbattle file...\" for it."
                 : "there are no difficulties (.osu files) in it.");
 
         // ---- the difficulties ------------------------------------------------------------------

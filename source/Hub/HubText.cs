@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The hub's text rules, the same as the server's (server/API.md "text rules", DESIGN-HUB 2.2):

@@ -1,18 +1,49 @@
-# nocturne but better
+# nocturne+
 
-flat upscroll and downscroll for nocturne, with compact vertical health and energy bars beside the chart. in the flat modes you can change the receptor height, the note size, and the lane spacing. it also has circle and arrow note skins, an early/late timing bar like the one in osu!mania, an optional hit sound, a miss sound volume that goes up to 300%, see-through enemy attacks, a switch for note flares, a preview of the game's note colors next to the red of a mine, a note color palette called akuma that colors each lane by its controller button, and a "but better" under the nocturne logo. alt, tab, and the windows key no longer start a battle by accident. you can make CUSTOM DIFFICULTIES for the game's songs in an IN-GAME EDITOR LIKE OSU!MANIA'S, play them instead of the game's charts, and share them as one file. and you can build CUSTOM BATTLES: your own song and charts against a game enemy or your own art, with set gear, a set level, and boss-style dialogue if you want them. they play in the arcade, which now opens from the main menu and has its OWN GEAR that you pick there, and they share as one file too. GET CUSTOM BATTLES on the title screen finds, downloads and shares them, and custom difficulties, on the mod's online hub. you can switch back to the game's original look from options > gameplay.
+nocturne+ makes nocturne play and look the way you want, lets you MAKE AND SHARE YOUR OWN CHARTS AND BATTLES, and adds QUICK SAVE AND QUICK LOAD ANYWHERE in the story. it works on the base steam game, with melonloader, or with bepinex, and YOU DON'T NEED A MOD LOADER: on a plain steam install, `install.cmd` sets up the bepinex loader that comes in the zip, so there's nothing else to download.
 
-it works on the base steam game, with melonloader, or with bepinex. YOU DON'T NEED A MOD LOADER: on a plain steam install, `install.cmd` sets up the bepinex loader that comes in the zip, so there's nothing else to download. if you already use melonloader 0.7.3 or newer, the mod goes into its `mods` folder instead.
-
-it started out as nocturne flat scroll. the download and its files still use that name, so upgrades from older versions keep working.
-
-[download for windows](https://github.com/TerryDavisGaming/nocturne-but-better/releases/download/v2.7.0/Nocturne-Flat-Scroll-2.7.0-Windows.zip) · [latest release](https://github.com/TerryDavisGaming/nocturne-but-better/releases/latest)
+[download for windows](https://github.com/TerryDavisGaming/nocturne-but-better/releases/download/v2.8.0/Nocturne-Plus-2.8.0-Windows.zip) · [latest release](https://github.com/TerryDavisGaming/nocturne-but-better/releases/latest)
 
 use the release zip to install. github's source download does not include the plugin or loader payload.
 
+## what's in it
+
+play it your way:
+
+- FLAT 2D UPSCROLL AND DOWNSCROLL, with compact vertical health and energy bars beside the chart. [receptor height, note size and lane spacing](#settings) are yours to set.
+- CIRCLE AND ARROW NOTE SKINS, in every scrolling mode.
+- an EARLY/LATE TIMING BAR like osu!mania's, above or below the enemy.
+- a HIT SOUND with its own volume, and a MISS SOUND VOLUME that goes up to 300%.
+- SEE-THROUGH ENEMY ATTACKS, so the notes behind them stay readable.
+- a switch for NOTE FLARES, and a PREVIEW OF THE NOTE COLORS next to the red of a mine.
+- AKUMA, a note color palette that colors each lane by its controller button, like the frets on a guitar.
+- alt, tab and the windows key NO LONGER START A BATTLE by accident.
+- GOLD CHAPTER BUTTONS once every encounter in the chapter is mastered.
+
+save anywhere:
+
+- [QUICK SAVE AND QUICK LOAD](#quick-save-and-quick-load): f5 saves the story wherever you can walk around, and f9 takes you back. switch each one on in options > gameplay and put it on any key you like.
+
+make your own:
+
+- [CUSTOM DIFFICULTIES](#custom-difficulties) for the game's songs, made in an IN-GAME EDITOR LIKE OSU!MANIA'S, with a test button that plays your chart in a real battle. play them instead of the game's charts and share them as one file.
+- [CUSTOM BATTLES](#custom-battles): your own song and charts against a game enemy or YOUR OWN ART (pictures, gifs, sprite sheets or videos), with set gear, a set level, and boss-style dialogue if you want them. the [battle creator](#the-battle-creator) builds them, and it can [import an osu!mania beatmap](#importing-an-osumania-beatmap-beta). they share as one file too.
+- an [ARCADE ON THE MAIN MENU](#the-arcade) with its [OWN GEAR](#gear-in-the-arcade) that you pick there, infinite consumables if you want them, and every custom battle you've added.
+- [GET CUSTOM BATTLES](#get-custom-battles) on the title screen finds, downloads and shares custom battles and custom difficulties on the mod's online hub.
+
+and the rest:
+
+- a one-click installer that picks your loader, keeps your saves and settings, and turns off an older copy of the mod, and an uninstaller that keeps everything you made.
+- an optional [fullscreen flicker fix](#optional-fullscreen-flicker-fix).
+- the title screen reads nocturne+.
+
+you can switch back to the game's original look from options > gameplay.
+
+it started out as nocturne flat scroll, and was then called nocturne but better. from 2.8.0 its files are called nocturneplus. your settings, custom charts, custom battles, arcade gear and hub key carry over, and the installer turns off the old nocturneflatscroll copy so only one copy runs.
+
 ## settings
 
-open options > gameplay. the mod adds eleven rows above speed mod. [custom difficulties](#custom-difficulties) have their own page, and the [battle creator](#the-battle-creator) opens from it. the hit sound and miss sound settings are in options > audio, under sound effects.
+open options > gameplay. the mod adds fifteen rows above speed mod, the last four for [quick save and quick load](#quick-save-and-quick-load). [custom difficulties](#custom-difficulties) have their own page, and the [battle creator](#the-battle-creator) opens from it. the hit sound and miss sound settings are in options > audio, under sound effects.
 
 note scrolling:
 
@@ -52,7 +83,7 @@ in options > audio, hit sound plays a short tick when you hit a note, and it sta
 
 miss sound, also in options > audio, turns the game's miss sound on or off. it's the same setting as note miss sounds in options > gameplay, so changing one changes the other. miss sound volume goes from 10% to 300% in 10% steps, and 100% is the game's normal level. at any other level the mod plays the miss itself, from its own sound source turned up or down, so the music and the other sounds don't change. changing the volume plays a miss a moment later so you can hear it, and the game's sound effect volumes still apply. critical misses are already louder than normal ones, and the game's audio limiter stops them getting much louder past about 160%.
 
-press left or right to change a value, and hold to keep changing it. all the settings are saved on that pc. reset to default in options > gameplay puts the eleven gameplay rows back to default, 0%, 100%, 100%, default, on, off, below enemy, 100%, off, and off. the game's own reset there also turns miss sounds back on. like the game's own sound settings, the rest of the audio page has no reset, so the hit sound settings and the miss sound volume stay as they are. upgrading from an earlier version keeps your saved settings.
+press left or right to change a value, and hold to keep changing it. all the settings are saved on that pc. reset to default in options > gameplay puts the fifteen gameplay rows back to default, 0%, 100%, 100%, default, on, off, below enemy, 100%, off, off, off, f5, off, and f9. the game's own reset there also turns miss sounds back on. like the game's own sound settings, the rest of the audio page has no reset, so the hit sound settings and the miss sound volume stay as they are. upgrading from an earlier version keeps your saved settings.
 
 both flat modes keep the game's artwork, icons, and vertical meter text. player meters sit lower left and enemy meters upper right, each pair close to the chart. the enemy's armor badge, the shield with the damage a hit needs to get through its armor, sits beside the top of its health bar with the enemy's statuses under it. when the enemy info boxes in the top right corner would cover it, the badge and the statuses move down to just below them. if the boxes would also cover the top of the enemy's meters, which can happen with five lanes, wide lane spacing, big notes, or a squarer window, the meters move down with the badge, and get smaller if they'd otherwise end up lower than the player's. under a very tall stack of boxes the enemy's statuses get smaller too, so they all still fit on screen.
 
@@ -60,7 +91,20 @@ at the "press any key" screen before a battle, alt, tab, and the windows key DON
 
 in arcade and high scores, the game marks an encounter you've mastered with gold notes and two sparkles on its card. a CHAPTER BUTTON NOW GETS THE SAME once every encounter in that chapter has its sparkles: its label turns gold and the two sparkles sit on its corners, for the difficulty you're looking at.
 
-the title screen and the nocturne card in the startup intro read "nocturne but better, by terrydavisgaming". the extra lines fade in and out with the logo.
+the title screen and the nocturne card in the startup intro read "nocturne+": a + follows the logo, and fades in and out with it on the intro card. at the bottom right of the title, under the game's own version number, are the mod's version (nocturne+ v2.8.0) and "by terrydavisgaming". if they'd run off the bottom of the screen, the game's version moves up to make room.
+
+## quick save and quick load
+
+quick save and quick load are the last four rows of the mod's settings in options > gameplay. both START OFF.
+
+- quick save lets its key, f5 to start with, SAVE THE STORY ANYWHERE YOU CAN WALK AROUND. it saves the way the game's own autosave does, into the autosave, so the SAVE SLOTS YOU SAVED BY HAND ARE NEVER WRITTEN OVER.
+- quick load lets its key, f9 to start with, GO BACK TO YOUR LATEST SAVE, the way the game over screen's quick load does. that's your last quick save, unless the game has saved since (an autosave, or a save you made at a save point).
+
+to change a key, click its row (quick save key or quick load key) and press the new key, with ctrl, shift or alt if you like. esc, a click, or waiting 10 seconds keeps the old key. left and right on the row step through f1 to f12. one key does one thing, so giving quick load the quick save key takes it off quick save. the keys are saved on that pc.
+
+a short message at the top of the screen says what happened: "quick saved", "quick loading...", or why it can't. neither works on the title, in a battle, during a cutscene or dialogue, while the game is fading between screens or paused, in the arcade, or during a chart editor test. the mod's own pages keep their keys, so f5 still tests a chart in the chart editor.
+
+quick save and quick load use the game's own save and load, which the mod looks up when the game starts. if this version of the game doesn't have one of them, its key only says so and the log says why, and the rest of the mod works as usual.
 
 ## custom difficulties
 
@@ -338,13 +382,15 @@ only one copy of the mod runs at a time. if you switch loaders, run `install.cmd
 
 don't keep bepinex and melonloader in the same game folder. both hook the same startup call, so only one of them starts, and it's usually melonloader. the installer won't add bepinex to a game where melonloader is turned on.
 
-melonloader users can also install by hand: copy `nocturneflatscroll.melonloader.dll` from the release into the game's `mods` folder.
+melonloader users can also install by hand: copy `nocturneplus.melonloader.dll` from the release into the game's `mods` folder, and take out `nocturneflatscroll.melonloader.dll` if an older version is there.
+
+upgrading from a version before 2.8.0, when the files were called nocturneflatscroll, `install.cmd` turns the old copy off (it keeps it as a `.disabled-` file) and puts in the new one, for either loader. your settings carry over.
 
 this package supports windows x64, steam nocturne 1.0.1, build 25487568. the installer checks the game files and refuses unknown builds or conflicting loader files. if access is denied, run the installer as administrator. a steam update needs another compatibility check.
 
 ## optional fullscreen flicker fix
 
-for flickering black bars, close the game and run `enable-fullscreen-fix.cmd`. this applies a reversible directx 11 preference. run `restore-fullscreen-fix.cmd` to undo it. the scrolling mod works independently of this fix.
+for flickering black bars, close the game and run `enable-fullscreen-fix.cmd`. this applies a reversible directx 11 preference. run `restore-fullscreen-fix.cmd` to undo it. nocturne+ works independently of this fix.
 
 the fix stopped flickering on the original test pc under nocturne 1.0.0; other display and gpu combinations haven't been verified. game updates replace the patched file, so run `enable-fullscreen-fix.cmd` again after one.
 
@@ -353,6 +399,8 @@ the fix stopped flickering on the original test pc under nocturne 1.0.0; other d
 close the game and run `uninstall.cmd`. this disables the mod for both loaders and keeps the loaders, other mods, saved preferences, saves, and scores. it doesn't touch the mod's `nocturnebutbetter` folder in `appdata\locallow` either, so your custom charts and custom battles stay, along with the enemy art cache and your hub key. restore the fullscreen fix separately if you enabled it.
 
 ## what was tested
+
+2.8.0's changes, the new name and its files, the title screen's + and version, quick save and quick load, and the installer's handling of the old nocturneflatscroll copy, HAVEN'T BEEN TRIED IN THE GAME YET. everything else is the same as in 2.7.0.
 
 version 2.7.0 was tested in-game on nocturne 1.0.1 with bepinex 6.0.0-be.788 and with melonloader 0.7.3, in 33 runs with qa builds (the release source plus test hooks), 19 on bepinex and 14 on melonloader. every run took a snapshot of the player's plugin, settings and saves first and put it back afterwards. no run changed a story `.sav` file, and on melonloader no run logged a "native->managed trampoline" error. on both loaders unless it says otherwise:
 

@@ -1,7 +1,7 @@
 using System.Reflection;
 using HarmonyLib;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Lists the custom battles in the Arcade and High Scores screens as one more chapter, "Custom

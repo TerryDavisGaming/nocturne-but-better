@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// A Vorbis codebook: a canonical Huffman code over <see cref="Entries"/> entries, plus the VQ

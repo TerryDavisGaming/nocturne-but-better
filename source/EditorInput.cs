@@ -3,7 +3,7 @@ using UnityEngine;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using Key = UnityEngine.InputSystem.Key;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Keyboard reading shared by the editor screens: keys and modifiers, list movement, typing into
@@ -403,14 +403,20 @@ internal sealed class KeyMap<TAction> where TAction : struct, Enum
             if (EditorInput.ModifierKeys.Contains(key) || key == Key.Escape) continue;
             var action = Rebinding.Value;
             var binding = new KeyBinding(key, EditorInput.Ctrl(k), EditorInput.Shift(k), EditorInput.Alt(k));
-            // One key does one thing: take it off any other action first.
-            foreach (var other in Bindings.Keys.ToList())
-                Bindings[other] = Bindings[other].Where(b => !b.SameAs(binding)).ToArray();
-            Bindings[action] = new[] { binding };
-            Save();
+            Set(action, binding);
             Rebinding = null;
             say($"{LabelOf(action)}: {binding}", 3f);
             return;
         }
+    }
+
+    /// <summary>Makes <paramref name="binding"/> the action's only key, taken off any other action, and saves.</summary>
+    internal void Set(TAction action, KeyBinding binding)
+    {
+        // One key does one thing: take it off any other action first.
+        foreach (var other in Bindings.Keys.ToList())
+            Bindings[other] = Bindings[other].Where(b => !b.SameAs(binding)).ToArray();
+        Bindings[action] = new[] { binding };
+        Save();
     }
 }

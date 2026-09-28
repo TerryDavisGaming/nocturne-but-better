@@ -2,7 +2,7 @@ using Il2CppInterop.Runtime;
 using UnityEngine;
 using Rebinding = UnityEngine.InputSystem.InputActionRebindingExtensions;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Akuma, a palette of the mod's own in the game's Note Colors row. Each lane takes the color of the

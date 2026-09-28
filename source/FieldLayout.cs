@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 internal static class FieldLayout
 {

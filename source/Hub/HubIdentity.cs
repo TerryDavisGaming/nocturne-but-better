@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The player's hub key (DESIGN-HUB 2.8, 1.7): 32 random bytes as "nbbk1_" and 43 base64url
@@ -20,7 +20,7 @@ internal sealed class HubIdentity
 {
     internal const string Prefix = "nbbk1_";
     internal const int Format = 2;
-    private const string BackupHeader = "# Nocturne But Better hub key";
+    private const string BackupHeader = "# Nocturne+ hub key";
 
     // DPAPI entropy: the blob only opens for this purpose, even for the same Windows user.
     private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("NocturneButBetter hub key v1");

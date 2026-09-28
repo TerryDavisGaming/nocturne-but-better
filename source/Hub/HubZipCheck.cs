@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>A package the hub rules refuse; <see cref="Problems"/> are plain words (at most 20).</summary>
 internal sealed class HubZipProblem : IOException

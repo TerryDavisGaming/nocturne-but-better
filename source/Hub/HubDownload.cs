@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// A package's download into the hub's work folder (DESIGN-HUB 3.4 steps 2 to 4): the file address

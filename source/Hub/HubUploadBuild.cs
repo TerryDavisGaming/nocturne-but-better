@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>A package built for an upload, with what the summary shows and what the upload sends.</summary>
 internal sealed class HubBuild

@@ -4,7 +4,7 @@ using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The game's own checks and changes the hub needs, which run on the main thread (they touch the

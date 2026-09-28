@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// When an animation's frames show, and for the attack when its hit lands and the parry window

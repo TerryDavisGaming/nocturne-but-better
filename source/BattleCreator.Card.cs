@@ -1,12 +1,12 @@
 using System.Text.Json.Nodes;
 using UnityEngine;
 using UnityEngine.UI;
-using static NocturneFlatScroll.EditorPageKit;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorPageKit;
+using static NocturnePlus.EditorUi;
 using InputMouse = UnityEngine.InputSystem.Mouse;
 using Object = UnityEngine.Object;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // The Info page's arcade card: the card as the arcade draws it, at the arcade's own size on this
 // screen (the creator's canvas is 1920 x 1080 and the arcade menu's 640 x 360, both Expand, so 3

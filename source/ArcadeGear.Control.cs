@@ -5,7 +5,7 @@ using InputMouse = UnityEngine.InputSystem.Mouse;
 using Key = UnityEngine.InputSystem.Key;
 using Object = UnityEngine.Object;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The Gear control at the right of the main-menu arcade's title bar, like "Gear: arcade G". It's

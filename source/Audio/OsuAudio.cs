@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Where osu! starts an MP3 compared with the mod. osu! plays songs through BASS with

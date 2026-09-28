@@ -1,10 +1,10 @@
 using UnityEngine;
 using UnityEngine.UI;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorUi;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using Object = UnityEngine.Object;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // The editor's screen, laid out like osu!'s editor: a top bar with tabs and file buttons, a
 // toolbox on the left, the playfield in the middle, a panel on the right for the current tab,

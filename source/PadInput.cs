@@ -1,7 +1,7 @@
 using UnityEngine;
 using Gamepad = UnityEngine.InputSystem.Gamepad;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>The pad buttons the mod's pages read.</summary>
 internal enum PadButton

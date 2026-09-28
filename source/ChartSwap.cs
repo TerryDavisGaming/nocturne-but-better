@@ -1,7 +1,7 @@
 using HarmonyLib;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Plays the player's chosen custom difficulty in a song's battle, and a custom battle's own

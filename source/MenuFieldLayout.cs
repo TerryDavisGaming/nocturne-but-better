@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace NocturneFlatScroll
+namespace NocturnePlus
 {
     /// <summary>Flattens the menu previews independently of the combat camera.</summary>
     internal static class MenuFieldLayout

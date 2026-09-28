@@ -1,11 +1,11 @@
 using System.Globalization;
 using UnityEngine;
 using UnityEngine.UI;
-using static NocturneFlatScroll.EditorPageKit;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorPageKit;
+using static NocturnePlus.EditorUi;
 using Object = UnityEngine.Object;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // The battle's pages, laid out like the chart editor: a top bar with the battle's name, the pages
 // down the left, the page itself in the middle, and the file buttons along the bottom. Every

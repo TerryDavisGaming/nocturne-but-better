@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The in-game QA hooks (the NFS_QA_* environment variables) work only in a QA build, which

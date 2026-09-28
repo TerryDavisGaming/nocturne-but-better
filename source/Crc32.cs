@@ -1,4 +1,4 @@
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// CRC-32 with the zip and PNG polynomial (0xEDB88320, reflected). PngWriter's chunks and the

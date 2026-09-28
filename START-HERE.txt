@@ -1,4 +1,4 @@
-nocturne but better 2.7.0 (formerly nocturne flat scroll)
+nocturne+ 2.8.0 (formerly nocturne but better, and nocturne flat scroll)
 windows x64 | steam nocturne 1.0.1 | tested steam build 25487568
 works with bepinex 6 (bundled) or melonloader 0.7.3 and newer (not bundled)
 
@@ -32,6 +32,13 @@ install
    all items (arcade gear) - off or on; the arcade gear page lists every
                       item in the game. a battle with an item your save
                       doesn't own saves no score.
+   quick save       - off or on; its key saves the story anywhere you can
+                      walk around, into the game's autosave (your own save
+                      slots are never written over)
+   quick save key   - f5 to start with; click, then press the new key
+   quick load       - off or on; its key goes back to your latest save,
+                      like the game over screen's quick load
+   quick load key   - f9 to start with; click, then press the new key
    the game's own note colors row gets a preview under it, with a red mine
    next to your notes so you can spot palettes that look like it, and the
    mod's own palette, akuma (see new in 2.7.0).
@@ -48,6 +55,21 @@ which loader gets used
 only one copy runs at a time. to switch loaders, run install.cmd again; it
 disables the copy for the other loader. do not keep bepinex and melonloader
 in the same game folder, because only one of them can start.
+
+new in 2.8.0
+- a new name: nocturne+. its files are now nocturneplus.dll and
+  nocturneplus.melonloader.dll. install.cmd turns the old
+  nocturneflatscroll copy off (kept as a .disabled- file), and your
+  settings, custom charts, custom battles, arcade gear and hub key carry
+  over.
+- quick save and quick load. switch them on in options > gameplay. f5
+  saves the story anywhere you can walk around, into the game's autosave,
+  and f9 goes back to your latest save. click a key row and press a key to
+  change it. neither works on the title, in battles, cutscenes or
+  dialogue, between screens, while paused, or in the arcade.
+- the title screen reads nocturne+, and the bottom right shows the mod's
+  version and "by terrydavisgaming" under the game's own version.
+- none of 2.8.0's changes have been tried in the game yet.
 
 new in 2.7.0
 - arcade gear. the arcade on the main menu has gear of its own. click
@@ -174,16 +196,17 @@ controller button still does.
 
 installations start on default, 0%, 100% size and spacing, default skin,
 note flares on, timing bar off and below the enemy, enemy attack opacity
-100%, infinite consumables and all items off, hit sound off at 80%, and
-miss sound volume 100%. your selections are saved on that pc. the title
-screen and the intro's logo card read "nocturne but better, by
-terrydavisgaming".
+100%, infinite consumables and all items off, quick save and quick load off
+on f5 and f9, hit sound off at 80%, and miss sound volume 100%. your
+selections are saved on that pc. the title screen and the intro's logo card
+read "nocturne+", and the title's bottom right shows "nocturne+ v2.8.0" and
+"by terrydavisgaming" under the game's version.
 
 optional fullscreen flicker fix
 if you have the flickering black bars, close nocturne and double-click
 enable-fullscreen-fix.cmd. this applies the same directx 11 preference used
 on the original pc. restore-fullscreen-fix.cmd reverses that change.
-the scrolling mod works independently of this fix.
+nocturne+ works independently of this fix.
 
 remove
 close nocturne, then run uninstall.cmd to disable this mod for both loaders.
@@ -214,7 +237,7 @@ if something does not work
   this package must be checked again after a game update.
 
 share
-send the original nocturne-flat-scroll-2.7.0-windows.zip to the other person
+send the original nocturne-plus-2.8.0-windows.zip to the other person
 or device. they need their own installed copy of nocturne. the package
 contains no game assets, game-generated assemblies, saves, or account data.
 it does not support macos, linux, or steam deck through these installers.

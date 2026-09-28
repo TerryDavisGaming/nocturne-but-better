@@ -4,7 +4,7 @@ using UnityEngine;
 using UnityEngine.Video;
 using Object = UnityEngine.Object;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // The battle creator's "Turn into frames" (BattleCreator.ArtBake.cs): a video animation plays once
 // into a render texture the size of the sheet's frames, and each frame the plan asks for is read

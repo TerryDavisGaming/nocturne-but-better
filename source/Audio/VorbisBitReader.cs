@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Reads bits LSB first, the Vorbis and Ogg packing order. A read that runs past the end of the

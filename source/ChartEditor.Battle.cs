@@ -2,13 +2,13 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using UnityEngine;
-using static NocturneFlatScroll.EditorInput;
-using static NocturneFlatScroll.EditorUi;
+using static NocturnePlus.EditorInput;
+using static NocturnePlus.EditorUi;
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using InputMouse = UnityEngine.InputSystem.Mouse;
 using Key = UnityEngine.InputSystem.Key;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // Custom battles: the editor opened on a battle's own chart (one .sm with every difficulty) and
 // its own song file. The six difficulty tabs each edit one note block; the timing, events and

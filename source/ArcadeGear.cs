@@ -2,7 +2,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using UnityEngine;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The main-menu arcade's own gear: the weapon, armor, head, off hand, amulet and consumable the

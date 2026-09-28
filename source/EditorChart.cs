@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The chart being edited: notes on a StepMania row grid (48 rows a beat, 192 a measure) and the

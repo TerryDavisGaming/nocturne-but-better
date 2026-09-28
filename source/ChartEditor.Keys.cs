@@ -1,7 +1,7 @@
 using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using Key = UnityEngine.InputSystem.Key;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 // The editor's key bindings: every action has default keys, and the Keys tab changes them.
 // They are saved per PC in playerprefs (see KeyMap).

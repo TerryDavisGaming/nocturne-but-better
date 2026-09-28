@@ -5,7 +5,7 @@ using InputKeyboard = UnityEngine.InputSystem.Keyboard;
 using Key = UnityEngine.InputSystem.Key;
 using KeyControl = UnityEngine.InputSystem.Controls.KeyControl;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// Keeps Alt, Tab and the Windows key from starting a battle at "press any key". That prompt

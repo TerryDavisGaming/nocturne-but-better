@@ -3,7 +3,7 @@ using UnityEngine;
 using UnityEngine.Video;
 using Object = UnityEngine.Object;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The battle half of custom enemy art. A custom-art enemy fights like its placeholder but is

@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using UnityEngine;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>
 /// The standard Windows open and save dialogs, a multi-file open, and a folder picker. Each runs
@@ -70,8 +70,8 @@ internal static class FileDialogs
         internal static string[] SpriteSheets => new[] { "Sprite sheets (*.png, *.jpg)", "*.png;*.jpg;*.jpeg" };
         internal static string[] Songs => new[] { "Music (*.ogg, *.mp3, *.wav, *.flac, *.m4a, *.wma)", "*.ogg;*.mp3;*.wav;*.flac;*.m4a;*.wma" };
         internal static string[] StepMania => new[] { "StepMania charts (*.sm, *.ssc)", "*.sm;*.ssc" };
-        internal static string[] ChartPacks => new[] { "Nocturne But Better chart packs (*.nbbchart)", "*.nbbchart" };
-        internal static string[] BattlePacks => new[] { "Nocturne But Better battles (*.nbbbattle)", "*.nbbbattle" };
+        internal static string[] ChartPacks => new[] { "Nocturne+ chart packs (*.nbbchart)", "*.nbbchart" };
+        internal static string[] BattlePacks => new[] { "Nocturne+ battles (*.nbbbattle)", "*.nbbbattle" };
         internal static string[] OsuBeatmaps => new[] { "osu! beatmaps (*.osz)", "*.osz" };
         internal static string[] HubKeys => new[] { "Hub key backups (*.txt)", "*.txt" };
         internal static string[] AllFiles => new[] { "All files", "*.*" };

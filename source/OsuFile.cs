@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace NocturneFlatScroll;
+namespace NocturnePlus;
 
 /// <summary>A [TimingPoints] line. Red (uninherited) lines set the tempo; green ones the scroll speed.</summary>
 internal readonly struct OsuTiming
