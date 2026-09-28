@@ -1,3 +1,33 @@
+nocturne+ 2.8.0 - package verification
+checked september 28, 2026 in a cloud session without the game, using
+powershell 7.4.6 and the .net 8 sdk.
+
+NOTHING IN 2.8.0 HAS BEEN RUN IN THE GAME. the checks below are what could
+be done without it.
+
+the dlls
+- both were built from the package's source (crlf, files in windows' order)
+  against stand-ins for the game's generated interop assemblies, rebuilt
+  from the 2.7.0 dlls' references. the same stand-ins build 2.7.0's source
+  into byte-for-byte copies of both published 2.7.0 dlls
+  (94853cf359a495dba3dd17118bc11b6ab74eae392a1bd5a7a71240c3f87155d9 and
+  274143222c94a734443037773acfb9ec597eb095fd4fc41fbd9f812169516ae2).
+- every game, unity and wwise member the 2.8.0 dlls use is one 2.7.0 used,
+  except Sprite.texture, which the title's "+" falls back from.
+- no placeholder enum value is left in their il.
+- payload/NocturnePlus.dll
+  9caae1b5b233602be0189bc3a2e2a5405f4aae4cc8f3778dcece78729033a40c
+  payload/NocturnePlus.MelonLoader.dll
+  bef23f144f9db0a5ec99c25bf8fa8f9da01da3b44c1a3cefdbc0cc56a170900d
+
+the installer
+- Install-NocturneMod.ps1 parses in powershell 7.4.6.
+- the part that disables an old nocturneflatscroll copy (for either loader)
+  ran under strict mode with made-up copies. the whole installer hasn't run
+  against a game folder.
+
+---
+
 nocturne but better 2.7.0 - package verification
 checked september 27, 2026 on windows 11, using windows powershell 5.1.
 

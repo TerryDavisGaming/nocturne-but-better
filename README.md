@@ -400,7 +400,7 @@ close the game and run `uninstall.cmd`. this disables the mod for both loaders a
 
 ## what was tested
 
-2.8.0's changes, the new name and its files, the title screen's + and version, quick save and quick load, and the installer's handling of the old nocturneflatscroll copy, HAVEN'T BEEN TRIED IN THE GAME YET. everything else is the same as in 2.7.0.
+2.8.0's changes, the new name and its files, the title screen's + and version, quick save and quick load, and the installer's handling of the old nocturneflatscroll copy, HAVEN'T BEEN TRIED IN THE GAME YET. everything else is the same as in 2.7.0. its dlls were built without the game, against copies of the game's interfaces rebuilt from 2.7.0's dlls; built that way, 2.7.0's source comes out byte for byte the same as the published 2.7.0 dlls, so everything 2.7.0 did works the same (see [technical notes](TECHNICAL-NOTES.md)).
 
 version 2.7.0 was tested in-game on nocturne 1.0.1 with bepinex 6.0.0-be.788 and with melonloader 0.7.3, in 33 runs with qa builds (the release source plus test hooks), 19 on bepinex and 14 on melonloader. every run took a snapshot of the player's plugin, settings and saves first and put it back afterwards. no run changed a story `.sav` file, and on melonloader no run logged a "native->managed trampoline" error. on both loaders unless it says otherwise:
 

@@ -18,11 +18,9 @@ if (-not $MelonModPath) { $MelonModPath = Join-Path $packageRoot 'payload\Noctur
 
 $modVersion = '2.8.0'
 $loaderHash = 'F4CC496BD098A0DF4164B81E3737297707F13A47C2478DBA2F60EEFAB784817A'
-# Pinned to the 2.8.0 build once it's made (payload\NocturnePlus.dll and payload\NocturnePlus.MelonLoader.dll).
-# Until then no payload matches, so the installer stops before changing anything.
-$pluginHash = 'PIN-THE-2.8.0-BEPINEX-BUILD'
+$pluginHash = '9CAAE1B5B233602BE0189BC3A2E2A5405F4AAE4CC8F3778DCECE78729033A40C'
 $knownPluginHashes = @($pluginHash)
-$melonModHash = 'PIN-THE-2.8.0-MELONLOADER-BUILD'
+$melonModHash = 'BEF23F144F9DB0A5EC99C25BF8FA8F9DA01DA3B44C1A3CEFDBC0CC56A170900D'
 $knownMelonModHashes = @($melonModHash)
 # Up to 2.7.0 the mod was NocturneFlatScroll.dll and NocturneFlatScroll.MelonLoader.dll. A verified copy
 # of those is disabled on install, so only one copy runs, and on uninstall.
