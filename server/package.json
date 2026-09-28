@@ -2,7 +2,7 @@
   "name": "nbb-hub",
   "version": "1.0.0",
   "private": true,
-  "description": "the online hub for the nocturne but better mod: custom battles and custom difficulties, on the owner's own cloudflare account",
+  "description": "the online hub for the nocturne+ mod: custom battles and custom difficulties, on the owner's own cloudflare account",
   "type": "module",
   "scripts": {
     "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy",
@@ -12,7 +12,7 @@
     "wrangler": "4.141.0"
   },
   "cloudflare": {
-    "label": "nocturne but better hub",
+    "label": "nocturne+ hub",
     "products": [
       "Workers",
       "D1",

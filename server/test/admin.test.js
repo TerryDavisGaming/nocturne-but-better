@@ -192,11 +192,22 @@ Deno.test("admin: bulk actions for spam waves, 30 at a time, by upload time or k
   assertEquals(hub.d1.one("SELECT v FROM settings WHERE k = 'close_uploads_key_days'").v, "2");
 });
 
+Deno.test("admin: the rename migration gives the old default hub name the new one and keeps a name the owner typed", async () => {
+  const rename = await Deno.readTextFile(new URL("../migrations/0002_nocturne_plus.sql", import.meta.url));
+  const hub = await makeHub();
+  hub.d1.sqlite.prepare("UPDATE settings SET v = 'nocturne but better hub' WHERE k = 'hub_name'").run();
+  hub.d1.sqlite.exec(rename);
+  assertEquals(hub.d1.one("SELECT v FROM settings WHERE k = 'hub_name'").v, "nocturne+ hub");
+  hub.d1.sqlite.prepare("UPDATE settings SET v = 'my own hub' WHERE k = 'hub_name'").run();
+  hub.d1.sqlite.exec(rename);
+  assertEquals(hub.d1.one("SELECT v FROM settings WHERE k = 'hub_name'").v, "my own hub");
+});
+
 Deno.test("admin: settings are validated; salts are never shown; the takedown contact reaches /legal", async () => {
   const hub = await makeHub();
   const s = await admin(hub, "GET", "settings");
   assert(!("stats_salt" in s.body.settings));
-  assertEquals(s.body.settings.hub_name, "nocturne but better hub");
+  assertEquals(s.body.settings.hub_name, "nocturne+ hub");
   const bad = await admin(hub, "PUT", "settings", { max_entries: "lots", stats_salt: "x", uploads_open: "maybe" });
   assertEquals(bad.status, 400);
   assertEquals(bad.body.problems.length, 3);

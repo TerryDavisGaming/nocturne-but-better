@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  checks a deployed nocturne but better hub from the outside (DESIGN-HUB 4.3). it only reads, and sends two
+  checks a deployed nocturne+ hub from the outside (DESIGN-HUB 4.3). it only reads, and sends two
   writes that the hub must refuse. no key is needed or sent.
 
 .EXAMPLE

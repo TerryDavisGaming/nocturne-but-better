@@ -18,9 +18,9 @@ const html = (text, cache, extra = {}) =>
   new Response(text, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": PAGE_CSP, "Cache-Control": cache, ...extra } });
 
 export function homePage() {
-  return html(page("nocturne but better hub",
-    "<h1>nocturne but better hub</h1>" +
-      "<p>this is the online hub for the nocturne but better mod: custom battles and custom difficulties made by players.</p>" +
+  return html(page("nocturne+ hub",
+    "<h1>nocturne+ hub</h1>" +
+      "<p>this is the online hub for the nocturne+ mod: custom battles and custom difficulties made by players.</p>" +
       "<p>open it from the game's title screen with GET CUSTOM BATTLES. there's nothing to browse here; the game does the browsing.</p>" +
       "<p><a href=\"/legal\">rules, takedowns and privacy</a></p>"),
   "public, max-age=3600");
@@ -28,7 +28,7 @@ export function homePage() {
 
 /** /legal reads the hub name and the takedown contact from the settings the owner fills in on /admin. */
 export async function legalPage(env) {
-  let name = "nocturne but better hub", contact = "";
+  let name = "nocturne+ hub", contact = "";
   try {
     const { results } = await env.DB.prepare("SELECT k, v FROM settings WHERE k IN ('hub_name', 'takedown_contact')").all();
     for (const r of results) {
@@ -42,7 +42,7 @@ export async function legalPage(env) {
   const body =
     `<h1>${escapeHtml(name)}: rules, takedowns and privacy</h1>` +
     "<h2>what this is</h2>" +
-    "<p>a place to share custom battles and custom difficulties made for the nocturne but better mod. it ISN'T run by or connected to the makers of nocturne.</p>" +
+    "<p>a place to share custom battles and custom difficulties made for the nocturne+ mod. it ISN'T run by or connected to the makers of nocturne.</p>" +
     "<h2>rules</h2>" +
     "<p>upload only charts you made yourself. a battle made from an osu! beatmap is fine only if you mapped it or its mapper said yes. songs, pictures and videos usually belong to someone else, so include them only if you're allowed to share them.</p>" +
     "<p>don't upload:</p><ul>" +
