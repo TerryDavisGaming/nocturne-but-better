@@ -22,7 +22,7 @@ play it your way:
 
 save anywhere:
 
-- [QUICK SAVE AND QUICK LOAD](#quick-save-and-quick-load): f5 saves the story wherever you can walk around, and f9 takes you back. switch each one on in options > gameplay and put it on any key you like.
+- [QUICK SAVE AND QUICK LOAD](#quick-save-and-quick-load): f5 saves the story wherever you can walk around, and f9 takes you back. switch them on with one row at the bottom of options > gameplay and put each on any key you like.
 
 make your own:
 
@@ -43,7 +43,7 @@ it started out as nocturne flat scroll, and was then called nocturne but better.
 
 ## settings
 
-open options > gameplay. the mod adds fifteen rows above speed mod, the last four for [quick save and quick load](#quick-save-and-quick-load). [custom difficulties](#custom-difficulties) have their own page, and the [battle creator](#the-battle-creator) opens from it. the hit sound and miss sound settings are in options > audio, under sound effects.
+open options > gameplay. the mod adds eleven rows above speed mod, and three at the bottom of the page for [quick save and quick load](#quick-save-and-quick-load). [custom difficulties](#custom-difficulties) have their own page, and the [battle creator](#the-battle-creator) opens from it. the hit sound and miss sound settings are in options > audio, under sound effects.
 
 note scrolling:
 
@@ -83,7 +83,7 @@ in options > audio, hit sound plays a short tick when you hit a note, and it sta
 
 miss sound, also in options > audio, turns the game's miss sound on or off. it's the same setting as note miss sounds in options > gameplay, so changing one changes the other. miss sound volume goes from 10% to 300% in 10% steps, and 100% is the game's normal level. at any other level the mod plays the miss itself, from its own sound source turned up or down, so the music and the other sounds don't change. changing the volume plays a miss a moment later so you can hear it, and the game's sound effect volumes still apply. critical misses are already louder than normal ones, and the game's audio limiter stops them getting much louder past about 160%.
 
-press left or right to change a value, and hold to keep changing it. all the settings are saved on that pc. reset to default in options > gameplay puts the fifteen gameplay rows back to default, 0%, 100%, 100%, default, on, off, below enemy, 100%, off, off, off, f5, off, and f9. the game's own reset there also turns miss sounds back on. like the game's own sound settings, the rest of the audio page has no reset, so the hit sound settings and the miss sound volume stay as they are. upgrading from an earlier version keeps your saved settings.
+press left or right to change a value, and hold to keep changing it. all the settings are saved on that pc. reset to default in options > gameplay puts the fourteen gameplay rows back to default, 0%, 100%, 100%, default, on, off, below enemy, 100%, off, off, off, f5, and f9. the game's own reset there also turns miss sounds back on. like the game's own sound settings, the rest of the audio page has no reset, so the hit sound settings and the miss sound volume stay as they are. upgrading from an earlier version keeps your saved settings.
 
 both flat modes keep the game's artwork, icons, and vertical meter text. player meters sit lower left and enemy meters upper right, each pair close to the chart. the enemy's armor badge, the shield with the damage a hit needs to get through its armor, sits beside the top of its health bar with the enemy's statuses under it. when the enemy info boxes in the top right corner would cover it, the badge and the statuses move down to just below them. if the boxes would also cover the top of the enemy's meters, which can happen with five lanes, wide lane spacing, big notes, or a squarer window, the meters move down with the badge, and get smaller if they'd otherwise end up lower than the player's. under a very tall stack of boxes the enemy's statuses get smaller too, so they all still fit on screen.
 
@@ -91,20 +91,20 @@ at the "press any key" screen before a battle, alt, tab, and the windows key DON
 
 in arcade and high scores, the game marks an encounter you've mastered with gold notes and two sparkles on its card. a CHAPTER BUTTON NOW GETS THE SAME once every encounter in that chapter has its sparkles: its label turns gold and the two sparkles sit on its corners, for the difficulty you're looking at.
 
-the title screen and the nocturne card in the startup intro read "nocturne+": a + follows the logo, and fades in and out with it on the intro card. at the bottom right of the title, under the game's own version number, are the mod's version (nocturne+ v2.8.0) and "by terrydavisgaming". if they'd run off the bottom of the screen, the game's version moves up to make room.
+the title screen and the nocturne card in the startup intro read "nocturne+": a + follows the logo, and fades in and out with it on the intro card. at the bottom right of the title's menu, the game's version ("nocturne 1.0.1") gets two more lines in exactly its style: "nocturne+ 2.8.0" and "by terrydavisgaming". they're part of that same text, so they only show where it does, and leaving the title puts the game's text back. if the longer text would run off the bottom of the screen, it moves up to make room.
 
 ## quick save and quick load
 
-quick save and quick load are the last four rows of the mod's settings in options > gameplay. both START OFF.
+quick save & load is one switch at the bottom of options > gameplay, with the quick save key and quick load key rows right under it. it STARTS OFF, and it turns both keys on or off.
 
-- quick save lets its key, f5 to start with, SAVE THE STORY ANYWHERE YOU CAN WALK AROUND. it saves the way the game's own autosave does, into the autosave, so the SAVE SLOTS YOU SAVED BY HAND ARE NEVER WRITTEN OVER.
-- quick load lets its key, f9 to start with, GO BACK TO YOUR LATEST SAVE, the way the game over screen's quick load does. that's your last quick save, unless the game has saved since (an autosave, or a save you made at a save point).
+- the quick save key, f5 to start with, lets you SAVE THE STORY ANYWHERE YOU CAN WALK AROUND. it saves the way the game's own autosave does, into the autosave, so the SAVE SLOTS YOU SAVED BY HAND ARE NEVER WRITTEN OVER.
+- the quick load key, f9 to start with, lets you GO BACK TO YOUR LATEST SAVE, the way the game over screen's quick load does. that's your last quick save, unless the game has saved since (an autosave, or a save you made at a save point).
 
 to change a key, click its row (quick save key or quick load key) and press the new key, with ctrl, shift or alt if you like. esc, a click, or waiting 10 seconds keeps the old key. left and right on the row step through f1 to f12. one key does one thing, so giving quick load the quick save key takes it off quick save. the keys are saved on that pc.
 
 a short message at the top of the screen says what happened: "quick saved", "quick loading...", or why it can't. neither works on the title, in a battle, during a cutscene or dialogue, while the game is fading between screens or paused, in the arcade, or during a chart editor test. the mod's own pages keep their keys, so f5 still tests a chart in the chart editor.
 
-quick save and quick load use the game's own save and load, which the mod looks up when the game starts. if this version of the game doesn't have one of them, its key only says so and the log says why, and the rest of the mod works as usual.
+quick save and quick load use the game's own save and load, which the mod looks up when the game starts. if this version of the game doesn't have one of them, that key only says so and the log says why, and the rest of the mod works as usual.
 
 ## custom difficulties
 

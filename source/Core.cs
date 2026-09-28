@@ -61,8 +61,10 @@ public static class SettingsState
     private const string ArcadeGearAllItemsKey = "NocturneFlatScroll.ArcadeGearAllItems.v1";
     private const string OnlineHubKey = "NocturneFlatScroll.Hub.v1";
     // Settings added since the rename carry the new name; the ones above keep theirs, so upgrades keep them.
-    private const string QuickSaveKey = "NocturnePlus.QuickSave.v1";
-    private const string QuickLoadKey = "NocturnePlus.QuickLoad.v1";
+    private const string QuickSaveLoadKey = "NocturnePlus.QuickSaveLoad.v1";
+    // The first 2.8.0 test build had a switch for each; either one on turns the shared one on.
+    private const string OldQuickSaveKey = "NocturnePlus.QuickSave.v1";
+    private const string OldQuickLoadKey = "NocturnePlus.QuickLoad.v1";
     public const int MinReceptorHeight = -10;
     public const int MaxReceptorHeight = 30;
     private static ScrollMode? _mode;
@@ -75,8 +77,7 @@ public static class SettingsState
     private static bool? _infiniteConsumables;
     private static bool? _arcadeGearAllItems;
     private static bool? _onlineHub;
-    private static bool? _quickSave;
-    private static bool? _quickLoad;
+    private static bool? _quickSaveLoad;
     public static ScrollMode Mode => _mode ??= LoadMode();
 
     /// <summary>How notes and receptors are drawn; Default keeps the game's own bars.</summary>
@@ -188,26 +189,19 @@ public static class SettingsState
         ModLog.Info("Online hub: " + (value ? "On" : "Off"));
     }
 
-    /// <summary>Whether the quick save key saves the story (QuickSaveLoad). Off unless turned on.</summary>
-    public static bool QuickSave => _quickSave ??= PlayerPrefs.GetInt(QuickSaveKey, 0) == 1;
+    /// <summary>
+    /// Whether the quick save and quick load keys work (QuickSaveLoad). Off unless turned on.
+    /// </summary>
+    public static bool QuickSaveLoad => _quickSaveLoad ??= PlayerPrefs.HasKey(QuickSaveLoadKey)
+        ? PlayerPrefs.GetInt(QuickSaveLoadKey, 0) == 1
+        : PlayerPrefs.GetInt(OldQuickSaveKey, 0) == 1 || PlayerPrefs.GetInt(OldQuickLoadKey, 0) == 1;
 
-    public static void SetQuickSave(bool value)
+    public static void SetQuickSaveLoad(bool value)
     {
-        _quickSave = value;
-        PlayerPrefs.SetInt(QuickSaveKey, value ? 1 : 0);
+        _quickSaveLoad = value;
+        PlayerPrefs.SetInt(QuickSaveLoadKey, value ? 1 : 0);
         PlayerPrefs.Save();
-        ModLog.Info("Quick save: " + (value ? "On" : "Off"));
-    }
-
-    /// <summary>Whether the quick load key goes back to the latest save (QuickSaveLoad). Off unless turned on.</summary>
-    public static bool QuickLoad => _quickLoad ??= PlayerPrefs.GetInt(QuickLoadKey, 0) == 1;
-
-    public static void SetQuickLoad(bool value)
-    {
-        _quickLoad = value;
-        PlayerPrefs.SetInt(QuickLoadKey, value ? 1 : 0);
-        PlayerPrefs.Save();
-        ModLog.Info("Quick load: " + (value ? "On" : "Off"));
+        ModLog.Info("Quick save & load: " + (value ? "On" : "Off"));
     }
 
     /// <summary>

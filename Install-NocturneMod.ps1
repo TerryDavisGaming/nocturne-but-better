@@ -18,10 +18,11 @@ if (-not $MelonModPath) { $MelonModPath = Join-Path $packageRoot 'payload\Noctur
 
 $modVersion = '2.8.0'
 $loaderHash = 'F4CC496BD098A0DF4164B81E3737297707F13A47C2478DBA2F60EEFAB784817A'
-$pluginHash = '9CAAE1B5B233602BE0189BC3A2E2A5405F4AAE4CC8F3778DCECE78729033A40C'
-$knownPluginHashes = @($pluginHash)
-$melonModHash = 'BEF23F144F9DB0A5EC99C25BF8FA8F9DA01DA3B44C1A3CEFDBC0CC56A170900D'
-$knownMelonModHashes = @($melonModHash)
+$pluginHash = '802E8A37C3B381E1D5CAFDBC3067DE51DAA5AC9D554B787B9A5B1AAF3962536F'
+# The first 2.8.0 test build (two switches, the version in a corner), so it upgrades like any other copy.
+$knownPluginHashes = @($pluginHash, '9CAAE1B5B233602BE0189BC3A2E2A5405F4AAE4CC8F3778DCECE78729033A40C')
+$melonModHash = 'E4379ACC6CFEA5704AE69EC5BD555CD28C50DD08219DBA83B7629A986D817371'
+$knownMelonModHashes = @($melonModHash, 'BEF23F144F9DB0A5EC99C25BF8FA8F9DA01DA3B44C1A3CEFDBC0CC56A170900D')
 # Up to 2.7.0 the mod was NocturneFlatScroll.dll and NocturneFlatScroll.MelonLoader.dll. A verified copy
 # of those is disabled on install, so only one copy runs, and on uninstall.
 $legacyPluginHashes = @(

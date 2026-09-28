@@ -11,12 +11,12 @@ namespace NocturnePlus;
 internal enum QuickAction { Save, Load }
 
 /// <summary>
-/// Quick save and quick load. With quick save on, its key (F5 unless changed) saves the story
-/// wherever the player walks free, through the game's own autosave, so the save slots the player
-/// saved by hand are never written over. With quick load on, its key (F9 unless changed) does what
-/// the game over screen's quick load does: it goes back to the latest save, which is the last
-/// quick save unless the game has saved since. Both switches and both keys are rows in
-/// Options > Gameplay; a key row takes the next key pressed after it's clicked.
+/// Quick save and quick load. With "Quick save & load" on, the quick save key (F5 unless changed)
+/// saves the story wherever the player walks free, through the game's own autosave, so the save
+/// slots the player saved by hand are never written over, and the quick load key (F9 unless
+/// changed) does what the game over screen's quick load does: it goes back to the latest save,
+/// which is the last quick save unless the game has saved since. The switch and the two keys are
+/// the last rows of Options > Gameplay; a key row takes the next key pressed after it's clicked.
 /// Neither works on the title, in a battle, in a cutscene or dialogue, between screens, while the
 /// game is paused, in the arcade, or during a chart editor test.
 /// The game's save and load calls are looked up when the mod starts: a missing one only turns its
@@ -60,26 +60,21 @@ internal static class QuickSaveLoad
 
     // ---- the options rows -----------------------------------------------------------------------
 
+    // The last rows of the gameplay page, in this order (OptionsMenuIntegration puts them there).
     internal static readonly OptionsMenuIntegration.RowSpec[] Rows =
     {
-        new("StateToggle_PlusQuickSave",
-            "Quick save",
-            "Lets the quick save key save the story anywhere you can walk around. It uses the game's autosave, so your own save slots are never written over.",
+        new("StateToggle_PlusQuickSaveLoad",
+            "Quick save & load",
+            "The quick save key saves the story anywhere you can walk around, into the game's autosave, so your own save slots are never written over. The quick load key goes back to your latest save, like the game over screen's quick load.",
             new[] { "Off", "On" },
-            () => SettingsState.QuickSave ? 1 : 0,
-            (direction, click) => SettingsState.SetQuickSave(!SettingsState.QuickSave)),
+            () => SettingsState.QuickSaveLoad ? 1 : 0,
+            (direction, click) => SettingsState.SetQuickSaveLoad(!SettingsState.QuickSaveLoad)),
         new("StateToggle_PlusQuickSaveKey",
             "Quick save key",
             "The key that quick saves. Click, then press the new key (Esc keeps the old one). Left and right pick F1 to F12.",
             () => new[] { KeyLabel(QuickAction.Save) },
             () => 0,
             (direction, click) => ChangeKey(QuickAction.Save, direction, click)),
-        new("StateToggle_PlusQuickLoad",
-            "Quick load",
-            "Lets the quick load key go back to your latest save, like the game over screen's quick load. That's your last quick save unless the game has saved since.",
-            new[] { "Off", "On" },
-            () => SettingsState.QuickLoad ? 1 : 0,
-            (direction, click) => SettingsState.SetQuickLoad(!SettingsState.QuickLoad)),
         new("StateToggle_PlusQuickLoadKey",
             "Quick load key",
             "The key that quick loads. Click, then press the new key (Esc keeps the old one). Left and right pick F1 to F12.",
@@ -226,8 +221,9 @@ internal static class QuickSaveLoad
                 return;
             }
             if (!installed || keyboard == null || !Application.isFocused) return;
-            bool save = SettingsState.QuickSave && keyMap.Triggered(keyboard, QuickAction.Save);
-            bool load = SettingsState.QuickLoad && keyMap.Triggered(keyboard, QuickAction.Load);
+            if (!SettingsState.QuickSaveLoad) return;
+            bool save = keyMap.Triggered(keyboard, QuickAction.Save);
+            bool load = keyMap.Triggered(keyboard, QuickAction.Load);
             if (!save && !load) return;
             // The mod's own pages use these keys for themselves (F5 tests in the chart editor),
             // and the title has nothing to save.

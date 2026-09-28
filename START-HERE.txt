@@ -32,12 +32,13 @@ install
    all items (arcade gear) - off or on; the arcade gear page lists every
                       item in the game. a battle with an item your save
                       doesn't own saves no score.
-   quick save       - off or on; its key saves the story anywhere you can
-                      walk around, into the game's autosave (your own save
-                      slots are never written over)
+   and at the bottom of the page:
+   quick save & load - off or on; the quick save key saves the story
+                      anywhere you can walk around, into the game's
+                      autosave (your own save slots are never written
+                      over), and the quick load key goes back to your
+                      latest save, like the game over screen's quick load
    quick save key   - f5 to start with; click, then press the new key
-   quick load       - off or on; its key goes back to your latest save,
-                      like the game over screen's quick load
    quick load key   - f9 to start with; click, then press the new key
    the game's own note colors row gets a preview under it, with a red mine
    next to your notes so you can spot palettes that look like it, and the
@@ -62,13 +63,15 @@ new in 2.8.0
   nocturneflatscroll copy off (kept as a .disabled- file), and your
   settings, custom charts, custom battles, arcade gear and hub key carry
   over.
-- quick save and quick load. switch them on in options > gameplay. f5
-  saves the story anywhere you can walk around, into the game's autosave,
+- quick save and quick load. switch them on at the bottom of options >
+  gameplay. f5 saves the story anywhere you can walk around, into the
+  game's autosave,
   and f9 goes back to your latest save. click a key row and press a key to
   change it. neither works on the title, in battles, cutscenes or
   dialogue, between screens, while paused, or in the arcade.
-- the title screen reads nocturne+, and the bottom right shows the mod's
-  version and "by terrydavisgaming" under the game's own version.
+- the title screen reads nocturne+, and on the title's menu the game's
+  version at the bottom right gets "nocturne+ 2.8.0" and "by
+  terrydavisgaming" under it, in the same style.
 - none of 2.8.0's changes have been tried in the game yet.
 
 new in 2.7.0
@@ -196,11 +199,11 @@ controller button still does.
 
 installations start on default, 0%, 100% size and spacing, default skin,
 note flares on, timing bar off and below the enemy, enemy attack opacity
-100%, infinite consumables and all items off, quick save and quick load off
-on f5 and f9, hit sound off at 80%, and miss sound volume 100%. your
-selections are saved on that pc. the title screen and the intro's logo card
-read "nocturne+", and the title's bottom right shows "nocturne+ v2.8.0" and
-"by terrydavisgaming" under the game's version.
+100%, infinite consumables and all items off, quick save & load off on f5
+and f9, hit sound off at 80%, and miss sound volume 100%. your selections
+are saved on that pc. the title screen and the intro's logo card read
+"nocturne+", and on the title's menu "nocturne+ 2.8.0" and "by
+terrydavisgaming" show under the game's version at the bottom right.
 
 optional fullscreen flicker fix
 if you have the flickering black bars, close nocturne and double-click

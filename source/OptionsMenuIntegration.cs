@@ -212,6 +212,8 @@ internal static class OptionsMenuIntegration
         {
             // Each clone is inserted directly above Speed Mod, so creation order is display order.
             foreach (var spec in Specs.Concat(QuickSaveLoad.Rows).Concat(CustomChartOptions.Rows)) created.Add(CreateRow(template, parent, anchor, spec));
+            // The quick save rows go together at the bottom of the page instead.
+            foreach (var row in created.Where(IsBottomRow)) row.Root.transform.SetAsLastSibling();
             if (parent.TryCast<RectTransform>() is { } content)
                 LayoutRebuilder.MarkLayoutForRebuild(content);
             ModLog.Info($"Added the {ModInfo.Name} rows to Options > Gameplay.");
@@ -328,6 +330,8 @@ internal static class OptionsMenuIntegration
 
     private static bool IsChartRow(OptionRow row) => CustomChartOptions.Rows.Contains(row.Spec);
 
+    private static bool IsBottomRow(OptionRow row) => QuickSaveLoad.Rows.Contains(row.Spec);
+
     /// <summary>
     /// The page shows either the gameplay settings, or only the custom chart rows when it was
     /// opened from the Custom Charts tab. Rows hidden for the chart page come back afterwards.
@@ -416,7 +420,8 @@ internal static class OptionsMenuIntegration
     {
         var anchor = rows.Menu.noteSpeedModButton;
         if (!anchor) return;
-        var buttons = rows.Rows.Where(row => !IsChartRow(row)).Select(row => (Selectable)row.Button).ToList();
+        LinkBottomRows(rows);
+        var buttons = rows.Rows.Where(row => !IsChartRow(row) && !IsBottomRow(row)).Select(row => (Selectable)row.Button).ToList();
 
         // RefreshViews reconstructs a hardcoded native navigation list. Insert our rows again
         // after every refresh; using the actual predecessor also handles hidden native rows.
@@ -437,6 +442,50 @@ internal static class OptionsMenuIntegration
             previousNav.mode = Navigation.Mode.Explicit;
             previousNav.selectOnDown = buttons[0];
             previous.navigation = previousNav;
+        }
+    }
+
+    /// <summary>
+    /// Links the rows at the bottom of the page under the row above them (the page's last shown row),
+    /// and hands on whatever that row led down to (a wrap to the top, say) from the last of them.
+    /// </summary>
+    private static void LinkBottomRows(MenuRows rows)
+    {
+        var bottom = rows.Rows.Where(IsBottomRow).Select(row => (Selectable)row.Button).ToList();
+        if (bottom.Count == 0 || !bottom[0]) return;
+        var ours = rows.Rows.Select(row => (Selectable)row.Button).ToList();
+        var first = bottom[0].transform;
+        var parent = first.parent;
+        Selectable? above = null;
+        for (int i = first.GetSiblingIndex() - 1; i >= 0 && !above; i--)
+        {
+            var child = parent.GetChild(i);
+            if (!child.gameObject.activeSelf) continue;
+            var selectable = child.GetComponent<Selectable>();
+            if (!selectable) selectable = child.GetComponentInChildren<Selectable>(false);
+            if (selectable && !IsOurs(ours, selectable)) above = selectable;
+        }
+        Selectable? next = null;
+        if (above)
+        {
+            next = above!.navigation.selectOnDown;
+            // Linked before: the row it led to then was kept.
+            if (next && IsOurs(ours, next!)) next = rows.BottomNext;
+            else rows.BottomNext = next;
+        }
+        for (int i = 0; i < bottom.Count; i++)
+            SetVertical(bottom[i], i == 0 ? above : bottom[i - 1], i == bottom.Count - 1 ? (next ? next : null) : bottom[i + 1]);
+        if (!above) return;
+        var aboveNav = above!.navigation;
+        aboveNav.mode = Navigation.Mode.Explicit;
+        aboveNav.selectOnDown = bottom[0];
+        above.navigation = aboveNav;
+        if (next && next!.navigation.selectOnUp == above)
+        {
+            var nextNav = next.navigation;
+            nextNav.mode = Navigation.Mode.Explicit;
+            nextNav.selectOnUp = bottom[bottom.Count - 1];
+            next.navigation = nextNav;
         }
     }
 
@@ -491,8 +540,7 @@ internal static class OptionsMenuIntegration
             SettingsState.EnemyAttackOpacity.Set(SettingsState.EnemyAttackOpacity.Default);
             SettingsState.SetInfiniteArcadeConsumables(false);
             SettingsState.SetArcadeGearAllItems(false);
-            SettingsState.SetQuickSave(false);
-            SettingsState.SetQuickLoad(false);
+            SettingsState.SetQuickSaveLoad(false);
             QuickSaveLoad.ResetKeys();
             if (!SettingsState.NoteFlares) SetNoteFlares(true);
             RefreshAll();
@@ -559,6 +607,8 @@ internal static class OptionsMenuIntegration
         internal readonly NoteColorPreview? Preview;
         // Rows of the game's own that the chart page switched off, to switch back on.
         internal readonly List<GameObject> HiddenByPage = new();
+        // Where the row above the bottom rows led down to before they were linked in.
+        internal Selectable? BottomNext;
         internal bool PageShown;
 
         internal MenuRows(GameplayOptionsMenu menu, List<OptionRow> rows, NoteColorPreview? preview)

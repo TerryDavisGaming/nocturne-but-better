@@ -16,9 +16,11 @@ the dlls
   except Sprite.texture, which the title's "+" falls back from.
 - no placeholder enum value is left in their il.
 - payload/NocturnePlus.dll
-  9caae1b5b233602be0189bc3a2e2a5405f4aae4cc8f3778dcece78729033a40c
+  802e8a37c3b381e1d5cafdbc3067de51daa5ac9d554b787b9a5b1aaf3962536f
   payload/NocturnePlus.MelonLoader.dll
-  bef23f144f9db0a5ec99c25bf8fa8f9da01da3b44c1a3cefdbc0cc56a170900d
+  e4379acc6cfea5704ae69ec5bd555cd28c50dd08219dba83b7629a986d817371
+- the installer also takes the first 2.8.0 test build's dlls (9caae1b5...
+  and bef23f14...) as copies to upgrade.
 
 the installer
 - Install-NocturneMod.ps1 parses in powershell 7.4.6.

@@ -10,29 +10,25 @@ namespace NocturnePlus;
 
 /// <summary>
 /// The Nocturne+ branding on the title screen. A "+" follows the nocturne logo, both on the title
-/// and on the logo card of the startup intro, so the logo reads "nocturne+". The mod's version and
-/// its author go at the bottom right, under the game's own version number.
+/// and on the logo card of the startup intro, so the logo reads "nocturne+". On the title's menu,
+/// the game's version at the bottom right ("Nocturne 1.0.1") gets two more lines in its own style:
+/// "Nocturne+ 2.8.0" and "by TerryDavisGaming".
 /// </summary>
 internal static class TitleBranding
 {
     private const string PlusText = "+";
     private const string PlusName = "NocturnePlus_Plus";
     private const string ShadowSuffix = "_Shadow";
-    private const string VersionName = "NocturnePlus_Version";
-    private const string CreditName = "NocturnePlus_Credit";
-    // Made only when the game's version number can't be found (see CornerFallback).
-    private const string CornerName = "NocturnePlus_Corner";
-    private static string VersionText => $"{ModInfo.Name} v{ModInfo.Version}";
+    // Laid out like the game's own "Nocturne 1.0.1".
+    private static string VersionText => $"{ModInfo.Name} {ModInfo.Version}";
     private static string CreditText => "by " + ModInfo.Author;
     // The game's pixel font is a 12-point bitmap face; whole multiples keep it crisp.
     private const float FontStep = 12f;
     private const float MinPlusSize = 24f;
     private const float MaxPlusSize = 96f;
-    private const float CornerSize = 12f;
     // A soft offset shadow keeps the text readable over the bright title background.
     private static readonly Vector2 ShadowOffset = new(1.5f, -1.5f);
     private const float ShadowAlpha = 0.55f;
-    private const float CreditAlpha = 0.8f;
     private static readonly Color LogoWhite = new(0.988f, 1f, 0.961f, 1f);
     // The mod's own canvases (its pages and messages) are named after it; their text is never the game's.
     private static bool ModCanvas(Canvas canvas)
@@ -48,14 +44,15 @@ internal static class TitleBranding
     }
 
     private static Vector3 Centre(Rect rect) => new(rect.x + rect.width / 2f, rect.y + rect.height / 2f, 0f);
-    // "v1.0.1", "1.0.1", "Version 1.0.1 (build 25487568)" and the like.
-    private static readonly Regex VersionPattern = new(@"^\s*(v|ver\.?|version)?\s*\d+(\.\d+)+\b",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    // A version number anywhere in the text: "Nocturne 1.0.1", "v1.0.1", "1.0.1 (25487568)".
+    private static readonly Regex VersionPattern = new(@"\b\d+(\.\d+)+\b", RegexOptions.CultureInvariant);
     private static TMP_Text? fontSource;
     private static PropertyInfo? introScreen;
     private static TMP_Text? versionLabel;
-    private static GameObject? corner;
-    private static int missedVersion;
+    private static string? versionOriginal;
+    private static bool versionMoved;
+    private static float versionShift;
+    private static int titleSeconds;
 
     internal static void InstallTitle(HarmonyLib.Harmony harmony) =>
         harmony.Patch(
@@ -89,6 +86,8 @@ internal static class TitleBranding
     {
         try { if (__instance) Decorate(__instance); }
         catch (Exception ex) { ReportOnce(ex); }
+        // The version lines too, without waiting for the next second.
+        Update();
     }
 
     private static void Decorate(MainMenu menu)
@@ -286,8 +285,10 @@ internal static class TitleBranding
     // ---- the version at the bottom right ------------------------------------------------------
 
     /// <summary>
-    /// Called once a second. On the title, finds the game's version number at the bottom right and
-    /// writes the mod's version and author under it. Scenes come and go, so a new title gets them too.
+    /// Called once a second. On the title, finds the game's version ("Nocturne 1.0.1") at the bottom
+    /// right and adds the mod's version and author to that same text, so they show in its font, size,
+    /// colour and alignment, right under it. Leaving the title puts the game's text back, so nothing
+    /// of it shows anywhere else. A text the game sets again gets the lines again.
     /// </summary>
     internal static void Update()
     {
@@ -295,26 +296,28 @@ internal static class TitleBranding
         {
             if (GameManager.GameState != GameStates.MainMenu)
             {
-                missedVersion = 0;
+                RestoreVersion();
+                titleSeconds = 0;
                 return;
             }
-            // The lines are the label's children, so they hide and show with it.
-            if (versionLabel != null && versionLabel) return;
+            if (versionLabel != null && versionLabel)
+            {
+                string text = versionLabel.text ?? "";
+                if (!text.EndsWith(VersionSuffix, StringComparison.Ordinal)) AddVersionLines(versionLabel);
+                return;
+            }
             versionLabel = null;
-            // With the corner lines up, look for the game's version less often.
-            if (corner != null && corner && ++missedVersion % 5 != 0) return;
             var label = FindVersionLabel();
             if (label != null)
             {
-                missedVersion = 0;
-                RemoveCorner();
                 AddVersionLines(label);
                 versionLabel = label;
                 return;
             }
-            // Not every title shows its version at once; give it a few seconds past the intro.
-            if (IntroShowing() || ++missedVersion < 3) return;
-            CornerFallback();
+            // Say once what the title had, so a game whose version reads differently can be matched.
+            if (IntroShowing() || ++titleSeconds != 5) return;
+            ModLog.Error("Title text: the game's version at the bottom right wasn't found, so the Nocturne+ version isn't shown. Short texts on the title: "
+                         + string.Join(" | ", ShortTexts()) + ".");
         }
         catch (Exception ex) { ReportOnce(ex); }
     }
@@ -325,25 +328,22 @@ internal static class TitleBranding
         catch { return false; }
     }
 
-    /// <summary>The game's version number: a short text in the bottom right quarter of the screen that reads like a version, the furthest to the bottom right.</summary>
+    private static string VersionSuffix => $"\n{VersionText}\n{CreditText}";
+
+    /// <summary>
+    /// The game's version: an active text in the bottom right quarter of the screen with a version
+    /// number in it, one that names nocturne first, then the furthest to the bottom right.
+    /// </summary>
     private static TMP_Text? FindVersionLabel()
     {
         TMP_Text? best = null;
         float bestScore = float.MinValue;
         foreach (var text in Resources.FindObjectsOfTypeAll<TMP_Text>())
         {
-            if (!text || !text.gameObject.scene.IsValid() || !text.gameObject.activeInHierarchy) continue;
-            if (text.name.StartsWith("NocturnePlus_", StringComparison.Ordinal)) continue;
-            string value = text.text ?? "";
-            if (value.Length == 0 || value.Length > 60) continue;
-            if (!VersionPattern.IsMatch(value)) continue;
-            var root = RootCanvas(text);
-            if (!root || ModCanvas(root!)) continue;
-            var camera = root!.renderMode != RenderMode.ScreenSpaceOverlay ? root.worldCamera : null;
-            var rect = text.rectTransform;
-            var point = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(Centre(rect.rect)));
+            if (!OnTitleScreen(text, out var value, out var point)) continue;
+            if (value.Length > 40 || !VersionPattern.IsMatch(value) || value.Contains(ModInfo.Name)) continue;
             if (point.x < Screen.width * 0.5f || point.y > Screen.height * 0.5f) continue;
-            float score = point.x - point.y;
+            float score = (value.IndexOf("nocturne", StringComparison.OrdinalIgnoreCase) >= 0 ? 100000f : 0f) + point.x - point.y;
             if (score > bestScore)
             {
                 bestScore = score;
@@ -353,115 +353,129 @@ internal static class TitleBranding
         return best;
     }
 
+    /// <summary>Whether the text is the game's and showing, with its text and its middle on screen.</summary>
+    private static bool OnTitleScreen(TMP_Text text, out string value, out Vector2 point)
+    {
+        value = "";
+        point = default;
+        if (!text || !text.gameObject.scene.IsValid() || !text.gameObject.activeInHierarchy) return false;
+        if (text.name.StartsWith("NocturnePlus_", StringComparison.Ordinal)) return false;
+        var root = RootCanvas(text);
+        if (!root || ModCanvas(root!)) return false;
+        value = text.text ?? "";
+        if (value.Length == 0) return false;
+        var camera = root!.renderMode != RenderMode.ScreenSpaceOverlay ? root.worldCamera : null;
+        var rect = text.rectTransform;
+        point = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(Centre(rect.rect)));
+        return true;
+    }
+
+    private static IEnumerable<string> ShortTexts()
+    {
+        foreach (var text in Resources.FindObjectsOfTypeAll<TMP_Text>())
+            if (OnTitleScreen(text, out var value, out var point) && value.Length <= 40)
+                yield return $"\"{value.Replace('\n', ' ')}\" at {point.x:0},{point.y:0}";
+    }
+
     /// <summary>
-    /// Two lines under the game's version, right-aligned with it, in its font, size and colour. When
-    /// they would run off the bottom of the screen, the game's version moves up to make room.
+    /// Adds "Nocturne+ 2.8.0" and "by TerryDavisGaming" as lines of the game's own version text.
+    /// When the longer text would reach below the screen, the label moves up to make room.
     /// </summary>
     private static void AddVersionLines(TMP_Text label)
     {
-        var parent = label.rectTransform;
-        if (parent.Find(VersionName)) return;
-        float size = label.fontSize > 0f ? label.fontSize : CornerSize;
-        float line = Mathf.Round(size * 1.2f);
-        float gap = Mathf.Round(size * 0.2f);
-        // A corner label sits at the bottom of its rect; its alignment can't be read from the game.
-        float top = parent.rect.yMin;
-        var align = TextAlignmentOptions.TopRight;
-        var color = label.color;
-        var lines = new[] { (VersionName, VersionText, color.a), (CreditName, CreditText, color.a * CreditAlpha) };
+        string text = label.text ?? "";
+        int ours = text.IndexOf(VersionSuffix, StringComparison.Ordinal);
+        string original = ours >= 0 ? text.Substring(0, ours) : text;
+        if (versionLabel == null || !versionLabel || versionLabel.Pointer != label.Pointer)
+        {
+            RestoreVersion();
+            versionOriginal = original;
+            versionMoved = false;
+            ModLog.Info($"Title text: wrote the {ModInfo.Name} version under the game's \"{original.Replace('\n', ' ')}\".");
+        }
+        else versionOriginal = original;
+        // Nothing cut off or wrapped: the extra lines only ever add height.
+        label.enableWordWrapping = false;
+        label.overflowMode = TextOverflowModes.Overflow;
+        label.text = original + VersionSuffix;
+        if (!versionMoved) MakeRoom(label, label.text);
+    }
+
+    /// <summary>Puts the game's version text back as it was (the title is left, or another label took over).</summary>
+    private static void RestoreVersion()
+    {
+        var label = versionLabel;
+        if (label == null || !label || versionOriginal == null) return;
         try
         {
-            for (int i = 0; i < lines.Length; i++)
+            string text = label.text ?? "";
+            if (text.EndsWith(VersionSuffix, StringComparison.Ordinal)) label.text = versionOriginal;
+            if (versionMoved)
             {
-                var (name, text, alpha) = lines[i];
-                var made = MakeLabel(parent, name, text, size, color, alpha, label);
-                made.alignment = align;
-                made.fontStyle = label.fontStyle;
-                var rect = made.rectTransform;
-                // As wide as the game's version, so the lines line up with it the same way.
-                rect.anchorMin = new Vector2(0f, parent.pivot.y);
-                rect.anchorMax = new Vector2(1f, parent.pivot.y);
-                rect.pivot = new Vector2(0.5f, 1f);
-                rect.sizeDelta = new Vector2(0f, line);
-                rect.anchoredPosition = new Vector2(0f, top - gap - i * line);
+                var rect = label.rectTransform;
+                var at = rect.anchoredPosition;
+                rect.anchoredPosition = new Vector2(at.x, at.y - versionShift);
             }
+        }
+        catch (Exception ex) { ReportOnce(ex); }
+        versionLabel = null;
+        versionOriginal = null;
+        versionMoved = false;
+    }
+
+    /// <summary>
+    /// Moves the label up when the added lines would reach below the bottom of the screen. Where the
+    /// text grows depends on its vertical alignment, read when the game has it (bottom-aligned text
+    /// grows up, top-aligned down, the rest both ways); without it, both ways.
+    /// </summary>
+    private static void MakeRoom(TMP_Text label, string after)
+    {
+        var rect = label.rectTransform;
+        var box = rect.rect;
+        float full = label.GetPreferredValues(after).y;
+        int vertical = VerticalAlignment(label);
+        float bottom = vertical is 1024 or 2048 ? box.yMin
+            : vertical is 256 or 8192 ? box.yMax - Math.Max(full, box.height)
+            : box.y + box.height / 2f - Math.Max(full, box.height) / 2f;
+        var canvas = RootCanvas(label);
+        var camera = canvas && canvas!.renderMode != RenderMode.ScreenSpaceOverlay ? canvas.worldCamera : null;
+        var centre = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(Centre(box)));
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(rect, new Vector2(centre.x, 0f), camera, out var edge)) return;
+        float margin = label.fontSize * 0.5f;
+        float shift = edge.y + margin - bottom;
+        if (shift <= 0f) return;
+        versionShift = shift * rect.localScale.y;
+        var at = rect.anchoredPosition;
+        rect.anchoredPosition = new Vector2(at.x, at.y + versionShift);
+        versionMoved = true;
+    }
+
+    private static PropertyInfo? alignmentProperty;
+    private static bool alignmentLooked;
+
+    /// <summary>
+    /// The text's vertical alignment (256 top, 512 middle, 1024 bottom, 2048 baseline, 4096 midline,
+    /// 8192 capline), or 0 when the game's TextMeshPro can't say. Read by reflection, since not every
+    /// build of the game keeps the getter.
+    /// </summary>
+    private static int VerticalAlignment(TMP_Text label)
+    {
+        try
+        {
+            if (!alignmentLooked)
+            {
+                alignmentLooked = true;
+                alignmentProperty = typeof(TMP_Text).GetProperty("alignment", BindingFlags.Public | BindingFlags.Instance);
+                if (alignmentProperty?.GetGetMethod() == null) alignmentProperty = null;
+            }
+            if (alignmentProperty == null) return 0;
+            return Convert.ToInt32(alignmentProperty.GetValue(label)) & 0xFF00;
         }
         catch
         {
-            foreach (var name in new[] { VersionName, CreditName })
-            {
-                var partial = parent.Find(name);
-                if (partial) Object.Destroy(partial.gameObject);
-            }
-            throw;
+            alignmentProperty = null;
+            return 0;
         }
-        MakeRoom(label, top - gap - lines.Length * line, top, size * 0.5f);
-        ModLog.Info($"Title text: wrote the {ModInfo.Name} version under the game's \"{label.text}\".");
-    }
-
-    /// <summary>
-    /// Moves the game's version up when the lines under it would leave the screen, keeping at
-    /// least <paramref name="margin"/> (or the game's own margin, if smaller) below them.
-    /// </summary>
-    private static void MakeRoom(TMP_Text label, float bottom, float textBottom, float margin)
-    {
-        var rect = label.rectTransform;
-        var canvas = RootCanvas(label);
-        var camera = canvas && canvas!.renderMode != RenderMode.ScreenSpaceOverlay ? canvas.worldCamera : null;
-        var center = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(Centre(rect.rect)));
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(rect, new Vector2(center.x, 0f), camera, out var edge)) return;
-        float own = textBottom - edge.y;
-        float keep = Math.Max(0f, Math.Min(own, margin));
-        float shift = keep - (bottom - edge.y);
-        if (shift <= 0f) return;
-        rect.anchoredPosition += new Vector2(0f, shift * rect.localScale.y);
-    }
-
-    /// <summary>
-    /// When the game's version number can't be found, the lines go in the title's own bottom
-    /// right corner instead.
-    /// </summary>
-    private static void CornerFallback()
-    {
-        foreach (var menu in Resources.FindObjectsOfTypeAll<MainMenu>())
-        {
-            if (!menu || !menu.gameObject.scene.IsValid() || !menu.gameObject.activeInHierarchy) continue;
-            var canvas = menu.GetComponentInParent<Canvas>();
-            if (!canvas) continue;
-            var root = canvas.rootCanvas.transform;
-            if (root.Find(CornerName)) return;
-            RememberFont(menu);
-            corner = new GameObject(CornerName);
-            corner.layer = root.gameObject.layer;
-            var rect = corner.AddComponent<RectTransform>();
-            rect.SetParent(root, false);
-            rect.anchorMin = rect.anchorMax = new Vector2(1f, 0f);
-            rect.pivot = new Vector2(1f, 0f);
-            float line = CornerSize + 4f;
-            rect.sizeDelta = new Vector2(320f, line * 2f);
-            rect.anchoredPosition = new Vector2(-6f, 6f);
-            var lines = new[] { (VersionName, VersionText, 1f), (CreditName, CreditText, CreditAlpha) };
-            for (int i = 0; i < lines.Length; i++)
-            {
-                var (name, text, alpha) = lines[i];
-                var made = MakeLabel(rect, name, text, CornerSize, LogoWhite, alpha, FindFont());
-                made.alignment = TextAlignmentOptions.TopRight;
-                var lineRect = made.rectTransform;
-                lineRect.anchorMin = new Vector2(0f, 1f);
-                lineRect.anchorMax = new Vector2(1f, 1f);
-                lineRect.pivot = new Vector2(0.5f, 1f);
-                lineRect.sizeDelta = new Vector2(0f, line);
-                lineRect.anchoredPosition = new Vector2(0f, -i * line);
-            }
-            ModLog.Info($"Title text: the game's version number wasn't found, so the {ModInfo.Name} version is in the title's corner.");
-            return;
-        }
-    }
-
-    private static void RemoveCorner()
-    {
-        if (corner != null && corner) Object.Destroy(corner);
-        corner = null;
     }
 
     // ---- shared -------------------------------------------------------------------------------
