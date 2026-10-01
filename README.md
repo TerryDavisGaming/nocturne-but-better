@@ -2,7 +2,7 @@
 
 nocturne+ is a mod for nocturne. it lets you make and share your own battles and charts, and adds quick save and quick load anywhere in the story. it also adds flat 2d upscroll and downscroll and a set of gameplay settings you pick yourself. it runs on windows and works on the base steam game, with melonloader 0.7.3 or newer, or with the bepinex 6 (build 788) that comes in the zip. NO MOD LOADER IS NEEDED: on a plain steam install, `install.cmd` sets up that bundled bepinex for you, so there's nothing else to download.
 
-[download nocturne+ 2.8.0 for windows](https://github.com/TerryDavisGaming/nocturne-plus/releases/download/v2.8.0/Nocturne-Plus-2.8.0-Windows.zip) · [latest release](https://github.com/TerryDavisGaming/nocturne-plus/releases/latest)
+[download nocturne+ 2.9.0 for windows](https://github.com/TerryDavisGaming/nocturne-plus/releases/download/v2.9.0/Nocturne-Plus-2.9.0-Windows.zip) · [latest release](https://github.com/TerryDavisGaming/nocturne-plus/releases/latest)
 
 use the RELEASE ZIP to install. github's source download doesn't include the plugin or the loader payload.
 
@@ -12,7 +12,7 @@ use the RELEASE ZIP to install. github's source download doesn't include the plu
 - [GET CUSTOM BATTLES](#get-custom-battles) on the title screen opens the mod's online hub, where you find and download battles and custom difficulties that other players made, and upload your own. the mod only contacts the hub while that page is open, and the online hub row in options > custom charts turns it off.
 - FLAT 2D UPSCROLL AND DOWNSCROLL, with compact vertical health and energy bars beside the chart, and the enemy's armor badge and statuses beside its bars, moved below the game's enemy info boxes when those would cover them. you set the [receptor height, note size and lane spacing](#gameplay-settings) yourself.
 - [CUSTOM DIFFICULTIES](#custom-difficulties-and-the-chart-editor) for the game's own songs, made in an [in-game chart editor](#the-chart-editor) like osu!mania's, with a test button that plays your chart in a real battle, and shared as one `.nbbchart` file or on the hub. the one you pick (in options > custom charts, or with the custom entry the mod adds below zen on the game's difficulty screen) plays instead of the game's chart for that song, on any difficulty.
-- [QUICK SAVE AND QUICK LOAD](#quick-save-and-quick-load) anywhere in the story: f5 saves wherever you can walk around, into the game's autosave so your own save slots are never written over, and f9 takes you back to your latest save. they stay off until you turn them on with one row at the bottom of options > gameplay, and either key can be changed.
+- [QUICK SAVE AND QUICK LOAD](#quick-save-and-quick-load) anywhere in the story, in 12 slots of their own: ctrl+f1 saves slot 1 wherever you can walk around, and f1 on its own takes you back there, so you can PRACTICE ONE PART OF A CHAPTER over and over. your own save slots are never written over. they stay off until you turn them on at the bottom of options > gameplay, and the keys and the save modifier can be changed.
 - an [ARCADE ON THE MAIN MENU](#the-arcade-on-the-main-menu) that plays the songs you've unlocked and every custom battle you've added, without changing your place in the story. it has its [own gear](#gear-in-the-arcade), picked right there, and two rows in options > gameplay add infinite consumables for arcade battles and let that gear use all items (a battle with an item your save doesn't own saves no score and counts for no achievements).
 - CIRCLE AND ARROW [NOTE SKINS](#gameplay-settings), in every scrolling mode.
 - an EARLY/LATE [TIMING BAR](#gameplay-settings) like osu!'s hit error meter, next to the receptors, or above the enemy in 2d upscroll.
@@ -21,6 +21,8 @@ use the RELEASE ZIP to install. github's source download doesn't include the plu
 - a switch for [NOTE FLARES](#gameplay-settings), the burst on a receptor when you hit or hold a note. mine explosions always show.
 - a [PREVIEW OF THE NOTE COLORS](#gameplay-settings) under the game's note colors row, next to the red of a mine.
 - [AKUMA](#gameplay-settings), a note color palette of the mod's own that colors each lane by the controller button it's bound to, like the frets on a guitar.
+- [YOUR OWN NOTE COLORS](#your-own-note-colors): make your own palettes, like the game's kimothy, with ANY COLOR ON EACH LANE, and pick them in the game's note colors row like its own.
+- a [PERFORMANCE](#performance) setting in options > graphics: normal (the game as it ships), optimized (the mod's own work per frame cut by about 40% and its once-a-second hitch gone, and it LOOKS EXACTLY THE SAME), or potato for weak pcs (quicker fades, lighter effects).
 - alt, tab and the windows key [NO LONGER START A BATTLE](#gameplay-settings) by accident at the "press any key" prompt.
 - [GOLD CHAPTER BUTTONS](#gameplay-settings) on the arcade and high scores screens, once every encounter in the chapter is mastered.
 - a ONE-CLICK [INSTALLER](#install) that picks your loader, keeps your saves and settings and turns off an older copy of the mod, and an [uninstaller](#remove-it) that keeps everything you made.
@@ -34,19 +36,19 @@ it started out as nocturne flat scroll and was then called nocturne but better. 
 ## install
 
 1. install nocturne through steam, then close the game.
-2. download the [release zip](https://github.com/TerryDavisGaming/nocturne-plus/releases/download/v2.8.0/Nocturne-Plus-2.8.0-Windows.zip) and EXTRACT THE WHOLE FOLDER. don't run the installer from inside the zip. github's source download won't do, because it doesn't have the plugin or the loader.
+2. download the [release zip](https://github.com/TerryDavisGaming/nocturne-plus/releases/download/v2.9.0/Nocturne-Plus-2.9.0-Windows.zip) and EXTRACT THE WHOLE FOLDER. don't run the installer from inside the zip. github's source download won't do, because it doesn't have the plugin or the loader.
 
    the extracted folder has `install.cmd`, `uninstall.cmd`, `enable-fullscreen-fix.cmd` and `restore-fullscreen-fix.cmd` (they run `install-nocturnemod.ps1` and `set-nocturnefullscreenfix.ps1`), a `start-here.txt` with the same steps, the technical notes, and a `payload` folder with the three files the installer copies: `nocturneplus.dll` (the bepinex plugin), `nocturneplus.melonloader.dll` (the melonloader mod) and `bepinex-il2cpp-x64-788.zip` (the unchanged official bepinex loader). `sha256sums.txt` has the hashes of every file, and `source`, `licenses` and `third-party-source` hold the source code and licenses.
 3. double-click `install.cmd`. it finds the game in your steam libraries by itself. if it can't, or it finds more than one copy, it asks for the folder: in steam, go to nocturne > manage > browse local files and paste the path of the folder that holds `nocturne.exe`.
 4. read what it prints. it runs all its checks before it writes anything to the game folder, and if copying fails partway, it takes back the files it copied and puts back any older copy it moved or turned off. at the end it says what it installed and waits for a key press.
 5. launch nocturne through steam. the first launch can take longer and may need internet access while the loader prepares files. let it finish.
-6. open options > gameplay for the mod's settings. the hit sound and miss sound settings are in options > audio. [gameplay settings](#gameplay-settings) goes through every row.
+6. open options > gameplay for the mod's settings. the hit sound and miss sound settings are in options > audio, and [performance](#performance) is in options > graphics. [gameplay settings](#gameplay-settings) goes through every row.
 
-the 2.8.0 installer HASN'T BEEN RUN ON A GAME FOLDER yet: it was only checked to parse, and the part that turns off the old copy ran against made-up copies (see [what was tested](#what-was-tested)).
+the installer wasn't part of the in-game tests: it was tested on its own, in test copies of the game files, and it HASN'T BEEN RUN ON A REAL GAME FOLDER (see [what was tested](#what-was-tested)).
 
 this package supports windows x64, steam nocturne 1.0.1, build 25487568. these installers don't support macos, linux or steam deck. the installer checks the game files and steam's build number, and it refuses unknown builds or conflicting loader files without changing anything. it checks the game's code and its original layout files, so if you used an earlier experimental layout patch, restore those files first. a steam update needs another compatibility check: if the installer refuses your game after one, use a package updated for that version. the installer doesn't change your saves, scores, preferences, other mods or display settings.
 
-if access is denied, right-click the `.cmd` file and run it as administrator. if the mod's rows are missing from options, make sure the zip was fully extracted before you ran `install.cmd`, and look in `bepinex\logoutput.log` or `melonloader\latest.log` in the game folder. when the mod starts, the log gets the line `Nocturne+ 2.8.0 loaded; its settings are in Options > Gameplay and Options > Audio.`
+if access is denied, right-click the `.cmd` file and run it as administrator. if the mod's rows are missing from options, make sure the zip was fully extracted before you ran `install.cmd`, and look in `bepinex\logoutput.log` or `melonloader\latest.log` in the game folder. when the mod starts, the log gets the line `Nocturne+ 2.9.0 loaded; its settings are in Options > Gameplay and Options > Audio.`
 
 `install.cmd` passes extra options on to the installer: `-loader` (below), and `-gamepath "<game folder>"`, which skips the search. the [technical notes](TECHNICAL-NOTES.md) have the full powershell commands, including a preview that runs the checks and changes nothing.
 
@@ -68,7 +70,11 @@ melonloader users can also install by hand: copy `nocturneplus.melonloader.dll` 
 
 ### upgrading from an older version
 
-run `install.cmd` from the new zip, the same way as a first install. it replaces an older copy of nocturne+ and keeps the old dll beside the new one as a `.backup-` file. running it again on the same version changes nothing. the first 2.8.0 test build upgrades like any other copy. that build had one switch for quick save and one for quick load. the new quick save & load switch starts on if either of them was on.
+run `install.cmd` from the new zip, the same way as a first install. it replaces an older copy of nocturne+ and keeps the old dll beside the new one as a `.backup-` file. running it again on the same version changes nothing. 2.8.0 and the first 2.8.0 test build upgrade like any other copy.
+
+from 2.8.0, the quick save & load switch stays as you had it, but 2.8.0's keys (f5 to save, f9 to load) aren't kept. the quick save slots take their place, so with the switch on, F5 NOW LOADS SLOT 5 and ctrl+f5 saves it (see [quick save and quick load](#quick-save-and-quick-load)).
+
+the first 2.8.0 test build had one switch for quick save and one for quick load. the quick save & load switch starts on if either of them was on.
 
 before 2.8.0 the mod was called nocturne but better (and before that nocturne flat scroll), and its files were `nocturneflatscroll.dll` in `bepinex\plugins\nocturneflatscroll` and `nocturneflatscroll.melonloader.dll` in `mods`. `install.cmd` turns that old copy off (it keeps it as a `.disabled-` file) and puts in the new one, for either loader, so the old and the new dll don't both start. it knows every released build of the old files. an unknown file at any of the mod's dll paths, old name or new, stops the installer (and `uninstall.cmd`) before anything changes. the installer only accepts the dlls it knows, so a build you made yourself has to be copied by hand. turning off the old copy HASN'T BEEN TRIED IN THE GAME yet: it only ran with made-up copies (see [what was tested](#what-was-tested)).
 
@@ -350,7 +356,7 @@ on your pc, the hub's own files are in `...\nocturnebutbetter\hub`: the key (`id
 
 ## gameplay settings
 
-open options > gameplay, from the main menu or the pause menu. the mod adds eleven rows right above speed mod, in this order: note scrolling, receptor height, note size, lane spacing, note skin, note flares, timing bar, timing bar position, enemy attack opacity, infinite consumables (arcade) and all items (arcade gear). three more sit at the bottom of the page: quick save & load, quick save key and quick load key, which are explained under [quick save and quick load](#quick-save-and-quick-load). [custom difficulties](#custom-difficulties-and-the-chart-editor) have their own page, and the [battle creator](#the-battle-creator) opens from it.
+open options > gameplay, from the main menu or the pause menu. the mod adds eleven rows right above speed mod, in this order: note scrolling, receptor height, note size, lane spacing, note skin, note flares, timing bar, timing bar position, enemy attack opacity, infinite consumables (arcade) and all items (arcade gear). three more sit at the bottom of the page: quick save & load, quick save modifier and quick save slot, which are explained under [quick save and quick load](#quick-save-and-quick-load). [custom difficulties](#custom-difficulties-and-the-chart-editor) have their own page, and the [battle creator](#the-battle-creator) opens from it.
 
 the hit sound and miss sound settings are in options > audio, under sound effects: hit sound, hit sound volume, miss sound and miss sound volume, right after the ui volume slider.
 
@@ -388,6 +394,20 @@ the note colors row also has a palette of the mod's own, akuma, at the end of th
 
 on a keyboard the lanes are ALWAYS green, red, blue, yellow, whatever your controller bindings are, and if you switch between the keyboard and a controller the colors switch with you from the next note. notes already on screen keep theirs. when you rebind the controller, the colors change to match within a second, in the preview too. buttons count by their place on the pad, so on a playstation pad cross is green, circle red, square blue and triangle yellow, and a guitar controller's frets count as a, b, y, x and lb. the red is a darker crimson than the mines' red, so red notes and mines stay easy to tell apart. like the game's palettes, akuma colors the notes and holds, and the receptors, flares and mines look the same as always. if you take the mod out while akuma is picked, the game goes back to karma.
 
+### your own note colors
+
+right under the note colors row and its preview is CUSTOM NOTE COLORS. click it (or press enter on it) to open a page where you make your own palettes. each one gives the four lanes and the middle lane of five-lane charts a color of their own, and it's listed in the note colors row after the game's palettes and akuma, so you pick it there like any other. you can have up to 24.
+
+- NEW PALETTE starts as a copy of any palette: the one in use now, one of the game's, akuma, or one of yours. the list shows each one's notes next to it as you move through it.
+- pick a palette to change it: its name, each lane, USE THESE COLORS FOR YOUR NOTES, MAKE A COPY, and DELETE. deleting the palette in use puts your notes back on karma.
+- pick a lane to change its color: type it as hex (like #3478DD), move its HUE, SATURATION and BRIGHTNESS with left and right (hold shift for finer steps), pick one of 20 PRESETS (type the first letters of a name to jump to it), or COPY another lane's colors.
+
+a note has three shades: its color, its accents (also used for the hold), and its line work. the accents and line work are WORKED OUT FROM THE COLOR, the way the game's own palettes pair them, unless you type your own on the lane's page. a new color resets them to worked-out ones, so set your own shades last.
+
+a big preview on the right draws your palette on notes in your note skin, next to a mine. it warns you when a lane LOOKS CLOSE TO THE MINES' RED (mines keep their red whatever the palette, so a note that looks like one is the one that trips you up) or is hard to see on the lanes. it's only a warning, and you can keep any color you like.
+
+the page works with the mouse, the keyboard (up and down, enter, left and right on a slider, esc goes back) and a controller (a picks, b goes back, the d-pad moves). changes are saved as you make them, in `nocturnebutbetter\notecolors.json` next to your saves. if you take the mod out while one of your palettes is picked, the game goes back to karma.
+
 enemy attack opacity makes the enemy see-through while it attacks, so the notes behind it stay readable. it goes from 0% (invisible) to 100% (unchanged, the default) in 10% steps and works in every scrolling mode. most attacks are drawn as part of the enemy's own animation, like the firefly's beam, so the whole enemy fades for the length of the attack and comes back when the attack ends, taking about a tenth of a second each way. its shadow and any sidekicks fade with it. effects that only show up as attacks, like the vines that grow over the lanes, stay faded the whole time they're on screen. the game's own flashes and tints still show, and a defeated enemy is left alone so its death plays normally.
 
 infinite consumables (arcade) starts off. when it's on, using a consumable in an arcade battle doesn't use it up. the game's own limits stay, so you still get one use per battle, and the cooldown still applies. it works in the main menu's arcade and in the story's arcade cabinet, for the game's songs and for custom battles that use your own gear. a [custom battle that sets your gear](#gear-and-level) uses up its own consumable as usual and never touches yours. the [arcade gear](#gear-in-the-arcade) keeps its own copy of your items, and that copy follows the setting too: with it off, each use counts it down for the rest of your visit, so every later battle has one fewer.
@@ -398,7 +418,7 @@ in options > audio, hit sound plays a short tick when you hit a note, and it sta
 
 miss sound, also in options > audio, turns the game's miss sound on or off. it's the same setting as note miss sounds in options > gameplay, so changing one changes the other. turning it on plays a miss a moment later. miss sound volume goes from 10% to 300% in 10% steps, and 100% is the game's normal level. at any other level the mod plays the miss itself, from its own sound source turned up or down, so the music and the other sounds don't change. at those levels a failed hold plays one miss, although the game sends two. changing the volume plays a miss a moment later so you can hear it, even while miss sound is off, and the game's sound effect volumes still apply. critical misses are already louder than normal ones, and the game's audio limiter stops them getting much louder past about 160%.
 
-reset to default in options > gameplay puts the fourteen gameplay rows back: note scrolling to default, receptor height to 0%, note size and lane spacing to 100%, note skin to default, note flares on, timing bar off, timing bar position to below enemy, enemy attack opacity to 100%, infinite consumables and all items off, quick save & load off, and the quick save and quick load keys to f5 and f9. the game's own reset there also turns miss sounds back on and picks karma for the note colors. like the game's own sound settings, the rest of the audio page has no reset, so the hit sound settings and the miss sound volume stay as they are.
+reset to default in options > gameplay puts the fourteen gameplay rows back: note scrolling to default, receptor height to 0%, note size and lane spacing to 100%, note skin to default, note flares on, timing bar off, timing bar position to below enemy, enemy attack opacity to 100%, infinite consumables and all items off, quick save & load off, the quick save modifier to ctrl, and the slot keys to f1 through f11 (slot 12 with none). the game's own reset there also turns miss sounds back on and picks karma for the note colors. like the game's own sound settings, the rest of the audio page has no reset, so the hit sound settings and the miss sound volume stay as they are.
 
 at the "press any key" screen before a battle, alt, tab, and the windows key DON'T COUNT, so alt-tabbing away or opening the start menu won't start the fight. alt or windows held together with another key doesn't count either, since those are windows shortcuts, and altgr counts as alt. tab only blocks on its own, so tab with another key still counts. no key counts while the game window isn't focused, and a shortcut that a hotkey tool or macro sends all at once is still caught. any other key, or a controller button, still starts it. other "press any key" screens, like the title screen, are unchanged. this filter is always on and has no row.
 
@@ -406,25 +426,36 @@ in arcade and high scores, the game marks an encounter you've mastered with gold
 
 ## quick save and quick load
 
-quick save & load is one switch at the bottom of options > gameplay, with the quick save key and quick load key rows right under it. it STARTS OFF, and it turns both keys on or off. you can change the keys with the switch on or off.
+quick save & load is one switch at the bottom of options > gameplay, with the quick save modifier and quick save slot rows right under it. it STARTS OFF.
 
-- the quick save key, f5 to start with, lets you save the story ANYWHERE YOU CAN WALK AROUND. it saves the way the game's own autosave does, into the autosave (`prodautosave.sav`), so the save slots you saved by hand are NEVER WRITTEN OVER.
-- the quick load key, f9 to start with, lets you GO BACK TO YOUR LATEST SAVE, the way the game over screen's quick load does. that's your last quick save, unless the game has saved since (an autosave, or a save you made at a save point). a custom battle's [set gear](#gear-and-level) never carries into a quick load.
+there are 12 QUICK SAVE SLOTS, each a file of its own. with the switch on:
 
-2.8.0's quick save and quick load HAVEN'T BEEN TRIED IN THE GAME yet (see [what was tested](#what-was-tested)).
+- hold ctrl and press a slot's key to SAVE the story there, anywhere you can walk around. slot 1 is f1, slot 2 is f2, and so on up to slot 11 on f11. slot 12 starts with no key, because f12 is steam's screenshot key and every screenshot would load it.
+- press a slot's key ON ITS OWN to LOAD that slot. you come back exactly where you saved it, facing the same way.
 
-to change a key:
+this is made for PRACTICING ONE PART OF A CHAPTER: save in the room BEFORE the part you want to practice, then walk in. loading straight into a room can set it up differently from arriving there after a cutscene, so walking in from the room before gives you that part the way it comes in normal play. load the slot to try again as many times as you like. a slot keeps its save until you save over it.
 
-1. click its row (quick save key or quick load key). the row shows "press a key..." and a message at the top of the screen says, for example, "quick save key: press a key (esc keeps f5)". the menus underneath don't move, select or go back while it waits.
-2. press the new key, with ctrl, shift or alt if you like. the message shows the new key, like "quick save key: ctrl+f6", and it's saved right away.
+a quick save goes through the game's own autosave, the same save its own quick save points make, and is then copied into its slot, `prodsavef1.sav` to `prodsavef12.sav` next to the game's saves. so the save slots you saved by hand are NEVER WRITTEN OVER, and your autosave is also your latest quick save. loading never writes a file, and the game's load game menu doesn't list the quick save slots.
 
-esc, a left or right mouse click, waiting 10 seconds, or leaving the game window keeps the old key, and the message says "kept the old key". only keyboard keys count, and esc, the windows keys, and ctrl, shift or alt on their own can't be picked. a key works only with exactly the ctrl, shift and alt it was set with: f5 on its own doesn't fire on shift+f5, and ctrl+f5 doesn't fire on plain f5.
+after a quick load, the game over screen's quick load takes you back to that same slot, until the game saves again (for example its autosave when you walk into another area). a custom battle's [set gear](#gear-and-level) never carries into a quick load. a slot saved in another playthrough (another of the game's save slots) isn't loaded, and the message says which one it's from.
 
-left and right on the row step through f1 to f12, and wrap around from f12 to f1. from a key that isn't one of those, right goes to f1 and left to f12. a key picked this way has no ctrl, shift or alt.
+the rows:
 
-one key does one thing, so giving quick load the quick save key takes it off quick save, and that goes for stepping onto it with left and right too. the quick save key row then shows "(none)" until you give it a key again. reset to default in options > gameplay turns quick save & load off and puts the keys back to f5 and f9. the switch and the keys are saved on that pc.
+- quick save modifier: ctrl or shift, CTRL TO START WITH. shift is also the game's run key, so with shift, a slot key pressed while running saves instead of loading.
+- quick save slot: left and right step through slots 1 to 12. each shows its key and when it was saved, like "3: f3 (saved 12m ago)", or "(empty)".
 
-a short message at the top of the screen says what happened: "quick saved", "quick loading...", or why it can't. neither works on the title, in a battle, during a cutscene or dialogue, while the game is fading between screens or paused, in the arcade, or during a chart editor test. the mod's own pages keep their keys, so f5 still tests a chart in the chart editor.
+to change a slot's key:
+
+1. step to the slot and click the row. it shows "press a key..." and a message at the top of the screen says, for example, "slot 3: press a key (esc keeps f3)". the menus underneath don't move, select or go back while it waits.
+2. press the new key: a function key, a number key (the top row or the numpad), insert, delete, home, end, page up or page down. the game's own keys, like the arrows, enter, space and the lane keys, are turned away with a message, and it keeps waiting. the new key is saved right away.
+
+esc, a mouse click, a controller button, waiting 10 seconds, or leaving the game window keeps the old key, and the message says "kept the old key". one key does one thing: giving a slot a key that another slot has swaps the two, and the message says so, like "slot 5: f6 (slot 6 now has f5)". reset to default in options > gameplay turns quick save & load off, sets the modifier to ctrl and the slot keys back to f1 through f11. the switch, the modifier and the keys are saved on that pc. the slots' files stay.
+
+a slot key SAVES ONLY WITH EXACTLY THE SAVE MODIFIER held, and LOADS ONLY WITH NO CTRL OR ALT held (shift is fine when it isn't the save modifier, since it's the run key). anything else does nothing, so alt+f4, an overlay's alt shortcut, ctrl+shift with a slot key and the windows key never touch your saves.
+
+the quick save slots were tested in the game with bepinex and with melonloader (see [what was tested](#what-was-tested)).
+
+a short message at the top of the screen says what happened: "quick saved to slot 3", "quick loading slot 3...", or why it can't. neither works on the title, in a battle, during a cutscene or dialogue, while the game is fading between screens or paused, in the arcade, or during a chart editor test. the mod's own pages keep their keys, so f5 still tests a chart in the chart editor.
 
 when it can't, the message is "can't quick save" or "can't quick load" and then the reason:
 
@@ -437,15 +468,59 @@ when it can't, the message is "can't quick save" or "can't quick load" and then 
 
 the other messages:
 
-- "nothing to quick load: there's no save yet".
-- "can't quick save: the game's saves aren't ready".
-- "quick load isn't available here": the game over screen, whose quick load it uses, isn't loaded.
+- "nothing to quick load in slot 3": that slot has no save yet.
+- "slot 3 is from another playthrough (the game's save slot 2)".
+- "slot 3's save can't be read (see the log)": its file is damaged, so nothing is loaded.
+- "still saving slot 3": the last quick save is still being copied into its slot.
+- "hold ctrl until the slot key is down to save, or let go of it first to load": ctrl was let go just as the slot key came in, so it can't tell which you meant, and nothing happens.
+- "can't quick save: the game's saves aren't ready" (and the same for quick load).
+- "quick load isn't available here": the game's load game menu, whose load it uses, isn't loaded.
 - "quick save didn't work (the game said no)".
-- "quick save failed (see the log)" and "quick load failed (see the log)".
+- "quick save to slot 3 didn't finish (see the log)": the game didn't write its autosave, so the slot stayed as it was.
+- "quick save failed", "quick save to slot 3 failed" and "quick load failed", each with "(see the log)".
 
 sometimes a key does nothing and no message shows: when the switch is off, when the game window isn't in focus, on the title, and while one of the mod's own pages is open. those pages are the chart editor (a test played from it counts too), the [battle creator](#the-battle-creator), [gear in the arcade](#gear-in-the-arcade) and [get custom battles](#get-custom-battles). the keys also work at most once every 1.5 seconds.
 
-quick save and quick load use the game's own save and load, which the mod looks up when the game starts. nothing in the game is patched for them. if this version of the game doesn't have one of them, that key only says so ("quick save isn't available: the game's autosave can't be called" or "quick load isn't available: the game's quick load isn't there") and the log says why, and the rest of the mod works as usual. the log is `bepinex\logoutput.log` or `melonloader\latest.log` in the game folder.
+quick save and quick load use the game's own save and load, which the mod looks up when the game starts: the autosave its quick save points make, and its load game menu's load. nothing in the game is patched for them. if this version of the game doesn't have one of them, that half only says so ("quick save isn't available: the game's autosave can't be called" or "quick load isn't available: the game's load game call isn't there") and the log says why, and the rest of the mod works as usual. the log is `bepinex\logoutput.log` or `melonloader\latest.log` in the game folder.
+
+## performance
+
+options > graphics has a PERFORMANCE row, under corruption effects, with three choices. it STARTS ON NORMAL.
+
+- NORMAL is the game as it ships. nocturne+ changes nothing to make it faster.
+- OPTIMIZED makes nocturne+ itself do less work each frame, and the game LOOKS AND PLAYS EXACTLY THE SAME as on normal, minus the mod's own stalls.
+- POTATO is for weak pcs. it does everything optimized does, plus changes you can see: quicker fades, lighter bloom, blur and 2d lights, a lower resolution on 4k screens, and the game's own lighter combat backgrounds and corruption effects.
+
+you can change it any time, from the title or from a battle's pause menu, and it takes effect at once.
+
+### what optimized does
+
+- on normal, nocturne+ searches the game's objects once a second, and on the test pc each search took about 5 to 10 ms. on optimized it searches only when something new can have appeared, like a scene loading or a battle or menu starting. its safety check every 10 seconds waits for a pause, a menu, dialogue or a load, so it never lands in the middle of a song or a walk.
+- the hud (health bars, enemy info, meters) is laid out with the mod's own math instead of asking the game for every min, max, rectangle and vector. the results are the same bit for bit: the qa compared both ways over 11 million times with no difference.
+- the flat previews on the latency and difficulty screens aren't laid out again while they're hidden. they're laid out on the frame they show, before it's drawn, so they look the same.
+- the hooks that play custom charts' scroll speed changes (`#SCROLLS`) go in only once a chart that has them is played (0.1 to 0.17 s, behind the black screen before that battle), so the notes of every other battle run on the game's own code alone.
+- the note skin's and timing bar's pictures are drawn before your first battle (on a background thread at the title or in the story, then one picture a frame), and their pixels are copied in one go instead of one at a time. the first battle of a session no longer stops for the note skin's when its first notes appear: on the test pc a 17 to 20 ms stall there is gone, and the mod's own work on the black frame as that battle starts went from about 96 ms to about 48 ms. the pictures are the same byte for byte. with the arrow skin in five-lane charts, the middle lane's pictures are still made when they first show.
+- a custom song's volume settings are read when the song starts and again whenever they can change (while the game is paused), instead of on every frame.
+- custom enemy art that was loaded for a card you didn't play is let go after the battle, not in the middle of it.
+- while a scene loads behind the fully black screen, the game gets more of each frame to load it. nothing moves on a black screen, so nothing looks different, and the moment something could show it goes back to the game's own pace. on the test pc, loading was already as fast as it gets, so this didn't make it quicker there.
+
+in a 25 second battle on the test pc (2d scroll, a note skin, the timing bar on), the mod's time per frame went from 0.58 ms on normal to 0.35 ms, its slowest frame from 10.8 ms to 2.5 ms, frames that missed the screen's 165 hz from 30 to 2 (in one run each), and the game's own garbage collections from 24 to 8. at the title and in the story, the mod's time per frame went from 0.24 to 0.09 ms and its slowest frame from about 7 ms to about 1 ms.
+
+### what potato adds
+
+- scene and room fades twice as quick, and the fade-in starts during the game's own quarter second of black when nothing is still arriving (followers, a cutscene). on the test pc, walking through a door into the next room went from 2.8 to 1.86 seconds on average (3.4 to 2.4 from the slums arcade into the city, 2.25 to 1.3 back), a quick load from 2.0 to 1.0, continue from 2.1 to 1.1, and going back to the title from 1.87 to 0.89. the loading itself takes as long as on normal. the time saved is all in the fades.
+- a 0.35 second fade into arcade battles of the game's own songs (from the title's arcade), instead of 1.5 seconds each way. a custom battle without custom art gets it too when you play it again right after playing it, because its song is still loaded (1.55 s to 0.41 s to get into the battle). other custom battles keep the full fade, which they need to load behind. a custom difficulty with its own song file gets the short one only when its song is still loaded from the last play.
+- the game's own lighter settings for COMBAT BACKGROUNDS (non-animated) and CORRUPTION EFFECTS (reduced), the ones the game picks by itself for graphics cards with 2 gb or less. they GO BACK to how you had them when you leave potato. if you change either one yourself while on potato, your choice stays, then and after a restart.
+- the game's cheap bloom on every camera. the game's own cheap bloom setting misses the battle camera, where the strongest bloom is.
+- on screens of 2160 lines (4k) and more, the game draws 1080 lines and scales them up. the game's scaling SOFTENS EDGES A LITTLE. smaller screens keep their full resolution, because there the scaling would blur the pixel art. a change of screen or window mode is followed on the next frame.
+- the 2d lights drawn at one light pixel per art pixel, coarser than the game draws them (half as fine at 1080p and on 4k screens). their edges get a little softer.
+- the blur behind the menus at half resolution.
+- 30 frames a second while the game is in the background, outside battles or from a paused battle.
+- when you leave potato, the combat background's saved picture (about 60 mb of video memory at 4k) is let go.
+
+potato's resolution, bloom, blur and light changes save work on the graphics card, so they help most on laptops and weak graphics cards. on the test pc (an rtx 3080 on a 4k screen) the frame rate was already the screen's 165 in every mode, and potato made the graphics card draw far less power: 100 w instead of 224 w in a battle (651 mhz instead of 1965), and 5 to 10 w less at the title and in the story.
+
+everything except combat backgrounds and corruption effects lasts only while the game runs, and goes back the moment you pick another choice. those two are saved by the game. `uninstall.cmd` puts them back too, if you uninstall while on potato. if you take the mod out another way, switch performance to normal first, or set those two back yourself in options > graphics.
 
 ## custom difficulties and the chart editor
 
@@ -490,7 +565,7 @@ the folder is `%userprofile%\appdata\locallow\pracystudios\nocturne\nocturnebutb
 
 ### the chart editor
 
-the editor works like osu!mania's. open it with the chart editor row on the custom charts page (while it's open, the game's menus underneath are locked), then:
+the editor works like osu!mania's. open it with the chart editor row on the custom charts page (while it's open, the game's menus underneath are locked, to the mouse too), then:
 
 1. pick a song. the list has every game song with a chart, with its lanes and melodies, except the fights that share a score, custom battles, and the game's calibration and fishing test tracks. type to filter, up and down move one, page up and page down move ten, and a click or enter picks. esc closes the editor.
 2. on a song with more than one melody, pick a melody. each melody has its own music.
@@ -644,7 +719,7 @@ this is the full reference for the battle creator. for the short version, see [m
 
 ### the battle creator
 
-open the custom charts page (custom charts on the main menu, right below options, or the custom charts tab in options) and choose battle creator, the second row. it won't open while the chart editor is open, and the game's menus underneath are locked until you close it. its list starts with:
+open the custom charts page (custom charts on the main menu, right below options, or the custom charts tab in options) and choose battle creator, the second row. it won't open while the chart editor is open, and the game's menus underneath are locked, to the mouse too, until you close it. its list starts with:
 
 - new battle... pick a song file (`.ogg`, `.mp3`, `.wav`, `.flac`, `.m4a` or `.wma`, up to 512 mb), then 4 or 5 lanes. in five lanes the middle lane is played with the attack key. the lane count CAN'T CHANGE LATER: for the other number, make another battle. the creator makes a folder named after the song (with " (2)" and so on when that name is taken), copies the song into it, and starts an empty chart at 120 bpm with a mantis as the enemy. the title starts as the song file's name, and the charter as the charter name you last typed. the new battle opens on its info page.
 - new battle from an osu!mania beatmap (.osz)..., tagged "beta, not recommended" (see [below](#importing-an-osumania-beatmap-beta)).
@@ -789,15 +864,41 @@ a `.creator-work` folder inside the battles folder holds battles while they're b
 
 ## the title screen
 
-the title screen and the nocturne card in the startup intro read "nocturne+". a + follows the logo, just after its last letter and raised a little, in the game's menu font and off-white like the logo. the title's logo changes as the story goes on, and the + follows whichever one is showing. on the intro card it fades in and out with the logo.
+the title screen and the nocturne card in the startup intro read "nocturne+". a + follows the logo, just after its last letter, as tall as the letters and centered on them, in the game's menu font and off-white like the logo. the title's logo changes as the story goes on, and the + follows whichever one is showing. on the intro card it fades in and out with the logo.
 
-at the bottom right of the title's menu, the game's version ("nocturne 1.0.1") gets two more lines in exactly its style: "nocturne+ 2.8.0" and "by terrydavisgaming". they're part of that same text, so they only show where it does, and leaving the title puts the game's text back. none of it shows during play. if the longer text would come within half a line of the bottom of the screen, it moves up to make room. if the mod can't find the game's version there, it adds nothing and the log says so.
+at the bottom right of the title's menu, the game's version gets the mod's after it, in exactly its style: "nocturne 1.0.1 / nocturne+ 2.9.0 by terrydavisgaming". it's part of that same text, so it only shows where the game's does, and leaving the title puts the game's text back. none of it shows during play. if the mod can't find the game's version there, it adds nothing and the log says so.
 
-like the rest of 2.8.0's changes, this HASN'T BEEN TRIED IN THE GAME yet (see [what was tested](#what-was-tested)).
+in 2.8.0 the version lines went into a copy of that text the game doesn't show. since then they go into the one it does (see [what was tested](#what-was-tested)).
 
 ## what was tested
 
-2.8.0's changes HAVEN'T BEEN TRIED IN THE GAME yet. those changes are the new name and its files, the + and the version on [the title screen](#the-title-screen), [quick save and quick load](#quick-save-and-quick-load), and the way the installer handles the old `nocturneflatscroll` copy. everything else is the same as in 2.7.0. the 2.8.0 installer was only checked to parse, and the part that turns off the old copy ran with made-up copies. the whole installer HASN'T BEEN RUN ON A GAME FOLDER yet. the 2.8.0 dlls were built without the game, against copies of the game's interfaces rebuilt from 2.7.0's dlls. built that way, 2.7.0's source comes out byte for byte the same as the published 2.7.0 dlls, so everything 2.7.0 did works the same. the [technical notes](TECHNICAL-NOTES.md) explain how.
+version 2.9.0 was tested in the game on nocturne 1.0.1 with bepinex 6.0.0-be.788 and with melonloader 0.7.3, in qa builds (the release source plus test hooks). THE WHOLE CURRENT SOURCE RAN ON BOTH LOADERS, so these runs also covered what 2.8.0 added and never had tried in the game: the new name, the title screen, and quick save and quick load in their new form. every run took a snapshot of the player's plugin, settings and saves first and put it back afterwards. no run changed a story `.sav` file, and no melonloader run logged a "native->managed trampoline" error or an exception. everything below ran on both loaders unless it says otherwise.
+
+- SETTINGS THAT CHANGED BY THEMSELVES. in 2.8.0 and before, the chart editor and the battle creator let mouse clicks through to the game's options menu hidden underneath them, so a click or a drag in the editor could land on the graphics page's window mode row or an audio volume slider: the game suddenly went windowed, or a volume dropped to 0%, and the game saved it when options closed. a qa run clicked where those rows are, with each editor open: on the old build the game went windowed and master volume went to 0% (10 checks on bepinex, 6 failed), and with the fix nothing under the editor changed (10 of 10 on each loader). two of the game's own slips are guarded as well: closing the game on the latency test's video step no longer saves master volume as 0%, and leaving the latency test's song without finishing it puts overworld sound effects back. those two were checked in the game's code, not played through in qa. the log now notes every change of window mode or volume with what did it (a click, a key, the pad) and whether a mod screen was open.
+- [quick save and quick load](#quick-save-and-quick-load): 31 of 31 checks on each loader, with real key presses. saves at two places, then loads of each slot in turns, brought the player back to the exact spot, facing and floor of that slot. a load while a newer manual save existed still went to the slot, and the game over screen's quick load went back to the last slot loaded. a slot key pressed while running (shift) loaded, ctrl+shift did nothing, a slot from another playthrough was refused, and on the pause screen neither key did anything (the load was refused as paused, and the save was stopped because ctrl was let go before the key). rebinding worked too: a slot got a new key, two slots swapped keys, and a game key was turned away.
+- [your own note colors](#your-own-note-colors): 31 of 31 checks on each loader. the page was driven with real keys: a new palette from kimothy, a rename, a lane by hex, a slider there and back, a preset picked by typing its first letters, a lane copied from another, an accents shade of its own, "use", and a copy made and deleted. the file, the game's note colors row and the preview matched. in a four-lane battle (default skin) and a five-lane one (circle skin), every tap note drawn had its lane's colors. the page also opened from the story's pause menu.
+- [performance](#performance): 30 of 30 checks on each loader in the menus and the story, and 12 of 12 in battles. the measuring runs (bepinex) passed 8 of 8 in battles and 19 of 19 at the title, in the story and in room changes.
+  - the row was driven with real keys. each choice made its changes, and going back put everything back exactly.
+  - a setting changed by hand on potato stayed the player's, through the startup check too, also when potato had found it already on.
+  - switching from fullscreen to windowed and back on potato, the lower resolution and the 2d lights followed the screen on the very next frame both ways.
+  - the calibration preview was the same in optimized and normal on the first frame it showed and a second later.
+  - the hud's own math was checked against the game's in every battle frame: about 11.4 million comparisons on bepinex and 9.9 million on melonloader, no difference. a custom song's kept volume was checked against the settings on every frame that used it: no difference.
+  - in 25 second battle and story windows, optimized and potato searched for the game's objects 0 times (normal: once a second), and held exactly the objects normal found.
+  - every scene change was timed in each mode. potato's fade-in started during the game's black hold in 12 of 12 room changes; normal and optimized never started early. the numbers are in [performance](#performance).
+  - in the battles, the session started on optimized. the scroll speed hooks went in only for the first chart with scroll changes, which still played them. putting them in took 100 ms on bepinex and 165 ms on melonloader, behind the black screen.
+  - the battle notes were laid out flat, and on potato a game song's arcade battle got the short fade. a custom battle got the full fade on its first play and the short one when played again right after.
+  - leaving potato let go of the combat background's saved picture.
+  - the first battle of a fresh session (arrow skin, timing bar on, a game song) was measured on each loader in normal, in optimized, and in optimized with the warm-up and the one-go pixel copy left out. normal and that last run both stalled for the mod's note pictures when the first notes appeared; optimized didn't. every picture made the quick way was compared with normal's: the same bytes, all 13.
+  - `uninstall.cmd`'s new step for potato's settings was run on a test registry key, not on the game's.
+- [the title screen](#the-title-screen): the + sits after the logo's last letter, as tall as the letters and centered on them. the mod's version was in the game's version text, on the same line, on every frame checked, and clear of the key hints above it.
+
+what 2.9.0's in-game tests didn't cover:
+
+- most of it with the release dlls themselves. the qa builds are the release source plus test hooks, and the 2.9.0 dlls are built from that same source against the interop assemblies the two loaders make from the game. the release dlls were only started in the game, on each loader, as far as the title: they loaded, and the title showed the mod's version.
+- the installer on a real game folder. it NEVER RAN ON ONE, so turning off an old `nocturneflatscroll` copy hasn't been tried in the game either. its own checks ran in test copies of the game files: 101 of 101 passed. they cover a fresh install with the bundled bepinex, a repeat install, melonloader, the previews, uninstall, upgrades from the published 2.8.0 on both loaders (the old dll kept as a backup) and from a game set up by 2.8.0's own installer, turning off every nocturne but better copy from 2.1.2 to 2.7.0 that still had a test copy, the steam library lookups and both fullscreen fix scripts.
+- `uninstall.cmd`'s step that puts back potato's two settings ran on a test registry key, not on the game's.
+
+2.8.0 came out without being run in the game. its dlls were built without the game, against copies of the game's interfaces rebuilt from 2.7.0's dlls (built that way, 2.7.0's source came out byte for byte the same as the published 2.7.0 dlls). the [technical notes](TECHNICAL-NOTES.md) explain how.
 
 version 2.7.0 was tested in the game on nocturne 1.0.1 with bepinex 6.0.0-be.788 and with melonloader 0.7.3. that took 33 runs with qa builds (the release source plus test hooks): 19 on bepinex and 14 on melonloader. every run took a snapshot of the player's plugin, settings and saves first and put it back afterwards. no run changed a story `.sav` file, and no melonloader run logged a "native->managed trampoline" error. everything below ran on both loaders unless it says otherwise.
 

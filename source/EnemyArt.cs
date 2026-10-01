@@ -105,6 +105,12 @@ internal static partial class EnemyArt
         internal readonly List<Object> Made = new();
         internal Task Work = Task.CompletedTask;
         internal bool Disposed, Reported, Used;
+        /// <summary>
+        /// Optimized: a warm start nobody fought, due to be let go during a battle. Normal lets it go
+        /// then; Optimized keeps it until the battle is over but treats it as gone, so a warm start
+        /// or a fight of its battle loads it afresh, as on Normal.
+        /// </summary>
+        internal bool Expired;
         internal int Textures, Sprites, Videos;
         internal float WarmedAt;
         /// <summary>
@@ -488,12 +494,15 @@ internal static partial class EnemyArt
         if (!installed || battle.Package.Art == null || battle.RigArt == null || battle.Look == CustomBattles.ArtLook.Placeholder) return;
         try
         {
-            if (current != null && current.Battle == battle && !current.Disposed) return;
+            if (Loaded(battle)) return;
             Start(battle);
             ModLog.Info($"Enemy art for {battle.Title}: warm start from {from}.");
         }
         catch (Exception ex) { ReportPump(ex); }
     }
+
+    /// <summary>Whether the art loaded (or loading) is this battle's and still in use.</summary>
+    private static bool Loaded(CustomBattles.Battle battle) => current != null && current.Battle == battle && !current.Disposed && !current.Expired;
 
     private static ArtSet Start(CustomBattles.Battle battle)
     {
@@ -526,7 +535,7 @@ internal static partial class EnemyArt
     /// </summary>
     private static ArtSet Collect(CustomBattles.Battle battle, bool idleVideo)
     {
-        var set = current != null && current.Battle == battle && !current.Disposed ? current : Start(battle);
+        var set = Loaded(battle) ? current! : Start(battle);
         set.Used = true;
         var wait = Stopwatch.StartNew();
         double doneAt = -1;
@@ -581,17 +590,63 @@ internal static partial class EnemyArt
             var set = current;
             if (set != null && !set.Disposed)
             {
-                set.Report();
-                set.WatchVideos();
-                if (!set.Used && fight == null && Time.unscaledTime - set.WarmedAt > UnusedSeconds)
+                if (!set.Expired)
                 {
-                    ModLog.Info($"Enemy art for {set.Title}: not fought, so it's let go.");
-                    Release(set);
+                    set.Report();
+                    set.WatchVideos();
+                }
+                if (set.Expired || (!set.Used && fight == null && Time.unscaledTime - set.WarmedAt > UnusedSeconds))
+                {
+                    // Optimized never destroys it in the middle of a battle (a hitch the player could
+                    // see, for art nothing shows): it counts as gone from now and goes once the battle
+                    // is over, while the game still has the curtain down. Its loading stops now, as
+                    // Normal's release stops it, so no more of its steps run during the song.
+                    if (Performance.Optimizing && GameManager.GameState == GameStates.Combat)
+                    {
+                        if (!set.Expired)
+                        {
+                            set.Expired = true;
+                            set.Cancel.Cancel();
+                            ModLog.Info($"Enemy art for {set.Title}: not fought, so it's let go once the battle is over.");
+                        }
+                    }
+                    else
+                    {
+                        ModLog.Info($"Enemy art for {set.Title}: not fought, so it's let go.");
+                        QaTimeRelease(set);
+                    }
                 }
             }
+            QaAfterRelease();
             UpdateFight();
         }
         catch (Exception ex) { ReportPump(ex); }
+    }
+
+    // QA builds only: how long letting go of a set nobody fought took, and the frame after it.
+    private static readonly bool QaReleaseTiming = QaBuild.On;
+    private static string? qaReleased;
+    private static int qaReleaseFrame;
+
+    /// <summary>Lets go of a set nobody fought (timed in QA builds).</summary>
+    private static void QaTimeRelease(ArtSet set)
+    {
+        if (!QaReleaseTiming)
+        {
+            Release(set);
+            return;
+        }
+        var watch = Stopwatch.StartNew();
+        Release(set);
+        qaReleased = $"{set.Title} took {watch.Elapsed.TotalMilliseconds:0.00} ms ({set.Textures} textures, {set.Videos} videos)";
+        qaReleaseFrame = Time.frameCount;
+    }
+
+    private static void QaAfterRelease()
+    {
+        if (qaReleased == null || Time.frameCount == qaReleaseFrame) return;
+        ModLog.Info($"QA enemy art: letting go of {qaReleased}; the next frame took {Time.unscaledDeltaTime * 1000:0.0} ms.");
+        qaReleased = null;
     }
 
     private static void ReportPump(Exception ex)

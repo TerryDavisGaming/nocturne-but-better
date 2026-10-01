@@ -31,8 +31,8 @@ internal static class PadInput
 
     private static bool off;
     private static bool south, east, select, leftShoulder, rightShoulder;
-    private static int move, held, side, heldSide;
-    private static float nextRepeat;
+    private static int move, held, side, heldSide, sideRepeat;
+    private static float nextRepeat, nextSideRepeat;
     // QA builds only: presses handed in by a QA driver, taken on the next update.
     private static PadButton? injected;
 
@@ -52,6 +52,9 @@ internal static class PadInput
     /// <summary>Left (-1) or right (+1) when it's pushed this frame, from the d-pad or the left stick; 0 for none.</summary>
     internal static int Side() => side;
 
+    /// <summary>Like <see cref="Side"/>, and again while it's held (after a pause, then steadily), as up and down repeat.</summary>
+    internal static int SideRepeat() => sideRepeat;
+
     /// <summary>Whether the game says a pad is in use, so a page names the pad's buttons instead of the keys; false when it can't say.</summary>
     internal static bool InUse
     {
@@ -66,7 +69,7 @@ internal static class PadInput
     internal static void Update(bool wanted)
     {
         south = east = select = leftShoulder = rightShoulder = false;
-        move = side = 0;
+        move = side = sideRepeat = 0;
         if (injected is PadButton qa)
         {
             injected = null;
@@ -93,11 +96,21 @@ internal static class PadInput
             rightShoulder |= pad.rightShoulder.wasPressedThisFrame;
             var sticks = pad.leftStick.ReadValue();
             int across = pad.dpad.left.isPressed || sticks.x < -StickPress ? -1 : pad.dpad.right.isPressed || sticks.x > StickPress ? 1 : 0;
-            if (across != heldSide) side = across;
+            float now = Time.unscaledTime;
+            if (across != heldSide)
+            {
+                side = across;
+                sideRepeat = across;
+                nextSideRepeat = now + FirstRepeat;
+            }
+            else if (across != 0 && now >= nextSideRepeat)
+            {
+                sideRepeat = across;
+                nextSideRepeat = now + Repeat;
+            }
             heldSide = across;
             float stick = sticks.y;
             int direction = pad.dpad.up.isPressed || stick > StickPress ? -1 : pad.dpad.down.isPressed || stick < -StickPress ? 1 : 0;
-            float now = Time.unscaledTime;
             if (direction == 0) held = 0;
             else if (direction != held)
             {

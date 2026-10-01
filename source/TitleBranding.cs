@@ -11,8 +11,8 @@ namespace NocturnePlus;
 /// <summary>
 /// The Nocturne+ branding on the title screen. A "+" follows the nocturne logo, both on the title
 /// and on the logo card of the startup intro, so the logo reads "nocturne+". On the title's menu,
-/// the game's version at the bottom right ("Nocturne 1.0.1") gets two more lines in its own style:
-/// "Nocturne+ 2.8.0" and "by TerryDavisGaming".
+/// the game's version at the bottom right ("Nocturne 1.0.1") gets the mod's after it, in its own
+/// style: "Nocturne 1.0.1 / Nocturne+ 2.9.0 by TerryDavisGaming".
 /// </summary>
 internal static class TitleBranding
 {
@@ -128,22 +128,39 @@ internal static class TitleBranding
     // ---- the "+" after the logo -----------------------------------------------------------------
 
     /// <summary>
-    /// Puts a "+" just after the logo's lettering, raised like a superscript. The lettering's edges
-    /// come from the logo's own pixels (see <see cref="InkOf"/>), so the "+" sits against the last
-    /// letter and not against the picture's see-through margin.
+    /// Puts a "+" just after the logo's lettering, as tall as its letters and centred on them, so the
+    /// word reads "nocturne+". The edges come from the logo's own pixels (see <see cref="InkOf"/>):
+    /// the "+" sits against the last letter, not the picture's see-through margin, and its height and
+    /// middle are the last letter's, not the whole logo's (the ring and its glow reach well above).
     /// </summary>
     private static void AddPlus(RectTransform? logo, Image? image)
     {
         if (!logo || logo!.Find(PlusName)) return;
-        var ink = InkRect(logo, image);
-        float size = Mathf.Clamp(Mathf.Round(ink.height * 0.5f / FontStep) * FontStep, MinPlusSize, MaxPlusSize);
-        // Left edge a little after the last letter; middle a little under the lettering's top.
-        var at = new Vector2(ink.xMax + size * 0.08f, ink.yMax - size * 0.35f);
+        var (ink, letter) = InkRect(logo, image);
+        var font = FindFont();
+        float gap = letter.height * 0.3f;
+        float size;
+        Vector2 at;
+        bool onBaseline = false;
+        if (PlusGlyph(font != null && font ? font.font : null) is { } glyph)
+        {
+            // As tall as the letter; the glyph's own middle on the letter's middle, set from the
+            // baseline (the "+" sits above it by its bearing), and its left edge a gap after the letter.
+            size = PlusSize(letter.height / glyph.Height);
+            at = new Vector2(ink.xMax + gap - glyph.Left * size, letter.center.y - (glyph.Top - glyph.Height / 2f) * size);
+            onBaseline = true;
+        }
+        else
+        {
+            // The font can't say: the "+" is about half the font's size, centred by its midline.
+            size = PlusSize(letter.height * 2f);
+            at = new Vector2(ink.xMax + gap, letter.center.y);
+        }
         try
         {
             // The shadow first, so the lit "+" draws over it.
-            AddPlusText(logo, PlusName + ShadowSuffix, size, at + ShadowOffset, Color.black, ShadowAlpha);
-            AddPlusText(logo, PlusName, size, at, LogoWhite, 1f);
+            AddPlusText(logo, PlusName + ShadowSuffix, size, at + ShadowOffset, Color.black, ShadowAlpha, onBaseline);
+            AddPlusText(logo, PlusName, size, at, LogoWhite, 1f, onBaseline);
         }
         catch
         {
@@ -157,7 +174,8 @@ internal static class TitleBranding
         }
     }
 
-    private static void AddPlusText(RectTransform parent, string name, float size, Vector2 at, Color color, float alpha)
+    /// <param name="onBaseline">The point is the text's baseline (baseline alignment puts it at the rect's middle); otherwise the glyph's midline.</param>
+    private static void AddPlusText(RectTransform parent, string name, float size, Vector2 at, Color color, float alpha, bool onBaseline)
     {
         var label = MakeLabel(parent, name, PlusText, size, color, alpha, FindFont());
         var rect = label.rectTransform;
@@ -166,18 +184,45 @@ internal static class TitleBranding
         rect.pivot = new Vector2(0f, 0.5f);
         rect.anchoredPosition = at;
         rect.sizeDelta = new Vector2(size * 1.5f, size * 1.5f);
-        // Midline centres the glyph itself, not the font's line box, on the point.
-        label.alignment = TextAlignmentOptions.MidlineLeft;
+        label.alignment = onBaseline ? TextAlignmentOptions.BaselineLeft : TextAlignmentOptions.MidlineLeft;
     }
 
-    /// <summary>Where the logo's lettering is drawn, in the logo's local units; its whole rect when that can't be read.</summary>
-    private static Rect InkRect(RectTransform logo, Image? image)
+    // In whole steps of the pixel font, within bounds.
+    private static float PlusSize(float size) => Mathf.Clamp(Mathf.Round(size / FontStep) * FontStep, MinPlusSize, MaxPlusSize);
+
+    /// <summary>
+    /// The font's "+" glyph, per point of font size: its height, its top above the baseline, and its
+    /// left bearing. Null when the font can't say.
+    /// </summary>
+    private static (float Height, float Top, float Left)? PlusGlyph(TMP_FontAsset? font)
+    {
+        try
+        {
+            if (font == null || !font) return null;
+            var table = font.characterLookupTable;
+            if (table == null || !table.ContainsKey('+')) return null;
+            var glyph = table['+'].glyph;
+            if (glyph == null) return null;
+            var metrics = glyph.metrics;
+            var face = font.faceInfo;
+            if (metrics.height <= 0f || face.pointSize <= 0) return null;
+            float per = (face.scale > 0f ? face.scale : 1f) / face.pointSize;
+            return (metrics.height * per, metrics.horizontalBearingY * per, metrics.horizontalBearingX * per);
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Where the logo's lettering is drawn and where its last letter is, in the logo's local units.
+    /// When the picture can't be read, its whole rect, and a band a third of its height through its middle.
+    /// </summary>
+    private static (Rect Ink, Rect Letter) InkRect(RectTransform logo, Image? image)
     {
         var drawn = DrawnRect(logo, image);
-        if (!image || !image!.sprite) return drawn;
-        var ink = InkOf(image.sprite);
-        return new Rect(drawn.x + ink.x * drawn.width, drawn.y + ink.y * drawn.height,
-                        ink.width * drawn.width, ink.height * drawn.height);
+        var (ink, letter) = image && image!.sprite ? InkOf(image.sprite) : (WholeSprite, MiddleBand);
+        Rect Place(Rect part) => new(drawn.x + part.x * drawn.width, drawn.y + part.y * drawn.height,
+                                     part.width * drawn.width, part.height * drawn.height);
+        return (Place(ink), Place(letter));
     }
 
     /// <summary>
@@ -210,21 +255,27 @@ internal static class TitleBranding
         return new Rect(x, y, w, h);
     }
 
-    private static readonly Dictionary<IntPtr, Rect> Inks = new();
+    private static readonly Dictionary<IntPtr, (Rect Ink, Rect Letter)> Inks = new();
     private static readonly Rect WholeSprite = new(0f, 0f, 1f, 1f);
+    private static readonly Rect MiddleBand = new(0f, 1f / 3f, 1f, 1f / 3f);
     private const int MaxInkSide = 1024;
     private const byte InkAlpha = 64;
+    // The last letter: the visible pixels in the right-most part of the lettering. The word runs
+    // past the logo's ring on both sides, so only the last letter is there.
+    private const float LastLetterPart = 0.08f;
 
     /// <summary>
-    /// The box around the sprite's visible pixels, as a part (0 to 1) of the sprite's rect. The
-    /// logo's texture isn't readable from the game's code, so it's copied through the graphics card
-    /// once and read back. The whole sprite when that fails. The sprite's rect is taken as its place
-    /// in the texture, as it is for a sprite of its own (the logos aren't in an atlas).
+    /// The box around the sprite's visible pixels, and the box around the visible pixels of its last
+    /// letter, as parts (0 to 1) of the sprite's rect. The logo's texture isn't readable from the
+    /// game's code, so it's copied through the graphics card once and read back. The whole sprite and
+    /// its middle band when that fails. The sprite's rect is taken as its place in the texture, as it
+    /// is for a sprite of its own (the logos aren't in an atlas).
     /// </summary>
-    private static Rect InkOf(Sprite sprite)
+    private static (Rect Ink, Rect Letter) InkOf(Sprite sprite)
     {
         if (Inks.TryGetValue(sprite.Pointer, out var known)) return known;
         var ink = WholeSprite;
+        var letter = MiddleBand;
         RenderTexture? previous = null, target = null;
         Texture2D? readable = null;
         try
@@ -255,14 +306,30 @@ internal static class TitleBranding
                         if (y > maxY) maxY = y;
                     }
                 if (maxX >= 0)
+                {
                     ink = Rect.MinMaxRect(Mathf.Clamp01((float)minX / width), Mathf.Clamp01((float)minY / height),
                                           Mathf.Clamp01((float)(maxX + 1) / width), Mathf.Clamp01((float)(maxY + 1) / height));
+                    int fromX = maxX - Math.Max(1, (int)((maxX - minX + 1) * LastLetterPart));
+                    int lowY = height, highY = -1;
+                    for (int y = 0; y < height; y++)
+                        for (int x = Math.Max(fromX, 0); x <= maxX; x++)
+                        {
+                            if (pixels[y * width + x].a < InkAlpha) continue;
+                            if (y < lowY) lowY = y;
+                            if (y > highY) highY = y;
+                        }
+                    letter = highY >= lowY
+                        ? Rect.MinMaxRect(Mathf.Clamp01((float)fromX / width), Mathf.Clamp01((float)lowY / height),
+                                          Mathf.Clamp01((float)(maxX + 1) / width), Mathf.Clamp01((float)(highY + 1) / height))
+                        : new Rect(ink.x, ink.center.y - ink.height / 6f, ink.width, ink.height / 3f);
+                }
             }
         }
         catch (Exception ex)
         {
             ModLog.Error("Title text: reading the logo's edges failed, so the \"+\" goes by its rect: " + ex.Message);
             ink = WholeSprite;
+            letter = MiddleBand;
         }
         finally
         {
@@ -274,8 +341,8 @@ internal static class TitleBranding
             catch { }
             if (readable != null && readable) Object.Destroy(readable);
         }
-        Inks[sprite.Pointer] = ink;
-        return ink;
+        Inks[sprite.Pointer] = (ink, letter);
+        return (ink, letter);
     }
 
     // Its own method: a game without Sprite.texture fails here, inside InkOf's try, and the "+" goes by the rect.
@@ -316,7 +383,7 @@ internal static class TitleBranding
             }
             // Say once what the title had, so a game whose version reads differently can be matched.
             if (IntroShowing() || ++titleSeconds != 5) return;
-            ModLog.Error("Title text: the game's version at the bottom right wasn't found, so the Nocturne+ version isn't shown. Short texts on the title: "
+            ModLog.Error("Title text: the game's version at the bottom of the title wasn't found, so the Nocturne+ version isn't shown. Short texts on the title: "
                          + string.Join(" | ", ShortTexts()) + ".");
         }
         catch (Exception ex) { ReportOnce(ex); }
@@ -328,11 +395,12 @@ internal static class TitleBranding
         catch { return false; }
     }
 
-    private static string VersionSuffix => $"\n{VersionText}\n{CreditText}";
+    // On the same line: lines under it would push the game's version up behind the key hints above it.
+    private static string VersionSuffix => $" / {VersionText} {CreditText}";
 
     /// <summary>
-    /// The game's version: an active text in the bottom right quarter of the screen with a version
-    /// number in it, one that names nocturne first, then the furthest to the bottom right.
+    /// The game's version: an active text in the bottom half of the screen with a version number in
+    /// it, one that names nocturne first, then the nearest a bottom corner (it's at the bottom right).
     /// </summary>
     private static TMP_Text? FindVersionLabel()
     {
@@ -342,8 +410,11 @@ internal static class TitleBranding
         {
             if (!OnTitleScreen(text, out var value, out var point)) continue;
             if (value.Length > 40 || !VersionPattern.IsMatch(value) || value.Contains(ModInfo.Name)) continue;
-            if (point.x < Screen.width * 0.5f || point.y > Screen.height * 0.5f) continue;
-            float score = (value.IndexOf("nocturne", StringComparison.OrdinalIgnoreCase) >= 0 ? 100000f : 0f) + point.x - point.y;
+            if (point.y > Screen.height * 0.5f || !Drawn(text)) continue;
+            float side = Math.Min(point.x, Screen.width - point.x);
+            // The game's own build text (BuildInfoText, at the bottom right of the title's menu) first.
+            float score = (IsBuildInfo(text) ? 1000000f : 0f) +
+                          (value.IndexOf("nocturne", StringComparison.OrdinalIgnoreCase) >= 0 ? 100000f : 0f) - side - point.y;
             if (score > bestScore)
             {
                 bestScore = score;
@@ -353,21 +424,52 @@ internal static class TitleBranding
         return best;
     }
 
+    private static bool IsBuildInfo(TMP_Text text)
+    {
+        try { return text.GetComponent<BuildInfoText>(); }
+        catch { return false; }
+    }
+
+    /// <summary>Whether the text is drawn at all: not faded out by a canvas group above it.</summary>
+    private static bool Drawn(TMP_Text text)
+    {
+        try
+        {
+            var renderer = text.canvasRenderer;
+            return renderer == null || !renderer || renderer.GetInheritedAlpha() > 0.01f;
+        }
+        catch { return true; }
+    }
+
     /// <summary>Whether the text is the game's and showing, with its text and its middle on screen.</summary>
     private static bool OnTitleScreen(TMP_Text text, out string value, out Vector2 point)
     {
         value = "";
         point = default;
-        if (!text || !text.gameObject.scene.IsValid() || !text.gameObject.activeInHierarchy) return false;
+        // Enabled too: a copy of the game's build text on a canvas of its own has its text switched off.
+        if (!text || !text.gameObject.scene.IsValid() || !text.isActiveAndEnabled) return false;
         if (text.name.StartsWith("NocturnePlus_", StringComparison.Ordinal)) return false;
         var root = RootCanvas(text);
         if (!root || ModCanvas(root!)) return false;
         value = text.text ?? "";
         if (value.Length == 0) return false;
-        var camera = root!.renderMode != RenderMode.ScreenSpaceOverlay ? root.worldCamera : null;
-        var rect = text.rectTransform;
-        point = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(Centre(rect.rect)));
+        point = OnScreen(text.rectTransform, root!);
         return true;
+    }
+
+    /// <summary>
+    /// The middle of a rect as a point on the screen, worked out from its place on its root canvas,
+    /// which fills the screen. (The title's canvases draw through a camera whose own screen points
+    /// don't match the window.)
+    /// </summary>
+    private static Vector2 OnScreen(RectTransform rect, Canvas root)
+    {
+        var canvas = root.transform.TryCast<RectTransform>();
+        if (canvas == null || !canvas) return default;
+        var local = canvas.InverseTransformPoint(rect.TransformPoint(Centre(rect.rect)));
+        var area = canvas.rect;
+        if (area.width <= 0f || area.height <= 0f) return default;
+        return new Vector2((local.x - area.xMin) / area.width * Screen.width, (local.y - area.yMin) / area.height * Screen.height);
     }
 
     private static IEnumerable<string> ShortTexts()
@@ -378,8 +480,8 @@ internal static class TitleBranding
     }
 
     /// <summary>
-    /// Adds "Nocturne+ 2.8.0" and "by TerryDavisGaming" as lines of the game's own version text.
-    /// When the longer text would reach below the screen, the label moves up to make room.
+    /// Adds " / Nocturne+ 2.9.0 by TerryDavisGaming" to the game's own version text. When the longer
+    /// text would reach below the screen (a label that wraps), the label moves up to make room.
     /// </summary>
     private static void AddVersionLines(TMP_Text label)
     {
@@ -391,10 +493,10 @@ internal static class TitleBranding
             RestoreVersion();
             versionOriginal = original;
             versionMoved = false;
-            ModLog.Info($"Title text: wrote the {ModInfo.Name} version under the game's \"{original.Replace('\n', ' ')}\".");
+            ModLog.Info($"Title text: wrote the {ModInfo.Name} version after the game's \"{original.Replace('\n', ' ')}\".");
         }
         else versionOriginal = original;
-        // Nothing cut off or wrapped: the extra lines only ever add height.
+        // Nothing cut off or wrapped onto a line of its own.
         label.enableWordWrapping = false;
         label.overflowMode = TextOverflowModes.Overflow;
         label.text = original + VersionSuffix;
@@ -437,14 +539,19 @@ internal static class TitleBranding
         float bottom = vertical is 1024 or 2048 ? box.yMin
             : vertical is 256 or 8192 ? box.yMax - Math.Max(full, box.height)
             : box.y + box.height / 2f - Math.Max(full, box.height) / 2f;
-        var canvas = RootCanvas(label);
-        var camera = canvas && canvas!.renderMode != RenderMode.ScreenSpaceOverlay ? canvas.worldCamera : null;
-        var centre = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(Centre(box)));
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(rect, new Vector2(centre.x, 0f), camera, out var edge)) return;
-        float margin = label.fontSize * 0.5f;
-        float shift = edge.y + margin - bottom;
+        // Measured on the root canvas, whose bottom edge is the screen's.
+        var root = RootCanvas(label);
+        var canvas = root ? root!.transform.TryCast<RectTransform>() : null;
+        var parent = rect.parent;
+        if (canvas == null || !canvas || !parent) return;
+        float textBottom = canvas.InverseTransformPoint(rect.TransformPoint(new Vector3(0f, bottom, 0f))).y;
+        float lineHeight = canvas.InverseTransformVector(rect.TransformVector(new Vector3(0f, label.fontSize, 0f))).y;
+        float shift = canvas.rect.yMin + lineHeight * 0.5f - textBottom;
         if (shift <= 0f) return;
-        versionShift = shift * rect.localScale.y;
+        // From the canvas's units to the label's parent's, in which it's placed.
+        float perParent = parent.InverseTransformVector(canvas.TransformVector(new Vector3(0f, shift, 0f))).y;
+        if (perParent <= 0f) return;
+        versionShift = perParent;
         var at = rect.anchoredPosition;
         rect.anchoredPosition = new Vector2(at.x, at.y + versionShift);
         versionMoved = true;

@@ -93,7 +93,7 @@ internal static class CustomChartOptions
     private static float lastActionAt = -10f, refocusGuardUntil, lastFrameAt;
     private static bool wasFocused = true;
 
-    private static bool ActionAllowed(string rowName)
+    internal static bool ActionAllowed(string rowName)
     {
         float now = Time.unscaledTime;
         if (!Application.isFocused || now < refocusGuardUntil || now - lastActionAt < ActionCooldown) return false;

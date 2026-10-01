@@ -177,6 +177,7 @@ internal static class OptionsMenuIntegration
         if (!__instance || refreshing) return;
         // Before the check below: Awake fills the game's Note Colors row even when it hides the page.
         AkumaNoteColors.SyncMenu(__instance);
+        CustomNoteColors.SyncMenu(__instance);
         // MenuPanel.Awake can hide its object before this postfix runs. The subsequent
         // Activate/DidShow hook creates the rows once native child lifecycle methods can run.
         if (!__instance.gameObject.activeInHierarchy) return;
@@ -211,7 +212,8 @@ internal static class OptionsMenuIntegration
         try
         {
             // Each clone is inserted directly above Speed Mod, so creation order is display order.
-            foreach (var spec in Specs.Concat(QuickSaveLoad.Rows).Concat(CustomChartOptions.Rows)) created.Add(CreateRow(template, parent, anchor, spec));
+            // The custom note colors row is then moved under the Note Colors row and its preview (PlaceNoteColorRows).
+            foreach (var spec in Specs.Concat(QuickSaveLoad.Rows).Concat(CustomChartOptions.Rows).Concat(CustomNoteColors.Rows)) created.Add(CreateRow(template, parent, anchor, spec));
             // The quick save rows go together at the bottom of the page instead.
             foreach (var row in created.Where(IsBottomRow)) row.Root.transform.SetAsLastSibling();
             if (parent.TryCast<RectTransform>() is { } content)
@@ -306,10 +308,67 @@ internal static class OptionsMenuIntegration
         if (CustomChartsMenu.ChartsPage) LinkChartRows(rows);
         else
         {
-            InsertIntoNavigation(rows);
             RefreshPreview(rows);
+            PlaceNoteColorRows(rows);
+            InsertIntoNavigation(rows);
         }
         KeepSelectionShown(rows);
+    }
+
+    private static bool IsNoteColorRow(OptionRow row) => CustomNoteColors.Rows.Contains(row.Spec);
+
+    /// <summary>
+    /// The custom note colors row goes right under the game's Note Colors row and its preview, and
+    /// shows only while that row does (the game hides it when it has no palettes to offer).
+    /// </summary>
+    private static void PlaceNoteColorRows(MenuRows rows)
+    {
+        var styleRow = rows.Menu.noteStyleButton;
+        if (!styleRow) return;
+        var after = styleRow.transform;
+        var parent = after.parent;
+        // The preview sits right under the row when there is one.
+        int next = after.GetSiblingIndex() + 1;
+        if (next < parent.childCount && rows.Preview != null && rows.Preview.IsAlive && parent.GetChild(next).name == NoteColorPreview.RootName) after = parent.GetChild(next);
+        bool show = styleRow.gameObject.activeSelf;
+        foreach (var row in rows.Rows.Where(IsNoteColorRow))
+        {
+            var t = row.Root.transform;
+            int at = after.GetSiblingIndex(), index = t.GetSiblingIndex();
+            if (index != at + 1) t.SetSiblingIndex(index < at ? at : at + 1);
+            if (row.Root.activeSelf != show) row.Root.SetActive(show);
+            after = t;
+        }
+    }
+
+    /// <summary>
+    /// Links the custom note colors row under the Note Colors row, and hands on whatever that row led
+    /// down to from it. The game's RefreshViews builds its own rows' links again each time, so this
+    /// runs after every refresh.
+    /// </summary>
+    private static void LinkNoteColorRows(MenuRows rows)
+    {
+        var styleRow = rows.Menu.noteStyleButton;
+        if (!styleRow || !styleRow.gameObject.activeInHierarchy) return;
+        var mine = rows.Rows.Where(IsNoteColorRow).Where(row => row.Root.activeSelf).Select(row => (Selectable)row.Button).ToList();
+        if (mine.Count == 0) return;
+        var below = styleRow.navigation.selectOnDown;
+        // Linked before: the row it led to then was kept.
+        if (below && IsOurs(mine, below!)) below = rows.NoteColorNext;
+        else rows.NoteColorNext = below;
+        for (int i = 0; i < mine.Count; i++)
+            SetVertical(mine[i], i == 0 ? styleRow : mine[i - 1], i == mine.Count - 1 ? (below ? below : null) : mine[i + 1]);
+        var styleNav = styleRow.navigation;
+        styleNav.mode = Navigation.Mode.Explicit;
+        styleNav.selectOnDown = mine[0];
+        styleRow.navigation = styleNav;
+        if (below && below!.navigation.selectOnUp == styleRow)
+        {
+            var belowNav = below.navigation;
+            belowNav.mode = Navigation.Mode.Explicit;
+            belowNav.selectOnUp = mine[mine.Count - 1];
+            below.navigation = belowNav;
+        }
     }
 
     /// <summary>
@@ -399,7 +458,7 @@ internal static class OptionsMenuIntegration
         row.Toggle.PopulateStates(list);
     }
 
-    private static void EnsureToggleLayout(CustomToggleState toggle)
+    internal static void EnsureToggleLayout(CustomToggleState toggle)
     {
         // This private, nonserialized cache is normally initialized by native Awake. Resolve
         // it explicitly because Unity can instantiate a row below an inactive parent.
@@ -421,7 +480,7 @@ internal static class OptionsMenuIntegration
         var anchor = rows.Menu.noteSpeedModButton;
         if (!anchor) return;
         LinkBottomRows(rows);
-        var buttons = rows.Rows.Where(row => !IsChartRow(row) && !IsBottomRow(row)).Select(row => (Selectable)row.Button).ToList();
+        var buttons = rows.Rows.Where(row => !IsChartRow(row) && !IsBottomRow(row) && !IsNoteColorRow(row)).Select(row => (Selectable)row.Button).ToList();
 
         // RefreshViews reconstructs a hardcoded native navigation list. Insert our rows again
         // after every refresh; using the actual predecessor also handles hidden native rows.
@@ -443,6 +502,8 @@ internal static class OptionsMenuIntegration
             previousNav.selectOnDown = buttons[0];
             previous.navigation = previousNav;
         }
+        // Last: the Note Colors row may be the row above the rows just linked.
+        LinkNoteColorRows(rows);
     }
 
     /// <summary>
@@ -609,6 +670,8 @@ internal static class OptionsMenuIntegration
         internal readonly List<GameObject> HiddenByPage = new();
         // Where the row above the bottom rows led down to before they were linked in.
         internal Selectable? BottomNext;
+        // Where the Note Colors row led down to before the custom note colors row was linked in.
+        internal Selectable? NoteColorNext;
         internal bool PageShown;
 
         internal MenuRows(GameplayOptionsMenu menu, List<OptionRow> rows, NoteColorPreview? preview)

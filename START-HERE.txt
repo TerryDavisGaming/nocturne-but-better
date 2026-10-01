@@ -1,4 +1,4 @@
-nocturne+ 2.8.0 (formerly nocturne but better, and nocturne flat scroll)
+nocturne+ 2.9.0 (formerly nocturne but better, and nocturne flat scroll)
 windows x64 | steam nocturne 1.0.1 | tested steam build 25487568
 works with bepinex 6 (bundled) or melonloader 0.7.3 and newer (not bundled)
 
@@ -33,21 +33,38 @@ install
                       item in the game. a battle with an item your save
                       doesn't own saves no score.
    and at the bottom of the page:
-   quick save & load - off or on; the quick save key saves the story
-                      anywhere you can walk around, into the game's
-                      autosave (your own save slots are never written
-                      over), and the quick load key goes back to your
-                      latest save, like the game over screen's quick load
-   quick save key   - f5 to start with; click, then press the new key
-   quick load key   - f9 to start with; click, then press the new key
+   quick save & load - off or on; 12 quick save slots. hold the modifier
+                      and press a slot's key to save the story there,
+                      anywhere you can walk around (your own save slots
+                      are never written over); the key on its own loads
+                      that slot. good for practicing one part of a
+                      chapter: save in the room before it, then walk in
+   quick save modifier - ctrl to start with, or shift (shift is also the
+                      game's run key)
+   quick save slot  - left and right pick a slot (f1 to f11 to start
+                      with, slot 12 has no key); click, then press its
+                      new key
    the game's own note colors row gets a preview under it, with a red mine
    next to your notes so you can spot palettes that look like it, and the
    mod's own palette, akuma (see new in 2.7.0).
+   custom note colors - under the note colors row: opens a page where you
+                      make your own palettes, with any color on each lane.
+                      they're listed in the note colors row after the
+                      game's own.
 6. in options > audio, under sound effects:
    hit sound        - off or on; a short tick when you hit a note
    hit sound volume - 5% to 100%; the game's sound effect volumes apply too
    miss sound       - on or off; the same setting as note miss sounds
    miss sound volume - 10% to 300%; 100% is the game's normal level
+7. in options > graphics, under corruption effects:
+   performance      - normal (the game as it ships), optimized (the mod
+                      does less work each frame; it looks and plays
+                      exactly the same, minus the mod's own stalls) or
+                      potato (for weak pcs: quicker fades, lighter bloom
+                      and blur, a lower resolution on 4k screens, and the
+                      game's lighter combat backgrounds and corruption
+                      effects, which go back when you leave potato).
+                      starts on normal.
 
 which loader gets used
 - melonloader 0.7.3 or newer installed and turned on: the mod goes into mods.
@@ -56,6 +73,33 @@ which loader gets used
 only one copy runs at a time. to switch loaders, run install.cmd again; it
 disables the copy for the other loader. do not keep bepinex and melonloader
 in the same game folder, because only one of them can start.
+
+new in 2.9.0
+- performance, a new row in options > graphics (see step 7). optimized
+  cuts the mod's own work each frame and looks exactly the same as normal.
+  potato is for weak pcs. it starts on normal.
+- your own note colors. custom note colors, right under the note colors
+  row, opens a page where you make up to 24 palettes with any color on
+  each lane. you pick them in the note colors row like the game's own.
+- quick save slots. quick save now has 12 slots of its own: hold ctrl and
+  press f1 to f11 to save into a slot, and press the key on its own to
+  load it. your own save slots are never written over. 2.8.0's f5 and f9
+  keys aren't kept, so f5 now loads slot 5 and ctrl+f5 saves it.
+- settings that changed by themselves. in 2.8.0 and before, a click in the
+  chart editor or the battle creator could reach the options menu under
+  it, so the game could go windowed or a volume could drop to 0%. that's
+  fixed. closing the game during the latency test's video step no longer
+  saves master volume as 0%, and leaving the latency test's song early
+  puts the overworld sound effects back.
+- the title: the mod's version now shows after the game's at the bottom
+  right (in 2.8.0 it never showed), and the + is as tall as the logo's
+  letters.
+- on optimized and potato, the first battle of a session no longer stalls
+  while the mod makes its note pictures.
+- 2.9.0 was tested in the game on bepinex and on melonloader: the quick
+  save slots, your own note colors, performance, the settings fix and the
+  title. package-verification.txt and the readme's "what was tested" (on
+  github) have the details.
 
 new in 2.8.0
 - a new name: nocturne+. its files are now nocturneplus.dll and
@@ -69,10 +113,11 @@ new in 2.8.0
   and f9 goes back to your latest save. click a key row and press a key to
   change it. neither works on the title, in battles, cutscenes or
   dialogue, between screens, while paused, or in the arcade.
-- the title screen reads nocturne+, and on the title's menu the game's
-  version at the bottom right gets "nocturne+ 2.8.0" and "by
-  terrydavisgaming" under it, in the same style.
-- none of 2.8.0's changes have been tried in the game yet.
+- the title screen reads nocturne+. 2.8.0 also meant to put "nocturne+
+  2.8.0" and "by terrydavisgaming" under the game's version at the bottom
+  right, but they never showed (fixed in 2.9.0).
+- 2.8.0 came out without being tried in the game. 2.9.0's tests ran the
+  new name and the title in the game, and quick save in its new form.
 
 new in 2.7.0
 - arcade gear. the arcade on the main menu has gear of its own. click
@@ -199,11 +244,12 @@ controller button still does.
 
 installations start on default, 0%, 100% size and spacing, default skin,
 note flares on, timing bar off and below the enemy, enemy attack opacity
-100%, infinite consumables and all items off, quick save & load off on f5
-and f9, hit sound off at 80%, and miss sound volume 100%. your selections
-are saved on that pc. the title screen and the intro's logo card read
-"nocturne+", and on the title's menu "nocturne+ 2.8.0" and "by
-terrydavisgaming" show under the game's version at the bottom right.
+100%, infinite consumables and all items off, quick save & load off with
+ctrl and f1 to f11, hit sound off at 80%, miss sound volume 100%, and
+performance on normal. your selections are saved on that pc. the title
+screen and the intro's logo card read "nocturne+", and on the title's
+menu "nocturne+ 2.9.0 by terrydavisgaming" shows after the game's version
+at the bottom right.
 
 optional fullscreen flicker fix
 if you have the flickering black bars, close nocturne and double-click
@@ -216,7 +262,9 @@ close nocturne, then run uninstall.cmd to disable this mod for both loaders.
 run restore-fullscreen-fix.cmd too if you enabled the display fix.
 uninstall keeps the loaders because other mods may use them. saves, scores,
 other mods, custom charts, custom battles, the arcade gear, your hub key,
-and saved scrolling preferences are left in place.
+and saved scrolling preferences are left in place. if performance is on
+potato, uninstall.cmd puts the game's combat backgrounds and corruption
+effects settings back the way you had them.
 
 if something does not work
 - access denied: right-click the relevant .cmd and run as administrator.
@@ -240,7 +288,7 @@ if something does not work
   this package must be checked again after a game update.
 
 share
-send the original nocturne-plus-2.8.0-windows.zip to the other person
+send the original nocturne-plus-2.9.0-windows.zip to the other person
 or device. they need their own installed copy of nocturne. the package
 contains no game assets, game-generated assemblies, saves, or account data.
 it does not support macos, linux, or steam deck through these installers.

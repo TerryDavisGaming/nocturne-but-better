@@ -105,6 +105,15 @@ internal static partial class EnemyArt
             if (!installed) return;
             var data = model?.Data;
             var battle = data != null && data ? CustomBattles.FindEnemy(data) : null;
+            // Potato: a warm start nobody fought is let go as another battle starts (the screen is
+            // black), rather than holding its textures through the battle. Only Potato: a set let go
+            // and loaded again could look different in its first fight (a video not ready yet).
+            var warm = current;
+            if (Performance.Potato && warm != null && !warm.Disposed && !warm.Used && (fight == null || !fight.Alive) && battle != warm.Battle)
+            {
+                ModLog.Info($"Enemy art for {warm.Title}: not fought, so it's let go as another battle starts (Potato).");
+                QaTimeRelease(warm);
+            }
             if (battle == null || !battle.Package.CustomArt) return;
             pendingView = __instance.Pointer;
             pendingBattle = battle;
@@ -307,7 +316,8 @@ internal static partial class EnemyArt
             // A fight that looked like the placeholder while the art was still loading: the art
             // waits for a retry as a warm start does, and is let go if none comes.
             var set = current;
-            if (f.Set == null && set != null && set.Battle == f.Battle && f.Battle.Look == CustomBattles.ArtLook.Undecided)
+            // (Not a set Optimized only kept for later: Normal has let that one go.)
+            if (f.Set == null && set != null && !set.Expired && set.Battle == f.Battle && f.Battle.Look == CustomBattles.ArtLook.Undecided)
             {
                 set.Used = false;
                 set.WarmedAt = Time.unscaledTime;

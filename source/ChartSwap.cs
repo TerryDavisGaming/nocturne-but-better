@@ -83,14 +83,19 @@ internal static class ChartSwap
         RestoreScoreKey(__instance);
         ScrollSpeedHooks.Prepare(null);
         CustomMusic.Reset(__instance);
+        // A battle (or a menu's preview) starting: Optimized looks for the notes' objects again.
+        LayoutDriver.Rescan();
         try
         {
             var test = TestPlay.Claim(__instance, songData);
+            // Before the song starts, which is when the scroll hooks must already be in.
+            ScrollSpeedHooks.NeedFor(test?.Chart);
             if (TakeCustomBattle(__instance, songData))
             {
                 // A custom battle has one melody, and its chart and score key are its own.
                 melodies = new Il2CppStructArray<int>(new[] { 0, 0 });
                 var custom = PlayingBattle!;
+                ScrollSpeedHooks.NeedFor(custom.PlayableChart);
                 if (test != null && test.T0 > 0) StartTestClock(test, ref startDelay);
                 else StartBeforeSong(__instance, songData, custom.PlayableChart, custom.PlayableChart.Blocks, ref startDelay, $"Custom battle {custom.Title}");
                 // Its dialogue, before the game shows the ready prompt (which its first lines hold back).
@@ -131,6 +136,7 @@ internal static class ChartSwap
                 melodies = new Il2CppStructArray<int>(new[] { melody, melody });
             }
             Playing = chart;
+            ScrollSpeedHooks.NeedFor(chart.Chart);
             SwapScoreKey(__instance, songData, ScoreKeyPrefix + chart.Key);
             // With its own song file (#MUSIC), the chart starts like a custom battle's (from the chart
             // CreateBeatmapPrefix builds, with #OFFSET baked in).

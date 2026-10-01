@@ -87,6 +87,20 @@ internal static class TimingBar
         hasAverage = true;
     }
 
+    /// <summary>
+    /// The bar's sprites, for the first-battle warm-up (FirstBattleWarmup) to make one at a time
+    /// before a battle needs them: the same keys and accessors the bar itself uses.
+    /// </summary>
+    internal static SkinSprites.Warmable[] WarmSprites() => new[]
+    {
+        SkinSprites.PillForWarmup(TrackHeight),
+        SkinSprites.PillForWarmup(BandHeight),
+        SkinSprites.TickForWarmup,
+        SkinSprites.MarkerForWarmup,
+        SkinSprites.RabbitForWarmup,
+        SkinSprites.TurtleForWarmup
+    };
+
     /// <summary>QA-only entry point for synthetic hits.</summary>
     internal static void RecordForQa(double offset)
     {

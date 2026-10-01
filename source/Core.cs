@@ -7,7 +7,7 @@ internal static class ModInfo
     // Kept from the mod's first name (nocturne flat scroll), so upgrades keep the loaders' settings.
     public const string Id = "local.nocturne.flat-scroll";
     public const string Name = "Nocturne+";
-    public const string Version = "2.8.0";
+    public const string Version = "2.9.0";
     public const string Author = "TerryDavisGaming";
 
     /// <summary>
@@ -47,6 +47,20 @@ public enum NoteSkin
     Arrow = 2
 }
 
+/// <summary>The Performance setting, on Options > Graphics (see Performance).</summary>
+public enum PerformanceMode
+{
+    /// <summary>The game as it ships: the mod changes nothing for speed.</summary>
+    Normal = 0,
+    /// <summary>
+    /// Less work each frame, and loading gets more of each frame behind a still black screen; every
+    /// frame looks as it does in Normal.
+    /// </summary>
+    Optimized = 1,
+    /// <summary>For weak PCs: Optimized, plus a lower resolution, lighter effects and quicker fades.</summary>
+    Potato = 2
+}
+
 public static class SettingsState
 {
     private const string Key = "NocturneFlatScroll.Mode.v3";
@@ -65,6 +79,7 @@ public static class SettingsState
     // The first 2.8.0 test build had a switch for each; either one on turns the shared one on.
     private const string OldQuickSaveKey = "NocturnePlus.QuickSave.v1";
     private const string OldQuickLoadKey = "NocturnePlus.QuickLoad.v1";
+    private const string PerformanceKey = "NocturnePlus.Performance.v1";
     public const int MinReceptorHeight = -10;
     public const int MaxReceptorHeight = 30;
     private static ScrollMode? _mode;
@@ -78,6 +93,7 @@ public static class SettingsState
     private static bool? _arcadeGearAllItems;
     private static bool? _onlineHub;
     private static bool? _quickSaveLoad;
+    private static PerformanceMode? _performance;
     public static ScrollMode Mode => _mode ??= LoadMode();
 
     /// <summary>How notes and receptors are drawn; Default keeps the game's own bars.</summary>
@@ -203,6 +219,32 @@ public static class SettingsState
         PlayerPrefs.Save();
         ModLog.Info("Quick save & load: " + (value ? "On" : "Off"));
     }
+
+    /// <summary>The Performance setting. Normal unless changed; Performance.SetMode changes it.</summary>
+    public static PerformanceMode Performance => _performance ??= LoadPerformance();
+
+    /// <summary>Whether the setting is saved at all; false after the game erased every setting.</summary>
+    internal static bool PerformanceSaved => PlayerPrefs.HasKey(PerformanceKey);
+
+    private static PerformanceMode LoadPerformance()
+    {
+        int saved = PlayerPrefs.GetInt(PerformanceKey, (int)PerformanceMode.Normal);
+        return saved >= (int)PerformanceMode.Normal && saved <= (int)PerformanceMode.Potato ? (PerformanceMode)saved : PerformanceMode.Normal;
+    }
+
+    /// <summary>Saves the setting; Performance.SetMode calls it once the old mode's changes are undone.</summary>
+    internal static void SavePerformance(PerformanceMode value)
+    {
+        if (value < PerformanceMode.Normal || value > PerformanceMode.Potato)
+            throw new ArgumentOutOfRangeException(nameof(value));
+        _performance = value;
+        PlayerPrefs.SetInt(PerformanceKey, (int)value);
+        PlayerPrefs.Save();
+        ModLog.Info("Performance: " + value);
+    }
+
+    /// <summary>Forgets the setting without saving it, after the game erased every setting.</summary>
+    internal static void ForgetPerformance() => _performance = PerformanceMode.Normal;
 
     /// <summary>
     /// Percent of screen height that the 2D receptors move in from their screen edge:
@@ -343,10 +385,27 @@ internal sealed class PercentSetting
 /// <summary>Installs every feature's patches; a failing feature does not stop the others.</summary>
 internal static class ModSetup
 {
+    // Each feature's install time, while Patch runs, for its one log line.
+    private static List<string>? times;
+
     internal static void Patch(HarmonyLib.Harmony harmony)
+    {
+        var total = System.Diagnostics.Stopwatch.StartNew();
+        times = new List<string>();
+        try { PatchAll(harmony); }
+        finally
+        {
+            ModLog.Info($"Setup took {total.ElapsedMilliseconds} ms: {string.Join(", ", times)}.");
+            times = null;
+        }
+    }
+
+    private static void PatchAll(HarmonyLib.Harmony harmony)
     {
         Run("Options menu rows", () => OptionsMenuIntegration.Install(harmony));
         Run("Audio options rows", () => AudioOptionsIntegration.Install(harmony));
+        Run("Performance row", () => GraphicsOptionsIntegration.Install(harmony));
+        Run("Performance", () => Performance.Install(harmony));
         Run("Note skins", () => NoteSkins.Install(harmony));
         Run("Timing bar", () => TimingBar.Install(harmony));
         Run("Hit sound", () => HitSound.Install(harmony));
@@ -371,6 +430,8 @@ internal static class ModSetup
         Run("Quick save and load", QuickSaveLoad.Install);
         Run("Title text", () => TitleBranding.InstallTitle(harmony));
         Run("Intro text", () => TitleBranding.InstallIntro(harmony));
+        // The latency test's volume bugs, and a log line for each window mode and volume change.
+        Run("Settings guards", () => SettingsGuards.Install(harmony));
     }
 
     /// <summary>Covers menus that already existed before the patches were installed.</summary>
@@ -383,70 +444,204 @@ internal static class ModSetup
 
     private static void Run(string feature, Action action)
     {
+        var watch = times != null ? System.Diagnostics.Stopwatch.StartNew() : null;
         try { action(); }
         catch (Exception ex) { ModLog.Error($"{feature} could not be installed: {ex}"); }
+        if (watch != null) times?.Add($"{feature} {watch.ElapsedMilliseconds} ms");
     }
 }
 
 /// <summary>Per-frame layout work shared by the BepInEx and MelonLoader entry points.</summary>
 internal static class LayoutDriver
 {
-    private static float _nextDiscovery;
+    // Optimized and Potato look for the objects below only when something can have brought new ones:
+    // a scene loading, a battle or menu starting, a known one gone. Everything they look for lives in
+    // the game's main scene and is found once, so Normal's search every second finds the same objects.
+    // The search takes several milliseconds, so the ones that can wait keep off the frames being
+    // played: a scene change gets one while its curtain is still black (DiscoverNow), and the check
+    // every 10 seconds waits for a moment outside a battle's song and outside walking about.
+    private const float FullScanEvery = 10f;
+    private static float _nextDiscovery, _nextFullScan;
+    private static int _rescans = 1, _sceneStamp;
+    // QA builds only: each search that can't wait, and each wait of the 10 s check, logged with where the game is.
+    private static readonly bool QaPasses = QaBuild.On;
+    private static string _qaLastPass = "";
+    private static float _qaLastPassAt, _qaWaitingSince = -1f;
+
+    /// <summary>A scene change's scenes are changing (set by Performance while the curtain is down).</summary>
+    internal static bool PendingScenePass;
     private static readonly List<CombatNoteFieldView> Views = new();
     private static readonly Dictionary<int, Camera> Cameras = new();
     private static readonly Dictionary<int, NoteFieldBehaviour> NoteFields = new();
     private static readonly Dictionary<int, Transform> FieldTransforms = new();
     private static readonly List<(Transform Field, int Columns)> SkinFields = new();
-    private static bool _reportedError;
+    private static bool _reportedError, _reportedPerfError;
+
+    /// <summary>Has the next few once-a-second passes look for the objects again.</summary>
+    internal static void Rescan() => _rescans = Math.Max(_rescans, 3);
 
     public static void Update()
     {
-        if (Time.unscaledTime < _nextDiscovery) return;
-        _nextDiscovery = Time.unscaledTime + 1f;
+        float now = Time.unscaledTime;
+        if (now < _nextDiscovery) return;
+        _nextDiscovery = now + 1f;
         try
         {
-            Views.Clear();
-            foreach (var view in Resources.FindObjectsOfTypeAll<CombatNoteFieldView>())
+            if (ShouldSearch(now))
             {
-                if (!view || view.gameObject.scene.handle == 0) continue;
-                Views.Add(view);
-                var id = view.GetInstanceID();
-                // Looked up here, once a second, rather than by path every frame.
-                if (!FieldTransforms.TryGetValue(id, out var cachedField) || !cachedField)
-                {
-                    var found = view.transform.Find("FieldPivot/Field");
-                    if (found) FieldTransforms[id] = found;
-                }
-                if (!Cameras.TryGetValue(id, out var camera) || !camera)
-                {
-                    // CombatCamera_02 is a Cinemachine virtual camera, not a renderer.
-                    // The actual camera lives in the persistent CameraManager hierarchy.
-                    camera = null;
-                    foreach (var candidate in Resources.FindObjectsOfTypeAll<Camera>())
-                    {
-                        if (!candidate || candidate.gameObject.scene.handle == 0 ||
-                            candidate.name != "Camera (Combat)" || candidate.orthographic ||
-                            (candidate.cullingMask & (1 << 15)) == 0) continue;
-                        camera = candidate;
-                        if (candidate.isActiveAndEnabled) break;
-                    }
-                    if (camera)
-                    {
-                        Cameras[id] = camera;
-                        ModLog.Info("Combat layout camera: " + camera.name);
-                    }
-                }
+                _nextFullScan = now + FullScanEvery;
+                Discover();
             }
-            MenuFieldLayout.Discover();
         }
         catch (Exception ex) { Report(ex); }
+        try { Performance.Slow(); }
+        catch (Exception ex) { ReportOnce(ref _reportedPerfError, "Performance failed: ", ex); }
         // Also once a second. They catch their own errors, so they never stop the layout.
         AkumaNoteColors.Update();
+        CustomNoteColors.Update();
         TitleBranding.Update();
+    }
+
+    private static bool ShouldSearch(float now)
+    {
+        if (!Performance.Optimizing) return true;
+        string why = SearchReason(now);
+        if (QaPasses && why.Length > 0) QaPass(why, now);
+        return why.Length > 0;
+    }
+
+    /// <summary>Why Optimized looks for the objects now; empty when it doesn't.</summary>
+    private static string SearchReason(float now)
+    {
+        int stamp = SceneManagerStamp();
+        if (stamp != _sceneStamp)
+        {
+            _sceneStamp = stamp;
+            // A change through the game's scene transitions gets its own search once its new scene
+            // is in (DiscoverNow); any other load (the title's own, the first) gets one here.
+            if (!Performance.SceneChangeUnderWay && !PendingScenePass) _rescans = Math.Max(_rescans, 1);
+        }
+        if (_rescans > 0)
+        {
+            _rescans--;
+            return "asked for";
+        }
+        if (Views.Count == 0) return "nothing found yet";
+        if (MenuFieldLayout.NeedsSearch) return "a menu preview is missing";
+        bool shown = false;
+        foreach (var view in Views)
+        {
+            if (!view) return "a battle view is gone";
+            int id = view.GetInstanceID();
+            if (!FieldTransforms.TryGetValue(id, out var field) || !field || !Cameras.TryGetValue(id, out var camera) || !camera) return "a battle field or camera is gone";
+            shown |= view.gameObject.activeInHierarchy;
+        }
+        // In a battle, until its notes are found.
+        if (!shown && GameManager.GameState == GameStates.Combat) return "a battle's notes aren't found yet";
+        if (now < _nextFullScan) return "";
+        if (!(shown && GameManager.GameState == GameStates.Combat) && Quiet()) return "the 10 s check";
+        if (QaPasses && _qaWaitingSince < 0f)
+        {
+            _qaWaitingSince = now;
+            ModLog.Info($"LayoutDriver (qa): the 10 s search waits ({QaWhere()}).");
+        }
+        return "";
+    }
+
+    // Outside a battle's song: not walking about with the game running, or the curtain is down.
+    private static bool Quiet() =>
+        GameManager.GameState != GameStates.RPG || UserInterface.PauseState != PauseStates.Gameplay || Performance.CurtainDown;
+
+    /// <summary>
+    /// Optimized: the search for a scene change, once its new scene is in and the curtain is still
+    /// black (Performance, on the first frame after loading). Counts as the 10 s check too.
+    /// </summary>
+    internal static void DiscoverNow()
+    {
+        try
+        {
+            float now = Time.unscaledTime;
+            _nextFullScan = now + FullScanEvery;
+            _sceneStamp = SceneManagerStamp();
+            if (QaPasses) QaPass($"the new scene is in, scene pass {++_qaScenePasses}", now, always: true);
+            Discover();
+        }
+        catch (Exception ex) { Report(ex); }
+    }
+
+    private static int _qaScenePasses;
+
+    // QA builds: a search's reason and where the game is; the same reason at most every 10 s, except
+    // the scene passes (at most one a scene change), which QA counts.
+    private static void QaPass(string why, float now, bool always = false)
+    {
+        if (_qaWaitingSince >= 0f)
+        {
+            ModLog.Info($"LayoutDriver (qa): the 10 s search waited {now - _qaWaitingSince:0} s ({why}).");
+            _qaWaitingSince = -1f;
+        }
+        if (!always && why == _qaLastPass && now - _qaLastPassAt < FullScanEvery) return;
+        _qaLastPass = why;
+        _qaLastPassAt = now;
+        ModLog.Info($"LayoutDriver (qa): search ({why}; {QaWhere()}).");
+    }
+
+    private static string QaWhere()
+    {
+        string pause;
+        try { pause = UserInterface.PauseState.ToString(); }
+        catch { pause = "?"; }
+        return $"game {GameManager.GameState}, pause {pause}, scene change state {Performance.SceneState}";
+    }
+
+    private static int SceneManagerStamp()
+    {
+        int count = UnityEngine.SceneManagement.SceneManager.sceneCount, stamp = count;
+        for (int i = 0; i < count; i++) stamp = stamp * 31 + UnityEngine.SceneManagement.SceneManager.GetSceneAt(i).handle;
+        return stamp;
+    }
+
+    private static void Discover()
+    {
+        Views.Clear();
+        foreach (var view in Resources.FindObjectsOfTypeAll<CombatNoteFieldView>())
+        {
+            if (!view || view.gameObject.scene.handle == 0) continue;
+            Views.Add(view);
+            var id = view.GetInstanceID();
+            // Looked up here, once a second, rather than by path every frame.
+            if (!FieldTransforms.TryGetValue(id, out var cachedField) || !cachedField)
+            {
+                var found = view.transform.Find("FieldPivot/Field");
+                if (found) FieldTransforms[id] = found;
+            }
+            if (!Cameras.TryGetValue(id, out var camera) || !camera)
+            {
+                // CombatCamera_02 is a Cinemachine virtual camera, not a renderer.
+                // The actual camera lives in the persistent CameraManager hierarchy.
+                camera = null;
+                foreach (var candidate in Resources.FindObjectsOfTypeAll<Camera>())
+                {
+                    if (!candidate || candidate.gameObject.scene.handle == 0 ||
+                        candidate.name != "Camera (Combat)" || candidate.orthographic ||
+                        (candidate.cullingMask & (1 << 15)) == 0) continue;
+                    camera = candidate;
+                    if (candidate.isActiveAndEnabled) break;
+                }
+                if (camera)
+                {
+                    Cameras[id] = camera;
+                    ModLog.Info("Combat layout camera: " + camera.name);
+                }
+            }
+        }
+        MenuFieldLayout.Discover();
     }
 
     public static void LateUpdate()
     {
+        try { Performance.Tick(); }
+        catch (Exception ex) { ReportOnce(ref _reportedPerfError, "Performance failed: ", ex); }
         try
         {
             var mode = SettingsState.Mode;
@@ -485,23 +680,28 @@ internal static class LayoutDriver
         // the layout above or the other feature.
         try { NoteSkins.LateUpdate(SkinFields); }
         catch (Exception ex) { ReportOnce(ref _reportedSkinError, "Note skins failed: ", ex); }
+        // Optimized: at most one of the first battle's sprites a frame, outside battles. It catches its own errors.
+        FirstBattleWarmup.Tick();
         HitSound.Update();
         MissSound.Update();
         try { CustomChartOptions.Update(); }
         catch (Exception ex) { ReportOnce(ref _reportedChartError, "Custom chart options failed: ", ex); }
         ChapterBadges.Update();
         // Before the pages that read the pad, and only while one can.
-        PadInput.Update(ArcadeGear.WantsPad || HubPage.WantsPad);
+        PadInput.Update(ArcadeGear.WantsPad || HubPage.WantsPad || CustomNoteColors.WantsPad);
         ChartEditor.Update();
         BattleCreator.Update();
         // After the creator, which waits for it while it has the screen.
         HubPage.Update();
         ArcadeGear.Update();
+        CustomNoteColors.PageUpdate();
         CustomMusic.Update();
         BattleDialogue.Update();
         EnemyArt.LateUpdate();
         BattleGear.Update();
         QuickSaveLoad.Update();
+        // Only does anything for a second after a window mode or volume change. It catches its own errors.
+        SettingsGuards.Update();
     }
 
     private static void FadeAttacks(CombatNoteFieldView view, bool active)

@@ -178,8 +178,10 @@ internal static partial class BattleDialogue
         if (__result && director?.GatesPause == true) __result = false;
     }
 
-    // A gamepad's Pause goes straight to the pause menu, without asking CanPauseGameState.
-    private static bool TogglePausePrefix() => director?.GatesPause != true;
+    // A gamepad's Pause goes straight to the pause menu, without asking CanPauseGameState. Also held while one
+    // of the mod's pages is open over the menus (C, the pad's Y or Start would otherwise close the pause menu
+    // under it and let the game run on), except during a test play's battle, when the pages are put away.
+    private static bool TogglePausePrefix() => director?.GatesPause != true && !(EditorOverlay.IsOpen && !EditorOverlay.Suspended);
 
     // Every way out of a battle: won, lost, quit, or back to the chart editor.
     private static void ExitPostfix()

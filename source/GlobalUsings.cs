@@ -31,6 +31,7 @@ global using LocalizedString = Il2CppI2.Loc.LocalizedString;
 global using WwiseEvent = Il2CppAK.Wwise.Event;
 global using WwiseSwitch = Il2CppAK.Wwise.Switch;
 global using WwiseBank = Il2CppAK.Wwise.Bank;
+global using TranslucentImageSource = Il2CppLeTai.Asset.TranslucentImage.TranslucentImageSource;
 #else
 global using Nocturne;
 global using Localize = I2.Loc.Localize;
@@ -56,5 +57,6 @@ global using LocalizedString = I2.Loc.LocalizedString;
 global using WwiseEvent = AK.Wwise.Event;
 global using WwiseSwitch = AK.Wwise.Switch;
 global using WwiseBank = AK.Wwise.Bank;
+global using TranslucentImageSource = LeTai.Asset.TranslucentImage.TranslucentImageSource;
 // The Wwise types (AkSoundEngine, AkAudioListener, AkBankManager) are in the global namespace.
 #endif

@@ -94,16 +94,18 @@ internal static class AkumaNoteColors
 
     /// <summary>
     /// Prefix on <c>NocturneCombatNoteView.SetColors(CombatNoteColorSet)</c>, in the same patch as the
-    /// skins' postfix: a note with Akuma's mark gets its lane's color before the game's shapes, its
-    /// hold, and the skins are tinted with it.
+    /// skins' postfix: a note with Akuma's mark, or the mark of the player's own palette that's picked
+    /// (CustomNoteColors), gets its lane's color before the game's shapes, its hold, and the skins are
+    /// tinted with it.
     /// </summary>
     internal static void SetColorsPrefix(NocturneCombatNoteView __instance, ref CombatNoteColorSet colors)
     {
         try
         {
-            // Other palettes, misses, mines and criticals: nothing to read from the note.
-            if (style == null || !IsMark(colors) || !__instance) return;
-            colors = Apply(colors, __instance.column, __instance.columnCount);
+            if (!__instance) return;
+            if (style != null && IsMark(colors)) colors = Apply(colors, __instance.column, __instance.columnCount);
+            // Other palettes, misses, mines and criticals come back unchanged.
+            else colors = CustomNoteColors.Apply(colors, __instance.column, __instance.columnCount);
         }
         catch (Exception ex)
         {
@@ -122,6 +124,9 @@ internal static class AkumaNoteColors
         if (style == null || column < 0 || column >= count || !Same(colors, MarkFor(column, count))) return colors;
         return ColorsFor(column, count);
     }
+
+    /// <summary>A lane's colors in Akuma as a battle would show them now, whether Akuma is picked or not.</summary>
+    internal static CombatNoteColorSet LaneSet(int column, int count) => ColorsFor(column, count);
 
     /// <summary>
     /// Checks the device in use, and reads the lanes' pad buttons again at most once a second unless
@@ -220,7 +225,8 @@ internal static class AkumaNoteColors
     private static CombatNoteColorSet MarkFor(int column, int count) =>
         column == 0 || column == count - 1 ? OuterMark : count == 5 && column == 2 ? MiddleMark : InnerMark;
 
-    private static bool IsMark(in CombatNoteColorSet colors) =>
+    /// <summary>Whether a set is one of Akuma's marks (its own green, red and orange sets).</summary>
+    internal static bool IsMark(in CombatNoteColorSet colors) =>
         Same(colors, OuterMark) || Same(colors, InnerMark) || Same(colors, MiddleMark);
 
     private static CombatNoteColorSet ColorsFor(int column, int count)

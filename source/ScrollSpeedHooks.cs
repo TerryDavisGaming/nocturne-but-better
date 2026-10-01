@@ -10,6 +10,8 @@ namespace NocturnePlus;
 /// without moving them in time; judgement is time based and unaffected. The spawn window gets the
 /// same mapping so notes still appear at the top of the lane in slow sections. Everything is off
 /// unless the battle's custom chart has scroll changes, and only touches that battle's notes.
+/// With Performance on Optimized or Potato the hooks go in only once a chart with scroll changes
+/// is played (they stay in for the rest of the session).
 /// </summary>
 internal static class ScrollSpeedHooks
 {
@@ -74,8 +76,56 @@ internal static class ScrollSpeedHooks
     private static WwiseConductor? conductor;
     private static IntPtr battlePosition;
     private static bool reportedError;
+    private static HarmonyLib.Harmony? harmony;
+    private static bool patched, failed;
 
-    internal static void Install(HarmonyLib.Harmony harmony)
+    /// <summary>
+    /// Normal puts the hooks in at startup. Optimized and Potato wait for a battle whose chart has
+    /// scroll changes (NeedFor), so the note movers run the game's own code alone in every other battle.
+    /// </summary>
+    internal static void Install(HarmonyLib.Harmony with)
+    {
+        harmony = with;
+        bool wait;
+        try { wait = Performance.Optimizing; }
+        catch { wait = false; }
+        if (wait) ModLog.Info("Scroll speed changes: waiting for a chart that has them.");
+        else EnsurePatched();
+    }
+
+    /// <summary>
+    /// Called as a battle starts, before its song does (ChartSwap's Initialize prefix): puts the
+    /// hooks in if the chart it plays has scroll changes.
+    /// </summary>
+    internal static void NeedFor(ChartText? chart)
+    {
+        if (patched || failed || chart == null) return;
+        try
+        {
+            if (Map.From(ScrollSpeeds.Parse(chart.GetTag("SCROLLS"))) != null) EnsurePatched();
+        }
+        catch (Exception ex) { Report(ex); }
+    }
+
+    /// <summary>Puts the hooks in, once. Main thread only.</summary>
+    internal static void EnsurePatched()
+    {
+        if (patched || failed || harmony == null) return;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            PatchAll(harmony);
+            patched = true;
+            ModLog.Info($"Scroll speed changes: hooks installed in {clock.Elapsed.TotalMilliseconds:0} ms.");
+        }
+        catch (Exception ex)
+        {
+            failed = true;
+            ModLog.Error("Scroll speed changes could not be installed: " + ex);
+        }
+    }
+
+    private static void PatchAll(HarmonyLib.Harmony harmony)
     {
         Patch(harmony, typeof(WwiseConductor), "InitializeSong", postfix: nameof(InitializeSongPostfix));
         foreach (var mover in new[] { typeof(NocturneXModMover), typeof(NocturneMModMover) })

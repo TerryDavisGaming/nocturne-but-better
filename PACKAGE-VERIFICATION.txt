@@ -1,3 +1,85 @@
+nocturne+ 2.9.0 package verification
+checked september 30, 2026 on windows 11, using windows powershell 5.1.
+
+the dlls
+- both were built from the package's source (crlf) with -c Release,
+  against the interop assemblies bepinex and melonloader 0.7.3 generated
+  from the game.
+- payload/NocturnePlus.dll
+  479573ba571b93b78dfcb7c2bf960a753d770a9df628ec13174fa264a29996db
+  payload/NocturnePlus.MelonLoader.dll
+  7338b2bbe495d40b44dbddf0343d226c36a3a661ae1e0bf41ad54662b2b2da2e
+- the package's source rebuilds into the same two dlls, byte for byte.
+- the installer also takes the published 2.8.0 dlls (802e8a37... and
+  e4379acc...) and the first 2.8.0 test build's (9caae1b5... and
+  bef23f14...) as copies to upgrade.
+- both release dlls were started in the game, one loader at a time, as far
+  as the title: "Nocturne+ 2.9.0 loaded" and the title's version text,
+  with no exception.
+
+the installer
+101 checks ran against throwaway copies of the game files, with every
+registry write blocked: 101 passed. the real game folder, its plugin and
+mods folders, the melonloader sandbox and the game's preferences key were
+unchanged afterwards.
+- every package script parses, the installer's pins match the payload, and
+  SHA256SUMS.txt matches every file.
+- a bepinex install with the bundled loader, its -whatif preview, a repeat
+  install that changes nothing, melonloader installs and refusals, loader
+  switching, doorstop conflicts, uninstall and its preview, and a declined
+  confirmation.
+- upgrading from the published 2.8.0 installs 2.9.0 and keeps the old dll
+  as a backup, on both loaders, also in a game set up by 2.8.0's own
+  installer.
+- upgrading from nocturne but better 2.1.2, 2.4.0, 2.4.1, both 2.5.0 test
+  builds, 2.5.0, 2.6.0, 2.6.1, 2.6.2 and 2.7.0 turns the old copy off and
+  keeps it as .disabled-, on both loaders, and the preview names it. a game
+  set up by 2.7.0's own installer upgrades too. the 2.2.0 and 2.3.0 test
+  copies were gone, so those 6 checks were skipped.
+- unknown dlls at the new or the old paths are refused.
+- the steam library lookups (fake steam folders and registry values), both
+  fullscreen fix scripts, odd temp folders, and install.cmd and
+  uninstall.cmd from a folder with an odd name.
+- uninstall looks for potato's saved settings only through the guard, which
+  finds no key in a test copy. the step itself ran on a test registry key
+  only.
+
+gameplay coverage
+both loaders were tested in-game with qa builds: the release source plus
+test hooks, on nocturne 1.0.1 with bepinex 6.0.0-be.788 and melonloader
+0.7.3. the whole current source ran, so 2.8.0's rename, title and quick
+save (now in slots) ran in the game for the first time. every run took a
+snapshot of the player's plugin, settings and saves first and put it back
+afterwards. no run changed a story .sav file, and no melonloader run
+logged a "native->managed trampoline" error or an exception. per loader:
+- quick save slots: 31 of 31 checks with real key presses. saves at two
+  places and loads of each slot in turns came back to the exact spot,
+  facing and floor. the game over screen's quick load went to the last
+  slot loaded. running with shift loaded, ctrl+shift did nothing, a slot
+  from another playthrough was refused, on the pause screen neither key
+  did anything (the load was refused as paused, and the save was stopped
+  because ctrl was let go before the key), and rebinding, swapping and
+  turning away a game key worked.
+- your own note colors: 31 of 31 checks, the page driven with real keys.
+  the file, the note colors row and the preview matched, and every tap
+  note drawn in a four-lane and a five-lane battle had its lane's colors.
+- performance: 30 of 30 checks in the menus and the story, and 12 of 12
+  in battles. the measuring runs (bepinex) passed 8 of 8 in battles and
+  19 of 19 at the title, in the story and in room changes. the hud's own
+  math matched the game's in about 10 million comparisons on each loader
+  (11.4 and 9.9 million), and the 13 pictures the warm-up makes matched
+  normal's byte for byte.
+- clicks through the chart editor and the battle creator: 10 of 10 with
+  the fix (the old build, run on bepinex only, failed 6 of 10: the game
+  went windowed and master volume went to 0%).
+- the title: the "+" after the logo's last letter at the letters' height,
+  and the version on the game's version line, clear of the key hints.
+not tried in the game: the release dlls themselves past the title, the
+installer on a real game folder, and the two latency test fixes (checked in the game's
+code). uninstall's step for potato's settings ran on a test registry key.
+
+---
+
 nocturne+ 2.8.0 - package verification
 checked september 28, 2026 in a cloud session without the game, using
 powershell 7.4.6 and the .net 8 sdk.

@@ -185,6 +185,7 @@ internal static class EditorOverlay
 
     private static UnityEngine.EventSystems.EventSystem? lockedEvents;
     private static readonly List<MenuPanel> noBackPanels = new();
+    private static readonly List<TabbedButtonBar> pausedTabs = new();
     private static bool navigationWas = true;
 
     /// <summary>
@@ -204,6 +205,7 @@ internal static class EditorOverlay
                     lockedEvents = events;
                     navigationWas = events.sendNavigationEvents;
                     events.sendNavigationEvents = false;
+                    selectedWas = events.currentSelectedGameObject;
                 }
                 // The game only pops a panel on Back when the panel allows it.
                 foreach (var panel in Resources.FindObjectsOfTypeAll<MenuPanel>())
@@ -212,20 +214,53 @@ internal static class EditorOverlay
                     panel.allowBacktrack = false;
                     noBackPanels.Add(panel);
                 }
+                // Tab bars (the pause menu's, the arcade's difficulties) read Left Shift, Left Ctrl, LB and RB in
+                // their own Update, past the menu lock; their Update is their only reader, so they're switched off.
+                foreach (var bar in Resources.FindObjectsOfTypeAll<TabbedButtonBar>())
+                {
+                    if (!bar || !bar.enabled || !bar.gameObject.activeInHierarchy || !bar.gameObject.scene.IsValid()) continue;
+                    bar.enabled = false;
+                    pausedTabs.Add(bar);
+                }
             }
             else
             {
                 if (lockedEvents != null)
                 {
-                    if (lockedEvents) lockedEvents.sendNavigationEvents = navigationWas;
+                    if (lockedEvents)
+                    {
+                        lockedEvents.sendNavigationEvents = navigationWas;
+                        SelectAgain(lockedEvents);
+                    }
                     lockedEvents = null;
                 }
+                selectedWas = null;
                 foreach (var panel in noBackPanels)
                     if (panel) panel.allowBacktrack = true;
                 noBackPanels.Clear();
+                // Only the ones switched off here come back on.
+                foreach (var bar in pausedTabs)
+                    if (bar) bar.enabled = true;
+                pausedTabs.Clear();
             }
         }
         catch (Exception ex) { ModLog.Error("Locking the menus for the editor failed: " + ex.Message); }
+    }
+
+    private static GameObject? selectedWas;
+
+    // A screen that blocks the game's clicks takes the menu's selection away when it's clicked (the
+    // event system deselects on a click over nothing selectable). With keys or a pad the menu needs
+    // one, so the button selected when the screen opened is selected again, if nothing else is.
+    private static void SelectAgain(UnityEngine.EventSystems.EventSystem events)
+    {
+        var was = selectedWas;
+        if (was == null || !was || !was.activeInHierarchy) return;
+        var now = events.currentSelectedGameObject;
+        if (now != null && now && now.activeInHierarchy) return;
+        var modes = MouseModeManager.Instance;
+        if (modes != null && modes && modes.IsMouseMode) return;
+        events.SetSelectedGameObject(was);
     }
 
     // The game sets menu navigation from its own input lock whenever that lock changes: on when

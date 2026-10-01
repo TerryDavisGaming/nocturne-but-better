@@ -214,7 +214,11 @@ internal static class CustomChartsMenu
 
     private static void OptionsPanelPostfix(OptionsPanel __instance)
     {
-        try { EnsureTab(__instance); }
+        try
+        {
+            Remember(__instance);
+            EnsureTab(__instance);
+        }
         catch (Exception ex) { ReportOnce("options tab", ex); }
     }
 
@@ -223,6 +227,9 @@ internal static class CustomChartsMenu
         // A fresh Options screen opens on its usual page unless the main menu button asked for ours.
         if (pageRequestedAt < 0f) SetChartsPage(false);
         OptionsPanelPostfix(__instance);
+        // Its calibration previews may be new: Optimized looks for them again, and for the conductors.
+        LayoutDriver.Rescan();
+        conductorsAt = -1;
     }
 
     private static CustomButton? EnsureTab(OptionsPanel panel)
@@ -306,6 +313,11 @@ internal static class CustomChartsMenu
     {
         if (ChartsPage == value) return;
         ChartsPage = value;
+        if (!value && conductorChecks > 0)
+        {
+            ModLog.Info($"Custom charts: the page looked for the game's conductors {conductorSearches} times in {conductorChecks} checks.");
+            conductorChecks = conductorSearches = 0;
+        }
         OptionsMenuIntegration.RefreshAll();
     }
 
@@ -319,17 +331,13 @@ internal static class CustomChartsMenu
         if (ChartsPage && Time.unscaledTime >= nextPageCheck)
         {
             nextPageCheck = Time.unscaledTime + 0.5f;
-            if (ActiveOptionsPanel() == null || BattleSong() != null) SetChartsPage(false);
+            if (ActiveOptionsPanel() == null || InBattle()) SetChartsPage(false);
         }
         if (pageRequestedAt < 0f) return;
         if (Time.unscaledTime - pageRequestedAt > 5f) { pageRequestedAt = -1f; return; }
         if (Time.unscaledTime - pageRequestedAt < 0.2f) return;
-        foreach (var panel in Resources.FindObjectsOfTypeAll<OptionsPanel>())
-        {
-            if (!panel || !panel.gameObject.activeInHierarchy) continue;
-            OpenPage(panel);
-            return;
-        }
+        var open = ActiveOptionsPanel();
+        if (open != null) OpenPage(open);
     }
 
     // ---- difficulty screen -----------------------------------------------------------------
@@ -338,6 +346,7 @@ internal static class CustomChartsMenu
     {
         try { RefreshDifficultyMenu(__instance); }
         catch (Exception ex) { ReportOnce("difficulty screen", ex); }
+        LayoutDriver.Rescan();
     }
 
     private static void RefreshDifficultyMenu(DifficultyMenu menu)
@@ -368,14 +377,91 @@ internal static class CustomChartsMenu
     private static string? BattleSong()
     {
         foreach (var conductor in Resources.FindObjectsOfTypeAll<WwiseConductor>())
-            if (conductor && conductor.gameObject.activeInHierarchy && conductor.initializedSong && conductor.CurrentSong)
-                return conductor.CurrentSong.name;
+            if (Playing(conductor)) return conductor.CurrentSong.name;
         return null;
+    }
+
+    private static bool Playing(WwiseConductor conductor) =>
+        conductor && conductor.gameObject.activeInHierarchy && conductor.initializedSong && conductor.CurrentSong;
+
+    // Optimized: the page's check every half second reuses the conductors the last search found
+    // rather than searching every object. A conductor can only be in a battle once it has started a
+    // song (WwiseConductor.Initialize, counted by CustomMusic.ConductorStarts), so one the search
+    // didn't find can't count until that count changes, and then they're looked for again; also
+    // when one is gone, when Options shows, and every ConductorSearchEvery as a backstop.
+    private const float ConductorSearchEvery = 10f;
+    private static readonly List<WwiseConductor> Conductors = new();
+    private static int conductorsAt = -1;   // ConductorStarts at the last search; -1 for none
+    private static float nextConductorSearch;
+    private static int conductorChecks, conductorSearches;
+
+    /// <summary>Whether a battle's conductor is playing a song (BattleSong() != null, without its name).</summary>
+    private static bool InBattle()
+    {
+        if (!Performance.Optimizing || !ChartSwap.Installed) return BattleSong() != null;
+        float now = Time.unscaledTime;
+        bool search = conductorsAt != CustomMusic.ConductorStarts || now >= nextConductorSearch;
+        if (!search)
+            foreach (var conductor in Conductors)
+                if (!conductor)
+                {
+                    search = true;
+                    break;
+                }
+        conductorChecks++;
+        if (search)
+        {
+            conductorSearches++;
+            Conductors.Clear();
+            foreach (var conductor in Resources.FindObjectsOfTypeAll<WwiseConductor>()) Conductors.Add(conductor);
+            conductorsAt = CustomMusic.ConductorStarts;
+            nextConductorSearch = now + ConductorSearchEvery;
+        }
+        bool playing = false;
+        foreach (var conductor in Conductors)
+            if (Playing(conductor))
+            {
+                playing = true;
+                break;
+            }
+        if (QaConductorCheck && playing != (BattleSong() != null) && !qaConductorMismatch)
+        {
+            qaConductorMismatch = true;
+            ModLog.Info($"QA custom charts: the kept conductors say {(playing ? "a battle" : "no battle")}, a full search says otherwise.");
+        }
+        return playing;
+    }
+
+    // QA builds only: NFS_QA_CONDUCTOR_CHECK=1 also searches every object on each check, and logs
+    // the first time the two answers differ (they never should).
+    private static readonly bool QaConductorCheck = QaBuild.Env("NFS_QA_CONDUCTOR_CHECK") == "1";
+    private static bool qaConductorMismatch;
+
+    // The Options screens the game has made, noted as they wake or show (and once from a search for
+    // any made before the mod's hooks), so finding the open one doesn't search every object.
+    private static readonly List<OptionsPanel> Panels = new();
+    private static bool panelsSearched;
+
+    private static void Remember(OptionsPanel panel)
+    {
+        if (!panel) return;
+        for (int i = Panels.Count - 1; i >= 0; i--)
+        {
+            var known = Panels[i];
+            if (!known) Panels.RemoveAt(i);
+            else if (known.Pointer == panel.Pointer) return;
+        }
+        Panels.Add(panel);
     }
 
     private static OptionsPanel? ActiveOptionsPanel()
     {
-        foreach (var panel in Resources.FindObjectsOfTypeAll<OptionsPanel>())
+        if (!panelsSearched)
+        {
+            panelsSearched = true;
+            foreach (var panel in Resources.FindObjectsOfTypeAll<OptionsPanel>()) Remember(panel);
+        }
+        foreach (var panel in Panels)
             if (panel && panel.gameObject.activeInHierarchy) return panel;
         return null;
     }

@@ -12,7 +12,7 @@ namespace NocturnePlus;
 /// </summary>
 internal sealed class NoteColorPreview
 {
-    private const string RootName = "FlatScrollNoteColorPreview";
+    internal const string RootName = "FlatScrollNoteColorPreview";
     // The page's canvas is 640 x 360 units; notes are drawn at this many units per field unit.
     private const float Scale = 1f;
     private const float Height = 48f;
@@ -144,7 +144,7 @@ internal sealed class NoteColorPreview
         // Akuma's lanes follow the pad bindings and the device in use, so a rebind or a switch
         // between keyboard and pad redraws it too.
         if (style == AkumaNoteColors.Id) AkumaNoteColors.ReadLanes();
-        string key = style + "|" + ColumnStyleManager.CurrentStyleId + "|" + skin + "|" + AkumaNoteColors.Version;
+        string key = style + "|" + ColumnStyleManager.CurrentStyleId + "|" + skin + "|" + AkumaNoteColors.Version + "|" + CustomNoteColors.Version;
         if (key == _shown) return;
 
         var lanes = ColumnStyleManager.CurrentColumnColors.defaultColors;
@@ -170,9 +170,10 @@ internal sealed class NoteColorPreview
         if (_root) Object.Destroy(_root);
     }
 
-    // A lane's colors as a battle shows them, with Akuma's lane colors put in as its prefix does.
+    // A lane's colors as a battle shows them, with Akuma's or the player's own palette's lane colors
+    // put in as the SetColors prefix does.
     private static CombatNoteColorSet Colors(int column, int count) =>
-        AkumaNoteColors.Apply(NoteStyleManager.GetColorsForColumn(column, count), column, count);
+        CustomNoteColors.Apply(AkumaNoteColors.Apply(NoteStyleManager.GetColorsForColumn(column, count), column, count), column, count);
 
     private static void SetWidth(Image image, float width)
     {

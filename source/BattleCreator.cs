@@ -50,7 +50,8 @@ internal static partial class BattleCreator
         if (IsOpen || ChartEditor.IsOpen) return;
         try
         {
-            ui = new EditorUi("NocturneButBetter Battle Creator");
+            // Clicks mustn't reach the game's Options underneath (Window Mode, the volume sliders).
+            ui = new EditorUi("NocturneButBetter Battle Creator", blockGameClicks: true);
             kit = new EditorPageKit(Ui, "Battle creator") { CanType = () => draft != null, KeysWhileTyping = SaveKey };
             Ui.BuildList();
             BuildListBack();

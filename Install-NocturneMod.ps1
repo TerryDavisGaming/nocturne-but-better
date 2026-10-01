@@ -16,13 +16,21 @@ if (-not $LoaderArchive) { $LoaderArchive = Join-Path $packageRoot 'payload\BepI
 if (-not $PluginPath) { $PluginPath = Join-Path $packageRoot 'payload\NocturnePlus.dll' }
 if (-not $MelonModPath) { $MelonModPath = Join-Path $packageRoot 'payload\NocturnePlus.MelonLoader.dll' }
 
-$modVersion = '2.8.0'
+$modVersion = '2.9.0'
 $loaderHash = 'F4CC496BD098A0DF4164B81E3737297707F13A47C2478DBA2F60EEFAB784817A'
-$pluginHash = '802E8A37C3B381E1D5CAFDBC3067DE51DAA5AC9D554B787B9A5B1AAF3962536F'
-# The first 2.8.0 test build (two switches, the version in a corner), so it upgrades like any other copy.
-$knownPluginHashes = @($pluginHash, '9CAAE1B5B233602BE0189BC3A2E2A5405F4AAE4CC8F3778DCECE78729033A40C')
-$melonModHash = 'E4379ACC6CFEA5704AE69EC5BD555CD28C50DD08219DBA83B7629A986D817371'
-$knownMelonModHashes = @($melonModHash, 'BEF23F144F9DB0A5EC99C25BF8FA8F9DA01DA3B44C1A3CEFDBC0CC56A170900D')
+# The 2.9.0 release build of payload\NocturnePlus.dll.
+$pluginHash = '479573BA571B93B78DFCB7C2BF960A753D770A9DF628EC13174FA264A29996DB'
+# Older copies it knows and upgrades: 2.8.0 as published, and the first 2.8.0 test build (two switches,
+# the version in a corner).
+$knownPluginHashes = @(
+    $pluginHash,
+    '802E8A37C3B381E1D5CAFDBC3067DE51DAA5AC9D554B787B9A5B1AAF3962536F',
+    '9CAAE1B5B233602BE0189BC3A2E2A5405F4AAE4CC8F3778DCECE78729033A40C'
+)
+# The 2.9.0 release build of payload\NocturnePlus.MelonLoader.dll.
+$melonModHash = '7338B2BBE495D40B44DBDDF0343D226C36A3A661AE1E0BF41AD54662B2B2DA2E'
+# Older copies it knows and upgrades: 2.8.0 as published, and the first 2.8.0 test build.
+$knownMelonModHashes = @($melonModHash, 'E4379ACC6CFEA5704AE69EC5BD555CD28C50DD08219DBA83B7629A986D817371', 'BEF23F144F9DB0A5EC99C25BF8FA8F9DA01DA3B44C1A3CEFDBC0CC56A170900D')
 # Up to 2.7.0 the mod was NocturneFlatScroll.dll and NocturneFlatScroll.MelonLoader.dll. A verified copy
 # of those is disabled on install, so only one copy runs, and on uninstall.
 $legacyPluginHashes = @(
@@ -423,6 +431,30 @@ function Get-KnownInstalledHash([string]$Path, [string[]]$KnownHashes, [string]$
 # It does not install or uninstall anything.
 if ($MyInvocation.InvocationName -eq '.') { return }
 
+# The game's preferences. Performance on Potato turns on two of the game's own saved graphics
+# settings and records that it did (NocturnePlus.Owns.<name>.v1: "had" when the game had a saved
+# value, "none" when it used its default, "player" once the player changed it by hand).
+$prefsKey = 'HKCU:\Software\PracyStudios\Nocturne'
+
+function Restore-PotatoSettings([string]$Key) {
+    if (-not (Test-Path -LiteralPath $Key)) { return }
+    $item = Get-Item -LiteralPath $Key
+    $names = @($item.GetValueNames())
+    foreach ($setting in 'CachedCombatBackdrop', 'LowCorruptionEffects') {
+        # PlayerPrefs store each key as its name, "_h" and a hash of the name.
+        $record = @($names | Where-Object { $_ -like "NocturnePlus.Owns.$setting.v1_h*" }) | Select-Object -First 1
+        if (-not $record) { continue }
+        $value = $item.GetValue($record)
+        $text = if ($value -is [byte[]]) { [Text.Encoding]::UTF8.GetString($value).TrimEnd([char]0) } else { [string]$value }
+        $game = @($names | Where-Object { $_ -like "${setting}_h*" }) | Select-Object -First 1
+        if (-not $PSCmdlet.ShouldProcess("$setting in $Key", 'Put back the setting Potato changed')) { continue }
+        if ($game -and $text -eq 'none') { Remove-ItemProperty -LiteralPath $Key -Name $game }
+        elseif ($game -and $text -eq 'had') { Set-ItemProperty -LiteralPath $Key -Name $game -Value 0 -Type DWord }
+        Remove-ItemProperty -LiteralPath $Key -Name $record
+        if ($game -and ($text -eq 'none' -or $text -eq 'had')) { Write-Host "Put back the game's $setting setting, which Performance: Potato had changed." }
+    }
+}
+
 $stagePath = $null
 try {
     if (-not $WhatIfPreference -and (Get-Process -Name Nocturne -ErrorAction SilentlyContinue)) { throw 'Close Nocturne before running this installer.' }
@@ -462,8 +494,9 @@ try {
             Write-Host 'Nocturne+ was not fully uninstalled.'
             return
         }
+        Restore-PotatoSettings $prefsKey
         Write-Host 'Nocturne+ is uninstalled. Each DLL was kept as a disabled backup.'
-        Write-Host 'Mod loaders, other mods, saves, scores, and preferences were left in place.'
+        Write-Host 'Mod loaders, other mods, saves, scores, and your other preferences were left in place.'
         return
     }
 
@@ -581,7 +614,7 @@ try {
         }
         throw "Installation did not finish; newly copied files were rolled back. $($failure.Exception.Message)"
     }
-    Write-Host "Installed Nocturne+ $modVersion for $selectedLoader. Open Options > Gameplay and Options > Audio for its settings."
+    Write-Host "Installed Nocturne+ $modVersion for $selectedLoader. Open Options > Gameplay, Options > Audio and Options > Graphics for its settings."
     if ($selectedLoader -eq 'BepInEx') {
         Write-Host 'The first launch can take longer while BepInEx creates game-specific files. Allow it to finish.'
     }

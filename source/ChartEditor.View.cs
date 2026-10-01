@@ -38,7 +38,9 @@ internal static partial class ChartEditor
         eventRows.Clear();
         markerPool.Clear();
         ClearBattleWidgets();
-        ui = new EditorUi("NocturneButBetter Chart Editor");
+        // The game's Options stay live under the editor: without the block, a click on the chart
+        // could land on a hidden Window Mode row or volume slider and change it.
+        ui = new EditorUi("NocturneButBetter Chart Editor", blockGameClicks: true);
         Ui.BuildList();
         BuildEditor();
         editPanel!.gameObject.SetActive(false);

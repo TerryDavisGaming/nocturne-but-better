@@ -97,6 +97,27 @@ internal static class CustomMusic
     private static bool held;   // the battle's dialogue keeps the song stopped (the lines after a loss)
     private static float fadeStart = -1f, fadeLength;
     private static (string Key, Song Song)? decoded;   // the last song decoded, for a quick retry
+
+    /// <summary>Whether Prepare would reuse the decoded song for this key (the same test it makes). Main thread only.</summary>
+    internal static bool IsDecoded(string key) => key.Length > 0 && decoded is { } last && last.Key == key;
+
+    // The player's volume. The game keeps its volume settings in the registry (PlayerPrefs), which
+    // Unity reads again on every call. Normal reads them every frame. Optimized reads them only when
+    // they can have changed and uses the last product otherwise: when a song starts, every frame the
+    // song is paused (the pause menu's options), on the frame it pauses or resumes, and for a moment
+    // after it resumes (the video calibration puts the master volume back as it closes).
+    private const int RereadFrames = 30;
+    private const float RereadSeconds = 0.5f;
+    private static float volume;
+    private static bool volumeKnown;
+    private static int rereadFrames;
+    private static float rereadUntil = -1f;
+    private static int volumeReads, volumeReuses;
+    // QA builds only: NFS_QA_MUSIC_VOLUME=1 also reads the settings on each frame the last product
+    // is used, and counts the frames where they differ (there should be none).
+    private static readonly bool QaVolumeCheck = QaBuild.Env("NFS_QA_MUSIC_VOLUME") == "1";
+    private static int qaVolumeMismatches;
+
     private static bool reportedError;
     private static bool loggedFollow;   // "the chart follows the song file", once per song
     private static double usualFrame = 1.0 / 60;   // the frame time, smoothed, for MinFrameLead
@@ -210,11 +231,18 @@ internal static class CustomMusic
     }
 
     /// <summary>
+    /// How many times a conductor has started a song (WwiseConductor.Initialize, the only way its
+    /// initializedSong turns on), for the Custom Charts page (CustomChartsMenu.InBattle).
+    /// </summary>
+    internal static int ConductorStarts { get; private set; }
+
+    /// <summary>
     /// Called by ChartSwap when a conductor starts a song: drops what an earlier song on that
     /// conductor left. Another conductor starting (a menu's, say) leaves a running battle's song alone.
     /// </summary>
     internal static void Reset(WwiseConductor starting)
     {
+        ConductorStarts++;
         try
         {
             if (owner != null && owner && starting && owner.Pointer != starting.Pointer && owner.initializedSong && !owner.endedSong) return;
@@ -350,6 +378,11 @@ internal static class CustomMusic
         paused = false;
         fadeStart = -1f;
         double now = c.songPosition != null ? c.songPosition.RawTime : 0;
+        // Read afresh: the settings can have changed since the last song.
+        volumeKnown = false;
+        rereadFrames = 0;
+        rereadUntil = -1f;
+        volumeReads = volumeReuses = qaVolumeMismatches = 0;
         player.SetMusicVolume(Volume());
         // The chart doesn't move on this frame, and the first time it reads the song (next frame)
         // it takes the player's position plus ClockLead. Starting the player that much and a frame
@@ -560,13 +593,19 @@ internal static class CustomMusic
             // A song paused when its battle ends (quit from the pause menu) stays paused while it
             // fades, rather than playing on for a moment as the game unpauses.
             bool pause = held || (paused && (!live || fadeStart >= 0)) || (live && (BattlePaused(c) || c.Paused));
-            if (pause != paused)
+            bool flipped = pause != paused;
+            if (flipped)
             {
                 paused = pause;
                 if (pause) p.Pause(); else p.Play();
                 if (pause && report != null) report.Paused = true;
+                if (!pause && Performance.Optimizing)
+                {
+                    rereadFrames = RereadFrames;
+                    rereadUntil = Time.unscaledTime + RereadSeconds;
+                }
             }
-            p.SetMusicVolume(Volume() * fade);
+            p.SetMusicVolume(SongVolume(reread: pause || flipped) * fade);
         }
         catch (Exception ex)
         {
@@ -647,6 +686,7 @@ internal static class CustomMusic
             player = null;
             old.CloseInBackground();
             ModLog.Info($"Custom music {playingName} stopped.");
+            LogVolumeReads();
         }
         // The conductor goes back to its own clock rather than asking for a song that's gone.
         try
@@ -663,6 +703,10 @@ internal static class CustomMusic
         paused = false;
         held = false;
         fadeStart = -1f;
+        volumeKnown = false;
+        volumeReads = volumeReuses = 0;
+        rereadFrames = 0;
+        rereadUntil = -1f;
     }
 
     // Fades the music that played before the battle (menu or overworld) to silence.
@@ -679,11 +723,68 @@ internal static class CustomMusic
         catch (Exception ex) { Report(ex); }
     }
 
-    /// <summary>The player's volume from the game's master, music and combat music settings.</summary>
+    /// <summary>
+    /// The player's volume from the game's master, music and combat music settings, kept for
+    /// <see cref="SongVolume"/>. A failed read keeps nothing, so the next frame reads again.
+    /// </summary>
     private static float Volume()
     {
-        try { return Mathf.Clamp01(AudioController.MasterVolume) * Mathf.Clamp01(AudioController.MusicVolume) * Mathf.Clamp01(AudioController.CombatMusicVolume); }
-        catch { return 1f; }
+        try
+        {
+            volume = ReadVolume();
+            volumeKnown = true;
+            volumeReads++;
+            return volume;
+        }
+        catch
+        {
+            volumeKnown = false;
+            return 1f;
+        }
+    }
+
+    private static float ReadVolume() =>
+        Mathf.Clamp01(AudioController.MasterVolume) * Mathf.Clamp01(AudioController.MusicVolume) * Mathf.Clamp01(AudioController.CombatMusicVolume);
+
+    /// <summary>The volume for this frame: read, or in Optimized the last product while the settings can't have changed.</summary>
+    private static float SongVolume(bool reread)
+    {
+        if (!Performance.Optimizing || !volumeKnown || reread || Rereading()) return Volume();
+        volumeReuses++;
+        if (QaVolumeCheck) QaCompareVolume();
+        return volume;
+    }
+
+    // The moment after the song resumes: RereadFrames frames, and at least RereadSeconds.
+    private static bool Rereading()
+    {
+        if (rereadFrames > 0)
+        {
+            rereadFrames--;
+            return true;
+        }
+        if (rereadUntil < 0f) return false;
+        if (Time.unscaledTime < rereadUntil) return true;
+        rereadUntil = -1f;
+        return false;
+    }
+
+    private static void QaCompareVolume()
+    {
+        float fresh;
+        try { fresh = ReadVolume(); }
+        catch { return; }
+        if (BitConverter.SingleToInt32Bits(fresh) == BitConverter.SingleToInt32Bits(volume)) return;
+        if (++qaVolumeMismatches == 1)
+            ModLog.Info($"QA custom music {playingName}: the kept volume {volume:R} differs from the settings' {fresh:R}.");
+    }
+
+    /// <summary>How often the volume settings were read during the song, when Optimized used the last product on some frames.</summary>
+    private static void LogVolumeReads()
+    {
+        if (volumeReuses == 0) return;
+        ModLog.Info($"Custom music {playingName}: the volume settings were read on {volumeReads} of {volumeReads + volumeReuses} frames" +
+                    (QaVolumeCheck ? $" (QA: {qaVolumeMismatches} frames differed)." : "."));
     }
 
     private static void Report(Exception ex)

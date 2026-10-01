@@ -97,8 +97,12 @@ namespace NocturnePlus
             internal readonly RectTransform Field;
             internal readonly FieldKind Kind;
             private readonly NativeTransformState Native;
-            private bool Modified;
+            // The mod has moved it since it was captured (Restore puts it back).
+            internal bool Modified { get; private set; }
             internal readonly List<LabelGroup> Labels = new List<LabelGroup>();
+            // Optimized: what the preview was last laid out for, and whether it showed last frame.
+            internal (ScrollMode, int, int, int, NoteSkin)? Applied;
+            internal bool WasShown = true;
             private readonly List<LaneColumn> Lanes;
             // The middle of the preview's lanes, which spacing spreads around.
             private readonly float LaneCenter;
@@ -205,6 +209,7 @@ namespace NocturnePlus
         private static readonly HashSet<int> KnownIds = new HashSet<int>();
         // Previews that keep their layout but still get skinned receptors.
         private static readonly List<(int Id, Transform Field)> SkinOnlyFields = new List<(int Id, Transform Field)>();
+        private static bool loggedUntouched;
 
         /// <summary>Called periodically so newly loaded menu objects are included.</summary>
         internal static void Discover()
@@ -269,14 +274,54 @@ namespace NocturnePlus
                 if (conductor != null && conductor.gameObject.scene.IsValid()) yield return conductor.transform;
         }
 
+        /// <summary>Whether a preview found before is gone, or none was found yet, so they're looked for again.</summary>
+        internal static bool NeedsSearch
+        {
+            get
+            {
+                if (Fields.Count == 0) return true;
+                foreach (var state in Fields)
+                    if (state.Field == null) return true;
+                foreach (var (_, field) in SkinOnlyFields)
+                    if (field == null) return true;
+                return false;
+            }
+        }
+
         /// <summary>Reapplies absolute values after menu animations, without accumulating flips.</summary>
         internal static void Apply(ScrollMode mode)
         {
             // The previews use a 360-unit-high canvas, so 1% of screen height is 3.6 units.
             float shift = SettingsState.ReceptorHeight * 3.6f;
+            // Optimized leaves a hidden preview alone once it's laid out for the current settings:
+            // nothing moves it while it's hidden, and it's laid out again on the frame it shows,
+            // before it's drawn.
+            bool skipHidden = Performance.Optimizing;
+            var key = (mode, SettingsState.ReceptorHeight, SettingsState.NoteSize.Value, SettingsState.LaneSpacing.Value, SettingsState.NoteSkin);
             foreach (var state in Fields)
             {
                 if (state.Field == null) continue;
+                if (skipHidden)
+                {
+                    // Default scroll with the preview as the game left it: Restore does nothing, so
+                    // Optimized doesn't look whether it shows either. Leaving Default changes the
+                    // layout's key, so the preview is laid out on the next frame whatever it last saw.
+                    if (mode == ScrollMode.Default && !state.Modified)
+                    {
+                        if (!loggedUntouched)
+                        {
+                            loggedUntouched = true;
+                            ModLog.Info("Flat scroll menu preview: Default scroll leaves the untouched previews alone (Optimized).");
+                        }
+                        continue;
+                    }
+                    bool shown = state.Field.gameObject.activeInHierarchy;
+                    bool skip = !shown && !state.WasShown && state.Applied == key;
+                    state.WasShown = shown;
+                    if (skip) continue;
+                    state.Applied = key;
+                }
+                else state.Applied = null;
                 // Include inactive panels, but write the native baseline only once.
                 if (mode == ScrollMode.Default) state.Restore();
                 else state.Apply(mode == ScrollMode.Upscroll2D, shift);
